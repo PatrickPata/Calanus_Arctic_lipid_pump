@@ -1,0 +1,101 @@
+---
+title: "Arctic Zoop Traits Extraction"
+author: "Patrick Pata"
+date: "2024-10-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+
+splist <- read.csv("data/Arctic_species_list_from_Darnis2022.csv", header = TRUE)
+
+
+# The trait database
+traits.lvl1 <- read.csv("../Zooplankton_trait_database/data_input/Trait_dataset_level1/trait_dataset_level1-2023-08-15.csv")
+# Note that there are more trait data in excluded
+# Also there are curations that are in "data/traits_level1_curated_20231027.RData")
+
+
+# Taxonomy table
+taxonomy <- read.csv("../Zooplankton_trait_database/data_input/taxonomy_table_20230628.csv") %>% 
+  distinct(taxonID, .keep_all = TRUE)
+```
+
+
+# Match which taxa in the Arctic list are in the trait database
+```{r}
+splist.match <- splist %>% 
+  select(Group, Taxonomic.Level, Scientific.Name) %>% 
+  mutate(id = row_number()) %>% 
+  mutate(Scientific.Name = str_trim(Scientific.Name)) %>% 
+  left_join(select(taxonomy,
+                   scientificName, taxonID),
+            by = c("Scientific.Name" = "scientificName"))
+
+splist.nomatch.1 <- splist.match %>% 
+  filter(is.na(taxonID)) %>% 
+  select(-taxonID) %>% 
+  left_join(select(taxonomy,
+                   verbatimScientificName, taxonID),
+            by = c("Scientific.Name" = "verbatimScientificName"))
+
+splist.nomatch.2 <- splist.nomatch.1 %>% 
+  filter(is.na(taxonID)) %>% 
+  select(-taxonID) %>% 
+  # Move to genus level
+  mutate(Genus.Name = str_extract(Scientific.Name, "[A-za-z]+")) %>% 
+  left_join(select(taxonomy,
+                   scientificName, taxonID),
+            by = c("Genus.Name" = "scientificName")) %>% 
+  mutate(Taxonomic.Level = "Genus")
+
+# The final taxonomy matching
+splist.match <- splist.match %>% 
+  filter(!is.na(taxonID)) %>% 
+  bind_rows(splist.nomatch.1 %>% 
+              filter(!is.na(taxonID))) %>% 
+  bind_rows(splist.nomatch.2) %>% 
+  arrange(id) %>% 
+  mutate(Group.Name = if_else(Taxonomic.Level != "Species",
+                              Scientific.Name, Genus.Name)) %>% 
+  mutate(Group.Name = if_else(!is.na(Genus.Name),
+                              Genus.Name, Group.Name)) %>% 
+  mutate(Group.Name = if_else(!is.na(taxonID),
+                              Group.Name, NA)) %>% 
+  select(-c(id, Genus.Name))
+
+
+rm(splist, splist.nomatch.1, splist.nomatch.2)
+```
+
+# Extract whatever trait database information
+```{r}
+traits.arctic <- traits.lvl1 %>% 
+  filter(taxonID %in% splist.match$taxonID)
+
+traits.arctic.sum <- traits.arctic %>% 
+  group_by(traitName, majorgroup, scientificName, taxonID) %>% 
+  summarise(nrecords = n(),
+            .groups = "drop") %>% 
+  group_by(traitName) %>% 
+  mutate(ntaxa_trait = n()) %>% 
+  ungroup() %>% 
+  group_by(scientificName) %>% 
+  mutate(ntrait_taxa = n()) %>% 
+  ungroup()
+
+sum.by.trait <- traits.arctic.sum %>% 
+  distinct(traitName, ntaxa_trait) %>% 
+  arrange(-ntaxa_trait)
+
+sum.by.taxa <- traits.arctic.sum %>% 
+  distinct(scientificName, ntrait_taxa) %>% 
+  arrange(-ntrait_taxa)
+```
+

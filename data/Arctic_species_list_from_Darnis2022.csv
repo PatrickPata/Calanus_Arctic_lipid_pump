@@ -1,0 +1,172 @@
+Group,Taxonomic Level,Scientific Name,Taxon Original,Abundance,PercAbundance,Biomass,PercCopeBiomass
+Copepoda,Genus,Acartia,Acartia spp.,"2,036",1.34,0.005,0.139
+Copepoda,Species,Aetideopsis armata,Aetideopsis armata,12,0.01,0.001,0.018
+Copepoda,Species,Aetideopsis rostrata,Aetideopsis rostrata,49,0.03,0.003,0.084
+Copepoda,Family,Aetideidae,Aetidaeidae,63,0.04,,0.006
+Copepoda,Species,Aetideus armatus,Aetideus armatus,,,,
+Copepoda,Species,Augaptilus glacialis,Augaptilus glacialis,8,0.01,,0.011
+Copepoda,Species,Bradyidius armatus,Bradyidius armatus,,,,
+Copepoda,Species,Bradyidius similis,Bradyidius similis,,,,
+Copepoda,Species,Calanus finmarchicus,Calanus finmarchicus,729,0.48,0.074,2.01
+Copepoda,Species,Calanus marshallae,Calanus glacialis/marshallae,"5,488",3.62,0.655,17.723
+Copepoda,Species,Calanus glacialis,Calanus glacialis/marshallae,"5,488",3.62,0.655,17.723
+Copepoda,Species,Calanus hyperboreus,Calanus hyperboreus,"3,107",2.05,2.354,63.705
+Copepoda,Genus,Calanus,Calanus sp.,61,0.04,0.001,0.034
+Copepoda,Genus,Candacia,Candacia sp.,,,,
+Copepoda,Species,Centropages hamatus,Centropages hamatus,20,0.01,,0.001
+Copepoda,Genus,Centropages,Centropages sp.,41,0.03,,
+Copepoda,Species,Chiridiella abyssalis,Chiridiella abyssalis,,,,
+Copepoda,Species,Chiridius gracilis,Chiridius gracilis,1,,,0.004
+Copepoda,Species,Chiridius obtusifrons,Chiridius obtusifrons,25,0.02,0.002,0.058
+Copepoda,Species,Chiridius polaris,Chiridius polaris,2,,,0.003
+Copepoda,Genus,Chiridius,Chiridius sp.,24,0.02,,
+Copepoda,Species,Comantenna brevicornis,Comantenna brevicornis,,,,
+Copepoda,Species,Euaugaptilus hyperboreus ,Euaugaptilus hyperboreus ,3,,,
+Copepoda,Species,Eucalanus bungii,Eucalanus bungii,,,,
+Copepoda,Species,Euchaeta media,Euchaeta media,1,,,
+Copepoda,Species,Eurytemora herdmani,Eurytemora herdmani ,16,0.01,,0.001
+Copepoda,Species,Eurytemora hirundoides,Eurytemora hirundoides,1,,,
+Copepoda,Species,Gaetanus brevispinus,Gaetanus brevispinus,4,,0.001,0.016
+Copepoda,Species,Gaetanus tenuispinus,Gaetanus tenuispinus,124,0.08,0.012,0.318
+Copepoda,Species,Haloptilus acutifrons,Haloptilus acutifrons,6,,,
+Copepoda,Species,Haloptilus longicornis,Haloptilus longicornis,,,,
+Copepoda,Order,Harpacticoida,Harpacticoida,173,0.11,,
+Copepoda,Species,Heterorhabdus norvegicus,Heterorhabdus norvegicus,64,0.04,0.005,0.138
+Copepoda,Family,Heterorhabdidae,Heterorhabdidae,24,0.02,0.001,0.021
+Copepoda,Species,Heterostylites longicornis,Heterostylites longicornis,,,,
+Copepoda,Species,Heterostylites major,Heterostylites major,20,0.01,,
+Copepoda,Genus,Heterostylites,Heterostylites sp.,,,,
+Copepoda,Species,Jaschnovia brevis,Jaschnovia brevis,1,,,0.001
+Copepoda,Species,Jaschnovia tolli,Jaschnovia tolli,5,,,
+Copepoda,Genus,Jaschnovia,Jaschnovia sp.,1,,,
+Copepoda,Species,Limnocalanus grimaldii,Limnocalanus grimaldi,4,,,
+Copepoda,Genus,Lubbockia,Lubbockia sp.,14,0.01,,
+Copepoda,Species,Lubbockia wilsonae,Lubbockia wilsonae,,,,
+Copepoda,Species,Lucicutia pseudopolaris,Lucicutia pseudopolaris,,,,
+Copepoda,Species,Metridia longa,Metridia longa,"8,564",5.65,0.379,10.247
+Copepoda,Species,Metridia lucens,Metridia lucens,,,,
+Copepoda,Species,Metridia pacifica,Metridia pacifica,4,,,
+Copepoda,Genus,Microcalanus,Microcalanus spp.,"12,715",8.38,0.016,0.427
+Copepoda,Genus,Microsetella,Microsetella sp.,2,,,
+Copepoda,Species,Mimocalanus distinctocephalus,Mimocalanus distinctocephalus,5,,,
+Copepoda,Genus,Monstrillidae,Monstrillidae,1,,,
+Copepoda,Species,Neocalanus cristatus,Neocalanus cristatus,,,,
+Copepoda,Species,Neomormonilla extremata,Neomormonilla extremata,8,0.01,,
+Copepoda,Species,Neomormonilla minor,Neomormonilla minor,16,0.01,,
+Copepoda,Genus,Neomormonilla,Neomormonilla sp.,58,0.04,,
+Copepoda,Species,Neoscolecithrix farrani,Neoscolecithrix farrani,,,,
+Copepoda,Species,Obtusoecia obtusata,Obtusoecia obtusata,33,0.02,,
+Copepoda,Species,Oithona atlantica,Oithona atlantica,344,0.23,,0.01
+Copepoda,Species,Oithona similis,Oithona similis,"43,831",28.9,0.025,0.664
+Copepoda,Genus,Oithona,Oithona sp.,1,,,
+Copepoda,Species,Oncaea englishi,Oncaea englishi,6,,,
+Copepoda,Species,Oncaea notopus,Oncaea notopus,"1,815",1.2,0.002,0.064
+Copepoda,Genus,Oncaea,Oncaea spp.,261,0.17,,
+Copepoda,Genus,Paracalanus,Paracalanus sp.,1,,,
+Copepoda,Species,Paraeuchaeta glacialis,Paraeuchaeta glacialis,84,0.06,0.046,1.258
+Copepoda,Species,Paraeuchaeta norvegica,Paraeuchaeta norvegica,33,0.02,0.013,0.346
+Copepoda,Genus,Paraeuchaeta,Paraeuchaeta spp.,85,0.06,,
+Copepoda,Species,Paraheterorhabdus compactus,Paraheterorhabdus compactus,24,0.02,0.001,0.018
+Copepoda,Genus,Pleuromamma,Pleuromamma sp.,1,,,
+Copepoda,Genus,Pseudocalanus,Pseudocalanus spp.,"38,886",25.64,0.077,2.088
+Copepoda,Species,Pseudochirella spectabilis,Pseudochirella spectabilis,,,,
+Copepoda,Species,Pseudophaenna typica,Pseudophaenna typica,,,,
+Copepoda,Species,Rhincalanus nasutus,Rhincalanus nasutus,,,,
+Copepoda,Species,Scaphocalanus brevicornis,Scaphocalanus brevicornis,65,0.04,0.003,0.074
+Copepoda,Species,Scaphocalanus magnus,Scaphocalanus magnus,8,0.01,0.002,0.049
+Copepoda,Species,Scolecithricella minor,Scolecithricella minor,317,0.21,0.001,0.025
+Copepoda,Genus,Scolecithricella,Scolecithricella sp.,,,,
+Copepoda,Genus,Scottocalanus,Scottocalanus sp.,,,,
+Copepoda,Species,Spinocalanus elongatus,Spinocalanus elongatus,103,0.07,,0.001
+Copepoda,Species,Spinocalanus longicornis,Spinocalanus longicornis,655,0.43,0.001,0.025
+Copepoda,Species,Spinocalanus longispinus,Spinocalanus longispinus,66,0.04,,0.01
+Copepoda,Species,Spinocalanus magnus,Spinocalanus magnus,8,0.01,,
+Copepoda,Genus,Spinocalanus,Spinocalanus sp.,161,0.11,,
+Copepoda,Species,Temora longicornis,Temora longicornis,137,0.09,0.001,0.016
+Copepoda,Species,Temorites brevis,Temorites brevis,6,,,0.001
+Copepoda,Species,Tortanus (Boreotortanus) discaudatus,Tortanus (Boreotortanus) discaudatus,1,,,
+Copepoda,Species,Triconia borealis,Triconia borealis,"12,363",8.15,0.014,0.379
+Copepoda,Species,Triconia conifera,Triconia conifera,17,0.01,,
+Copepoda,Species,Triconia minuta,Triconia minuta,7,,,
+Copepoda,Genus,Triconia,Triconia spp.,24,0.02,,
+Copepoda,Species,Undeuchaeta major,Undeuchaeta major,,,,
+Copepoda,Genus,Undeuchaeta,Undeuchaeta sp.,,,,
+Copepoda,Species,Undinella oblonga,Undinella oblonga,2,,,0.003
+Copepoda,Genus,Undinella,Undinella sp.,,,,
+Copepoda,Species,Undinopsis bradyi,Undinopsis bradyi,1,,,0.001
+Copepoda,Species,Xanthocalanus borealis,Xanthocalanus borealis,1,,,0.002
+Amphipoda,Species,Anonix nugax,Anonix nugax,,,,
+Amphipoda,Species,Apherusa glacialis,Apherusa glacialis,12,0.01,,
+Amphipoda,Genus,Bathymedon,Bathymedon sp.,,,,
+Amphipoda,Species,Byblis gaimardii,Byblis gaimardii,,,,
+Amphipoda,Species,Cyclocaris guilelmi,Cyclocaris guilelmi,2,,,
+Amphipoda,Species,Gammaracanthus,Gammaracanthus,,,,
+Amphipoda,Genus,Gammarus,Gammarus spp.,,,,
+Amphipoda,Species,Hyperia galba,Hyperia galba,1,,,
+Amphipoda,Family,Hyperiidae,Hyperiidae,,,,
+Amphipoda,Species,Hyperoche medusarum,Hyperoche medusarum,30,0.02,,
+Amphipoda,Species,Lanceola clausi,Lanceola clausi,4,,,
+Amphipoda,Species,Mimonectes sphaericus,Mimonectes sphaericus,8,0.01,,
+Amphipoda,Genus,Monoculodes,Monoculodes sp.,,,,
+Amphipoda,Species,Onisimus glacialis,Onisimus glacialis,,,,
+Amphipoda,Species,Onisimus litoralis,Onisimus litoralis,1,,,
+Amphipoda,Species,Scina borealis,Scina borealis,3,,,
+Amphipoda,Species,Themisto abyssorum,Themisto abyssorum,44,0.03,,
+Amphipoda,Species,Themisto compressa,Themisto compressa,,,,
+Amphipoda,Species,Themisto libellula,Themisto libellula,14,0.01,,
+Amphipoda,Genus,Themisto,Themisto sp.,1,,,
+Euphausiidae,Species,Meganyctiphanes norvegica,Meganyctiphanes norvegica,,,,
+Euphausiidae,Species,Thysanoessa inermis,Thysanoessa inermis,,,,
+Euphausiidae,Species,Thysanoessa longicaudata,Thysanoessa longicaudata,2,,,
+Euphausiidae,Species,Thysanoessa raschii,Thysanoessa raschii,,,,
+Euphausiidae,Genus,Thysanoessa,Thysanoessa sp.,12,0.01,,
+Mysidae,Species,Erythrops erythrophthalma,Erythrops erythrophthalma,,,,
+Mysidae,Species,Mysis littoralis,Mysis littoralis,,,,
+Mysidae,Species,Mysis mixta,Mysis mixta,,,,
+Mysidae,Species,Mysis oculata,Mysis oculata,4,,,
+Mysidae,Species,Mysis polaris,Mysis polaris,,,,
+Mysidae,Genus,Mysis,Mysis sp.,8,0.01,,
+Mysidae,Species,Parerythrops obesa,Parerythrops obesa,,,,
+Ostracoda,Species,Boroecia maxima ,Boroecia maxima ,414,0.27,,
+Ostracoda,Species,Discoconchoecia elegans,Discoconchoecia elegans,97,0.06,,
+Ostracoda,Species,Obtusoecia obtusata,Obtusoecia obtusata,33,0.02,,
+Larvacea,Species,Fritillaria borealis,Fritillaria borealis,"5,735",3.78,,
+Larvacea,Species,Oikopleura vanhoeffeni,Oikopleura vanhoeffeni,"1,755",1.16,,
+Pteropoda,Species,Clione limacina,Clione limacina,246,0.16,,
+Pteropoda,Species,Limacina helicina,Limacina helicina,"1,848",1.22,,
+Pteropoda,Species,Limacina retroversa,Limacina retroversa,,,,
+Chaetognatha,Species,Eukrohnia fowleri,Eukrohnia fowleri,,,,
+Chaetognatha,Species,Eukrohnia hamata,Eukrohnia hamata,381,0.25,,
+Chaetognatha,Species,Parasagitta elegans,Parasagitta elegans,363,0.24,,
+Chaetognatha,Species,Pseudosagitta maxima,Pseudosagitta maxima,2,,,
+Chaetognatha,Genus,Sagitta,Sagitta sp.,2,,,
+Cnidaria,Species,Aeginopsis laurentii,Aeginopsis laurentii,27,0.02,,
+Cnidaria,Species,Agalma elegans,Agalma elegans,,,,
+Cnidaria,Species,Aglantha digitale,Aglantha digitale,364,0.24,,
+Cnidaria,Species,Anthoathecata,Anthoathecata,4,,,
+Cnidaria,Species,Aurelia aurita,Aurelia aurita,,,,
+Cnidaria,Species,Bougainvillia principis,Bougainvillia principis,,,,
+Cnidaria,Family,Bougainvilliidae,Bougainvilliidae unidentified,,,,
+Cnidaria,Species,Dimophyes arctica,Dimophyes arctica,47,0.03,,
+Cnidaria,Species,Eumedusa birulai,Eumedusa birulai,,,,
+Cnidaria,Genus,Euphysa,Euphysa sp.,2,,,
+Cnidaria,Species,Halitholus cirratus,Halitholus cirratus,3,,,
+Cnidaria,Species,Halitholus pauper,Halitholus pauper,,,,
+Cnidaria,Species,Halopsis ocellata,Halopsis ocellata,1,,,
+Cnidaria,Species,Leuckartiara octona,Leuckartiara octona,,,,
+Cnidaria,Species,Leuckartiara nobilis,Leuckartiara nobilis,1,,,
+Cnidaria,Species,Melicertum octocostatum,Melicertum octocostatum,,,,
+Cnidaria,Species,Mitrocomella polydiademata,Mitrocomella polydiademata,,,,
+Cnidaria,Species,Nemopsis bachei,Nemopsis bachei,,,,
+Cnidaria,Species,Ptychogena lactea ,Ptychogena lactea ,,,,
+Cnidaria,Species,Rathkea octopunctata,Rathkea onctopunctata,,,,
+Cnidaria,Species,Sarsia princeps,Sarsia princeps,1,,,
+Cnidaria,Order,Semaeostomeae,Semaeostomeae,,,,
+Cnidaria,Order,Siphonophorae ,Siphonophorae ,78,0.05,,
+Cnidaria,Family,Tubulariidae,Tubulariidae,,,,
+Ctnenophora,Species,Beroe cucumis,Beroe cucumis,4,,,
+Ctnenophora,Species,Dimophyes arctica,Dimophyes arctica,47,0.03,,
+Polychaeta,Species,Tomopteris,Tomopteris sp.,2,,,
+Branchiopoda,Species,Evadne nordmanni,Evadne nordmanni,1,,,
+Branchiopoda,Species,Pleopis polyphemoides ,Pleopis polyphemoides ,,,,
+Branchiopoda,Species,Podon leuckarti,Podon leuckarti,2,,,

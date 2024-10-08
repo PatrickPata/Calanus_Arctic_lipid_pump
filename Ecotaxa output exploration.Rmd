@@ -1,0 +1,67 @@
+---
+title: "Explore Ecotaxa outputs"
+author: "Patrick Pata"
+date: "2024-10-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+# library(here)
+# set_here(path = "..")
+
+# remotes::install_github("ecotaxa/ecotaxar")
+library(ecotaxar)
+
+# remotes::install_github("ecotaxa/ecotaxarapi")
+library(ecotaxarapi)
+
+# sampleid and acquisitionid seem to have similar values
+# status: V = validated, D = dubius
+uvp5 <- read.table("data/UVP5_greenedge_export_summary_149_20241007_1514.tsv",
+                            sep = '\t', header = TRUE)
+
+# username: patrickrpata@gmail.com
+# password: huhm2Cb6raMP3!S
+```
+
+# Extract data using Ecotaxar package
+```{r}
+ecotaxar::api_url()
+token <- ecotaxar::api_login(username = "patrickrpata@gmail.com",
+                    password = "huhm2Cb6raMP3!S")
+
+db <- db_connect_ecotaxa(host = "https://ecotaxa.obs-vlfr.fr/",
+                         dbname = "UVP5hd GreenEdge 2016",
+                         user = "patrickrpata@gmail.com",
+                         password = "huhm2Cb6raMP3!S")
+
+# Ecotaxar seems like it can handle the extraction of taxonomic lineage.
+# lineage(taxonid = , taxo = c("Aglantha digitale"), rooted = FALSE)
+```
+
+
+# Filter the dataset
+```{r}
+# It would be good to have a taxonomy table to organize the taxonids
+
+uvp5.sub <- uvp5 %>% 
+  filter(status == "V") %>% 
+  filter(taxonid %in% c("top-bottom<with visible lipid sac",
+                        "side<with visible lipid sac")) %>% 
+  # get number of images with lipid sacs
+  group_by(sampleid) %>% 
+  summarise(count = sum(count),
+            .groups = "drop")
+
+
+
+unique(uvp5.sub$taxonid)
+
+```
+

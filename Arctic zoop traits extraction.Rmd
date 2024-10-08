@@ -99,3 +99,109 @@ sum.by.taxa <- traits.arctic.sum %>%
   arrange(-ntrait_taxa)
 ```
 
+# TODO Trait 
+Plot the trait distribution of the taxa found in the arctic (only species level) relative to the global trait distribution. Also do this for the allometric size distribution of Arctic copepods
+```{r}
+arctic.species <- splist.match %>% 
+  filter(Taxonomic.Level == "Species")
+
+traits.sub <- traits.lvl1 %>% 
+  # Select a few sample traits
+  # filter(traitName %in% c("carbonPDW", "bodyLength","lipidPDW")) %>% 
+  filter(valueType == "numeric") %>% 
+  mutate(is.arctic = if_else(taxonID %in% arctic.species$taxonID &
+                               taxonRank %in% c("Species", "Subspecies"),
+                             TRUE, FALSE)) %>% 
+  mutate(traitValue = as.numeric(traitValue))
+
+# Simple ggplot 
+ggplot(traits.sub %>% 
+         filter(traitName == "carbonPDW"), aes(traitValue, 0)) +
+  geom_jitter(aes(color = is.arctic)) +
+  # scale_x_continuous(trans = "log10") +
+  theme_bw() 
+
+# Simple boxplots
+ggplot(traits.sub %>% 
+         filter(traitName == "dryWeightPWW")) +
+         # filter(traitName == "excretionRateN_WSDW_15C")) +
+  geom_boxplot(aes(x = is.arctic, y = traitValue)) +
+  scale_y_continuous(trans = "log10") +
+  theme_bw()
+
+# For numeric traits compare distribution of trait values, note that many of these might need transformation for significance testings
+num.traits <- traits.lvl1 %>% 
+  filter(valueType == "numeric") %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  # select traits with most data
+  group_by(traitName) %>% 
+  mutate(nrecords = n()) %>% 
+  ungroup() %>% 
+  filter(nrecords > 50) %>% 
+  # assign if arctic (only species level)
+  filter(taxonRank %in% c("Species","Subspecies")) %>% 
+  mutate(is.arctic = if_else(taxonID %in% arctic.species$taxonID &
+                               taxonRank %in% c("Species", "Subspecies"),
+                             TRUE, FALSE)) %>% 
+  # If working on species means
+  group_by(traitName, is.arctic, scientificName) %>%
+  summarise(traitValue = mean(traitValue),
+            .groups = "drop")
+
+# TODO Note that this could be adjusted to working with the species means... or weight the averaging based on the reciprocal of the number of records for each species.
+
+# Calculate central tendencies
+num.sum <- num.traits %>% 
+  group_by(traitName, is.arctic) %>% 
+  summarise(n = n(),
+            mean = mean(traitValue),
+            median = median(traitValue),
+            sd = sd(traitValue),
+            min = min(traitValue),
+            max = max(traitValue), 
+            .groups = "drop")
+
+
+# Get P values of Mann-Whitney test
+num.wilcox <- num.traits %>% 
+  # filter(traitName %in% c("carbonPDW", "bodyLength","lipidPDW")) %>% 
+  group_by(traitName) %>% 
+  do(w = wilcox.test(traitValue~is.arctic, data=., paired=FALSE)) %>% 
+  summarise(traitName, Wilcox = w$p.value)
+
+# merge both and tag significance levels
+num.sum.sig <- num.sum %>% 
+  left_join(num.wilcox, by = "traitName") %>% 
+  mutate(sig = if_else(Wilcox < 0.05,
+                       0.05, NA)) %>% 
+  mutate(sig = if_else(Wilcox < 0.01,
+                       0.01, sig)) %>% 
+  mutate(sig = if_else(Wilcox < 0.001,
+                       0.001, sig)) 
+```
+
+
+# Extract lipids trait data
+Get all the lipid content data and highlight where the Arctic species are: C. hyperboreus, C. marshallae/finmarchicus/glacialis, Metridia longa.
+
+The current dataset seems to be insufficient. There are few records with life stage information, so this makes it unclear to which size these percentages can be applied to. For the few C5 and female records, the values seem to be realistic with maximum 75% DW.
+```{r}
+lipids <- traits.lvl1 %>% 
+  filter(traitName %in% c("lipidPDW", "lipidPWW", "lipidPAFDW"))
+
+length(unique(lipids$taxonID))
+
+lipids %>% 
+  group_by(traitName) %>% 
+  count()
+
+lipids.sum <- lipids %>% 
+  filter(lifeStage %in% c("C5","female")) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  group_by(traitName, taxonID, scientificName, lifeStage) %>% 
+  summarise(traitValueMean = mean(traitValue),
+            traitValueSD = sd(traitValue),
+            n = n(),
+            .groups = "drop")
+```
+

@@ -44,6 +44,16 @@ db <- db_connect_ecotaxa(host = "https://ecotaxa.obs-vlfr.fr/",
 # Ecotaxar seems like it can handle the extraction of taxonomic lineage.
 # lineage(taxonid = , taxo = c("Aglantha digitale"), rooted = FALSE)
 ```
+# Using ecotaxarapi instead
+```{r}
+token <- login(LoginReq=LoginReq(
+    password="huhm2Cb6raMP3",
+    username="patrickrpata@gmail.com"
+  ))
+save_api_token(token)
+
+```
+
 
 
 # Filter the dataset

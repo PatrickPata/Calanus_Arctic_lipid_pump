@@ -1,0 +1,172 @@
+---
+title: "UVP Lipids and morphotraits analysis"
+author: "Patrick Pata"
+date: "2025-01-21"
+output: html_document
+---
+
+This is the preliminary exploration of the contents of the UVP5 and UVP6 copepod data. The morphological traits estimated within ecotaxa are analyzed with the metadata. The prosome and lipid content segmented as the training dataset and as the result of the fastai image segmentation pipeline are additionally used as trait information.
+
+Data preparation tasks:
+1. Load the UVP5/6 metadata file that include the morphological traits.
+2. Based on the file of image masks, label which images have prosome and lipid masks.
+3. For the manually segmented images, get the number of pixels assigned prosome or lipid and convert to mg.
+4. For the ML segmented imaged, get number of pixels assigned prosome or lipid and convert to mg. 
+5. Also calculate the major axis and minor axis lengths of the segmented prosome and lipids.
+
+(3-5 might be done in Python when processing the ML segmentation results)
+
+
+Data analysis tasks:
+A. Sampling information
+- open TSV files and filter columns
+- visualize the spatial 3D and temporal distribution of the image data
+- classify images according to depth or environmental zones
+
+B. Segmentation model accuracy
+- compare the pixels and mg differences between the manual and ML segmentations
+- make sure to separate which images were used as training or test data
+
+
+C. Morphological traits
+- do ordinations and similar analysis as with Laure's UVP5 greenedge analysis
+- estimate lipid content from biovolume using published allometric scaling relationships
+
+D. Prosome size and lipid traits
+- scaling relationship between prosome and lipid content, by area and by length
+- plot the spatial distribution of the lipid content
+
+
+E. Lipid content and morphological traits
+- compare the major and minor axis lengths (and resulting biovolume) of the segmented images with that of the ecotaxa morphotraits
+- find correlations between morphotraits and lipid content
+- find relationships between morphotraits and if an image has a segmented (visible) lipid sac. I.e. are there predictors for these based on the ecotaxa data
+- project the prosome and lipid content traits against the ordination of the morphological traits
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load data and libraries
+
+Important: LOKI metadata does not include longitude and latitude. This could be extracted by matching the files from arcticnet2013 ecotaxa projects
+
+! The arcticenet2015 loki images are not yet in
+```{r}
+library(tidyverse)
+
+uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
+uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
+uvp5_ge <- bind_rows(uvp5_ge_side, uvp5_ge_top)
+rm(uvp5_ge_side, uvp5_ge_top)
+
+
+uvp6_de_side <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1521.tsv", sep = '\t', header = TRUE)
+uvp6_de_top <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1518.tsv", sep = '\t', header = TRUE)
+uvp6_de <- bind_rows(uvp6_de_side, uvp6_de_top)
+rm(uvp6_de_side, uvp6_de_top)
+
+# Only "Calanus" so far
+uvp6_amund <- read.table("../../Laval-imaging-analysis/UVP6_amundsen2023/Calanus/ecotaxa_export_10101_20250117_1943.tsv",sep = '\t', header = TRUE)
+# filter columns?
+
+# Only copepods with visible lipid sac
+loki <- read.table("../../Laval-imaging-analysis/LOKI_for_prosome_segmentation/ecotaxa_export_2331_20241009_1551.tsv", sep = '\t', header = TRUE)
+
+
+
+# Column names are not exactly the same for all files. Determine which metadata is found in each file
+meta <- data.frame(instrument = "uvp5_ge",
+                   cnames = colnames(uvp5_ge)) %>% 
+  bind_rows(data.frame(instrument = "uvp6_de",
+                   cnames = colnames(uvp6_de))) %>% 
+  bind_rows(data.frame(instrument = "uvp6_amund",
+                       cnames = colnames(uvp6_amund))) %>% 
+  bind_rows(data.frame(instrument = "loki",
+                       cnames = colnames(loki))) %>%
+  
+  # Create a wide table of column names and corresponding datasets
+  mutate(iscol = 1) %>% 
+  group_by(cnames) %>% 
+  mutate(ndata = sum(iscol)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = instrument, values_from = iscol, values_fill = NA) %>% 
+  arrange(-ndata)
+
+meta.all <- meta %>% 
+  filter(ndata == max(ndata))
+```
+
+## temporary fix to get loki arcticnet2013 to match lipid segmentations, and loki arcticnet2015 to get potential copepod distributions
+```{r}
+
+```
+
+
+
+# Explore the metadata
+```{r}
+library("sp")
+# TODO ADD MAP! - use beter projection for the arctic
+# coast line in Baffin Bay :
+baffin <- read_csv("../Vilgrain2021/data/baffin.csv.gz", col_types = cols())
+
+# Combine the metadata of the different instruments
+sample.list <- uvp5_ge %>% 
+  select(meta.all$cnames) %>% 
+  mutate(instrument = "uvp5_ge") %>% 
+  bind_rows(uvp6_de %>% 
+              select(meta.all$cnames) %>% 
+              mutate(instrument = "uvp6_de") ) %>% 
+  bind_rows(uvp6_amund %>% 
+              select(meta.all$cnames) %>% 
+              mutate(instrument = "uvp6_amund") ) %>% 
+  bind_rows(loki %>% 
+              select(meta.all$cnames) %>% 
+              mutate(instrument = "loki") %>% 
+              mutate(sample_profileid = as.character(sample_profileid))) %>% 
+  relocate(instrument)
+
+
+
+# Location (note that including date might create duplicates)
+casts <- sample.list %>% 
+  distinct(instrument,
+           sample_id, sample_profileid, sample_stationid,
+           object_lon, object_lat, object_date)
+
+ggplot(data = casts,
+       aes(x = object_lon, y = object_lat)) +
+  geom_point(aes(color = instrument), size = 2) +
+  
+  geom_polygon(mapping=aes(x=lon, y=lat, group=group), data=baffin)+
+  theme_bw(base_size=15)+
+  labs(x= "Longitude (°E)",  y= "Latitude (°N)") +
+  coord_quickmap(ylim=c(50, 83), xlim = c(-95,-50))
+
+
+
+# Depth
+ggplot(data = sample.list, aes(x = object_date, y = object_depth_min)) +
+  geom_point(aes(color = object_lat, shape = instrument)) +
+  scale_y_reverse() +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+  
+```
+
+# Explore the morphospace from the UVP data
+
+```{r}
+
+```
+
+
+# Explore the annotated prosome and lipids
+
+```{r}
+
+```
+

@@ -54,8 +54,14 @@ knitr::opts_chunk$set(echo = TRUE)
 Important: LOKI metadata does not include longitude and latitude. This could be extracted by matching the files from arcticnet2013 ecotaxa projects
 
 ! The arcticenet2015 loki images are not yet in
+
+Note that images here only copepods labelled with visible lipids.
 ```{r}
 library(tidyverse)
+#devtools::install_github("jiho/morphr", force =T)
+# library("morphr")
+
+source("../Vilgrain2021/lib/kaiser_guttman.R")
 
 uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
 uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
@@ -97,6 +103,22 @@ meta <- data.frame(instrument = "uvp5_ge",
 
 meta.all <- meta %>% 
   filter(ndata == max(ndata))
+
+meta.uvp <- meta %>% 
+  filter(ndata >= 3) %>% 
+  filter(uvp6_amund == 1)
+
+
+# LOKI2013 an UVP6_DE annotated and predicted prosome and lipid results
+prosome_uvp6 <- read.csv("data/prediction_results_uvp6de_prosome.csv",
+                         header = TRUE)
+lipid_uvp6 <- read.csv("data/prediction_results_uvp6de_lipid.csv",
+                         header = TRUE)
+
+prosome_loki <- read.csv("data/prediction_results_loki2013_prosome.csv",
+                         header = TRUE)
+lipid_loki <- read.csv("data/prediction_results_loki2013_lipid.csv",
+                         header = TRUE)
 ```
 
 ## temporary fix to get loki arcticnet2013 to match lipid segmentations, and loki arcticnet2015 to get potential copepod distributions
@@ -127,7 +149,10 @@ sample.list <- uvp5_ge %>%
               select(meta.all$cnames) %>% 
               mutate(instrument = "loki") %>% 
               mutate(sample_profileid = as.character(sample_profileid))) %>% 
-  relocate(instrument)
+  relocate(instrument) %>% 
+  # Objects can be duplicated if there are multiple image files, so clean this.
+  arrange(-img_rank) %>%  # Is this really needed? Supposedly selects the black background images
+  distinct(object_id, .keep_all = TRUE)
 
 
 
@@ -159,14 +184,323 @@ ggplot(data = sample.list, aes(x = object_date, y = object_depth_min)) +
 
 # Explore the morphospace from the UVP data
 
+18 Morphological descriptors (Gorsky et al. 2010)
+Size	Major = primary axis of an ellipse fitted on the object
+	Minor = secondary axis of an ellipse fitted on the object
+	Area = object area (i.e. number of pixels belonging to the object)
+	Feret = distance between the 2 further points along object’s perimeter
+	Perim. = perimeter length of the object
+Shape	Circ. = circularity measure = (4*π*area)/perim., 1 = circle, 0 = line.
+	Elongation = major/minor, 1 = circular >1 = elongated
+	Thickr = Thickness ratio, relation between the maximum thickness of an object and the average thickness of the object excluding the maximum (Romagnan et al. 2016)
+	Ver.Sym. = bilateral symmetry index
+	Ver.Sym.2 = bilateral symmetry index taking into account only 75% of the darker pixels)
+Transparency	Mean.grey = average grey value within the object ; sum of the grey values of all pixels in the object divided by the number of pixels (low = dark objects, high = clear objects)
+	Med.grey = median grey value within the object
+	Hist.grey 75% = grey level value at 75% of the normalized cumulative histogram of grey levels
+	Sdev.grey = standard deviation of the grey value used to generate the mean grey value
+	Skew.grey = skewness of the histogram of grey level values
+Complexity	Perim./Major = Refers to both complexity (high values if the perimeter is particularly complex for an object of a given size) and circularity (round objects have a high perimeter/diameter ratio).
+	Perim./Feret = same interpretation
+	Fractal = fractal dimension of perimeter (Bérubé and Jébrak 1999)
+
+
 ```{r}
+uvp.img <- uvp5_ge %>% 
+  select(meta.uvp$cnames) %>% 
+  mutate(instrument = "uvp5_ge") %>% 
+  bind_rows(uvp6_de %>% 
+              select(meta.uvp$cnames) %>% 
+              mutate(instrument = "uvp6_de") ) %>% 
+  bind_rows(uvp6_amund %>% 
+              select(meta.uvp$cnames) %>% 
+              mutate(instrument = "uvp6_amund") ) %>% 
+  relocate(instrument) %>% 
+  distinct(object_id, .keep_all = TRUE)
+
+# Subset of metadata information, columns renamed
+uvp.meta <- uvp.img %>% 
+  select(object_id, instrument,
+         lat = object_lat, lon = object_lon, depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, sample_id, sample_cruise)
+
+# Zooprocess morphological descriptors
+# 18 traits were used in the Vilgrain et al. (2021) analysis
+# zf <- select(z, Major, Minor, Perim., Feret, Area, Elongation ,
+#              Ver.Sym., Ver.Sym.2, Circ., Thickr , Mean.grey, Med.grey,
+#              "Hist.grey 75%", Sdev.grey, Skew.grey, Fractal,
+#              "Perim./Feret", "Perim./Major")
+
+uvp.morpho <- uvp.img %>% 
+  select(object_id,
+         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         # Ver.Sym., Ver.Sym.2, 
+         Circ. = object_circ., Thickr = object_thickr, 
+         # Mean.grey, Med.grey,
+         # "Hist.grey 75%", Sdev.grey, Skew.grey, 
+         Fractal = object_fractal, 
+         `Perim./Feret` = object_perimferet,
+         `Perim./Major` = object_perimmajor) %>% 
+  remove_rownames() %>% 
+  column_to_rownames("object_id")
+
+
+pca <- FactoMineR::PCA(as.matrix(uvp.morpho), graph = FALSE)
+# Note can weigh rows based on concentration
+
+plot(pca, label = "var")
+plot(pca, choix="var", axes = c(1,2))
+plot(pca, choix="var", axes = c(1,3))
+
+summary(pca)
+
+# selection of axis :
+kaiser_guttman(pca)
+
 
 ```
 
 
-# Explore the annotated prosome and lipids
+# Explore the accuracy of annotated prosome and lipids
+```{r}
+# LOKI images
+
+# The analysis of the Maps et al. 2023 paper
+meta.lipidsPaper <- read.csv("data/Maps2023_metadata_full.csv") %>% 
+  mutate(data_use = if_else(is_valid == "True", "test", "train"))
+
+ggplot(meta.lipidsPaper, aes(x = copepod_area_pixels,
+                      y = IoU, color = data_use)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = .80, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = .90, linetype = "longdash", color = "orange") +
+  geom_smooth() +
+  ggtitle(paste0("Maps et al. 2023 lipid results, IoU = ", 
+                 sprintf("%.1f",mean(meta.lipidsPaper$IoU))))
+
+ggplot(meta.lipidsPaper, aes(x = (copepod_mass_annotated - copepod_mass_pred),
+                             fill = data_use)) +
+  geom_histogram() +
+  xlab("difference in mass (mg)") +
+  ggtitle(paste0("Maps et al. 2023 results, RMSE = ", 
+                 sprintf("%.3f", sqrt(mean(meta.lipidsPaper$copepod_mass_annotated -
+                                             meta.lipidsPaper$copepod_mass_pred)^2)),
+                 " mg"))
+
+
+# Retraining of the LOKI2013 data for lipids and prosome, IOU is percent_overlap
+ggplot(lipid_loki, aes(x = lipid_pixels_annotated,
+                       y = percent_overlap)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = 90, linetype = "longdash", color = "orange") +
+  geom_smooth()
+
+ggplot(lipid_loki, aes(x = lipid_pixels_annotated,
+                       y = lipid_pixels_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+ggplot(lipid_loki, aes(x = lipid_mass_annotated,
+                       y = lipid_mass_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+  
+
+# Note that column name is mislabelled here
+ggplot(prosome_loki, aes(x = lipid_pixels_annotated,
+                       y = percent_overlap)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = 90, linetype = "longdash", color = "orange") +
+  geom_smooth()
+
+ggplot(prosome_loki, aes(x = lipid_pixels_annotated,
+                       y = lipid_pixels_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+ggplot(prosome_loki, aes(x = prosome_mass_annotated,
+                       y = prosome_mass_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+
+# UVP6 images - small training size
+ggplot(lipid_uvp6, aes(x = lipid_pixels_annotated,
+                       y = IoU)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = 90, linetype = "longdash", color = "orange") +
+  geom_smooth()
+
+ggplot(lipid_uvp6, aes(x = lipid_pixels_annotated,
+                       y = lipid_pixels_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+ggplot(lipid_uvp6, aes(x = lipid_mass_annotated,
+                       y = lipid_mass_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+ggplot(prosome_uvp6, aes(x = prosome_pixels_annotated,
+                       y = IoU)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = 90, linetype = "longdash", color = "orange") +
+  geom_smooth()
+
+ggplot(prosome_uvp6, aes(x = prosome_pixels_annotated,
+                       y = prosome_pixels_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+
+
+ggplot(prosome_uvp6, aes(x = prosome_mass_annotated,
+                       y = prosome_mass_predicted)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(color = "pink")
+```
+
 
 ```{r}
+
+
+# Retraining of the LOKI2013 data for lipids and prosome, IOU is percent_overlap
+g1 <- ggplot(lipid_loki, aes(x = lipid_pixels_annotated,
+                       y = percent_overlap)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_smooth() +
+  theme_bw() +
+  ylim(0, 100) +
+  ylab("IoU") + xlab("Lipid pixels annotated") +
+  ggtitle("LOKI images (n = 1,718)")
+
+g2 <- ggplot(lipid_uvp6, aes(x = lipid_pixels_annotated,
+                       y = IoU)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_smooth() +
+  ylim(0, 100) +
+  theme_bw() +
+  ylab("IoU") + xlab("Lipid pixels annotated") +
+  ggtitle("UVP6 images (n = 727)")
+
+# cowplot::plot_grid(g1, g2)
+
+
+
+g3 <- ggplot(prosome_loki, aes(x = lipid_pixels_annotated,
+                       y = percent_overlap)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_smooth() +
+  theme_bw() +
+  ylim(0, 100) +
+  ylab("IoU") + xlab("Prosome pixels annotated") +
+  ggtitle("LOKI images (n = 1,718)")
+
+
+g4 <- ggplot(prosome_uvp6, aes(x = prosome_pixels_annotated,
+                       y = IoU)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+  geom_smooth() +
+  ylim(0, 100) +
+  theme_bw() +
+  ylab("IoU") + xlab("Prosome pixels annotated") +
+  ggtitle("UVP6 images (n = 939)")
+
+
+cowplot::plot_grid(g1, g2, g3, g4)
+
+```
+
+
+# Relate lipid content with morphospace (use annotated for now)
+```{r}
+uvp6_lipid_prosome <- prosome_uvp6 %>% 
+  select(directory, filename, prosome_pixels_annotated, prosome_mass_annotated) %>% 
+  left_join(lipid_uvp6 %>% 
+              select(filename, lipid_pixels_annotated, lipid_mass_annotated),
+            by = "filename") %>% 
+  filter(!is.na(lipid_pixels_annotated)) %>%  # if only those images with lipid annotations
+  # calculate lipid fullness based on pixels
+  mutate(lipidfullness = lipid_pixels_annotated / prosome_pixels_annotated * 100) %>% 
+  # create object_id column to match the ecotaxa export data
+  mutate(object_id = str_remove(filename,".png"))
+  
+
+ggplot(uvp6_lipid_prosome) +
+  geom_histogram(aes(x = lipidfullness))
+  
+
+# subset of the ecotaxa export data with adjusted column names
+uvp6_de_sub <- uvp6_de %>% 
+  distinct(object_id, .keep_all = TRUE) %>% 
+  select(object_id, 
+         lat = object_lat, lon = object_lon, depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, sample_id, sample_cruise,
+         
+         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         # Ver.Sym., Ver.Sym.2, 
+         Circ. = object_circ., Thickr = object_thickr, 
+         # Mean.grey, Med.grey,
+         # "Hist.grey 75%", Sdev.grey, Skew.grey, 
+         Fractal = object_fractal, 
+         `Perim./Feret` = object_perimferet,
+         `Perim./Major` = object_perimmajor) 
+  
+
+
+# add morphotrait information
+uvp6_lipid_morpho <- uvp6_lipid_prosome %>% 
+  left_join(uvp6_de_sub, by = "object_id")
+
+
+ggplot(uvp6_lipid_morpho, aes(x = lipid_mass_annotated, y = Perim.)) +
+  geom_point(aes(color = depth)) +
+  geom_smooth()
+
+ggplot(uvp6_lipid_morpho, aes(x = lipidfullness, y = Perim.)) +
+  geom_point(aes(color = depth)) +
+  geom_smooth()
+
+
+ggplot(uvp6_lipid_morpho, aes(x = lipidfullness, y = Area)) +
+  geom_point(aes(color = Elongation)) +
+  geom_smooth()
+```
+
+# Plot depth distribution of lipid content
+```{r}
+ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
+  geom_point(aes(color = lipid_mass_annotated), size = 2) +
+  scale_color_viridis_c() +
+  scale_y_reverse(limits = c(750, 0)) +
+  theme_bw() + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+
+ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
+  geom_point(aes(color = lipidfullness), size = 2) +
+  scale_color_viridis_c() +
+  scale_y_reverse(limits = c(750, 0)) +
+  theme_bw() + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+
+
+
 
 ```
 

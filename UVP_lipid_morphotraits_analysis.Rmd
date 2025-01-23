@@ -236,10 +236,11 @@ uvp.morpho <- uvp.img %>%
   select(object_id,
          Major = object_major, Minor = object_minor, Perim. = object_perim.,
          Feret = object_feret, Area = object_area, Elongation = object_elongation,
-         # Ver.Sym., Ver.Sym.2, 
+         Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
          Circ. = object_circ., Thickr = object_thickr, 
-         # Mean.grey, Med.grey,
-         # "Hist.grey 75%", Sdev.grey, Skew.grey, 
+         Mean.grey = object_mean, Med.grey = object_median,
+         `Hist.grey 75%` = object_histcum3, 
+         Sdev.grey = object_stddev, Skew.grey = object_skew,
          Fractal = object_fractal, 
          `Perim./Feret` = object_perimferet,
          `Perim./Major` = object_perimmajor) %>% 
@@ -252,7 +253,7 @@ pca <- FactoMineR::PCA(as.matrix(uvp.morpho), graph = FALSE)
 
 plot(pca, label = "var")
 plot(pca, choix="var", axes = c(1,2))
-plot(pca, choix="var", axes = c(1,3))
+plot(pca, choix="var", axes = c(3,4))
 
 summary(pca)
 

@@ -110,7 +110,7 @@ meta.uvp <- meta %>%
 
 
 # LOKI2013 an UVP6_DE annotated and predicted prosome and lipid results
-prosome_uvp6 <- read.csv("data/prediction_results_uvp6de_prosome.csv",
+prosome_uvp6 <- read.csv("data/prediction_results_uvp6deamund_prosome.csv",
                          header = TRUE)
 lipid_uvp6 <- read.csv("data/prediction_results_uvp6de_lipid.csv",
                          header = TRUE)
@@ -419,7 +419,7 @@ g4 <- ggplot(prosome_uvp6, aes(x = prosome_pixels_annotated,
   ylim(0, 100) +
   theme_bw() +
   ylab("IoU") + xlab("Prosome pixels annotated") +
-  ggtitle("UVP6 images (n = 939)")
+  ggtitle("UVP6 images (n = 1599)")
 
 
 cowplot::plot_grid(g1, g2, g3, g4)

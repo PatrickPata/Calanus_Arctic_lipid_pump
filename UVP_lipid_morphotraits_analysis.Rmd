@@ -62,6 +62,7 @@ library(tidyverse)
 # library("morphr")
 
 source("../Vilgrain2021/lib/kaiser_guttman.R")
+theme_set(theme_bw())
 
 uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
 uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
@@ -446,24 +447,23 @@ ggplot(uvp6_lipid_prosome) +
   
 
 # subset of the ecotaxa export data with adjusted column names
+# NOTE slightly changed variable names
 uvp6_de_sub <- uvp6_de %>% 
   distinct(object_id, .keep_all = TRUE) %>% 
   select(object_id, 
          lat = object_lat, lon = object_lon, depth = object_depth_min,
          date = object_date, time = object_time,
          annotation = object_annotation_category, sample_id, sample_cruise,
-         
-         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Major = object_major, Minor = object_minor, Perim = object_perim.,
          Feret = object_feret, Area = object_area, Elongation = object_elongation,
-         # Ver.Sym., Ver.Sym.2, 
-         Circ. = object_circ., Thickr = object_thickr, 
-         # Mean.grey, Med.grey,
-         # "Hist.grey 75%", Sdev.grey, Skew.grey, 
+         VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+         Circ = object_circ., Thickr = object_thickr, 
+         Meangrey = object_mean, Medgrey = object_median,
+         Histgrey75 = object_histcum3, 
+         Sdevgrey = object_stddev, Skewgrey = object_skew,
          Fractal = object_fractal, 
-         `Perim./Feret` = object_perimferet,
-         `Perim./Major` = object_perimmajor) 
-  
-
+         Perim.Feret = object_perimferet,
+         Perim.Major = object_perimmajor) 
 
 # add morphotrait information
 uvp6_lipid_morpho <- uvp6_lipid_prosome %>% 
@@ -501,7 +501,131 @@ ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
   theme(axis.text.x=element_text(angle=45, hjust=1)) 
 
 
+```
+
+# Random forest model of lipid estimation from morphotraits
+Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 87%) and prosome mass (% var exp = 94%) are not that bad. But RF model for lipid fullness is awful at %var exp = 5%. Wonder why the latter is performs badly. Both prosome and lipid mass have a nonlinear relationship to lipid fullness.
+
+Running the random forest models without Depth as a predictor does not affect the performance for lipid and prosome mass but it actually makes the lipid fullness RF model weaker with (% var exp = 2.6%) indicating that depth is likely an important predictor of fullness, even if these two variables do not have a clear relationship when doing a correlation. Interestingly, including lipid and prosome mass as predictors for the lipid fullness RF model increases the %var expl to 61% which means that the morpho traits could potentially predict for LF but doesn't in this RF model. This is probably simulated with a neural network instead?
+```{r}
+library(randomForest)
+
+lipid_morpho_test <- uvp6_lipid_morpho %>% 
+  filter(!is.na(Major)) %>% # simply to subset which have morphotrait data
+  select(prosome_mass = prosome_mass_annotated,
+         lipid_mass = lipid_mass_annotated,
+         lipidfullness, 
+         depth, # include sampling depth as a predictor? 
+         Major:Perim.Major)
 
 
+ggplot(lipid_morpho_test, aes(x = lipid_mass, y = lipidfullness)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(lipid_morpho_test, aes(x = prosome_mass, y = lipidfullness)) +
+  geom_point() +
+  geom_smooth()
+
+
+
+ggplot(lipid_morpho_test, aes(x = lipidfullness)) +
+  geom_histogram()
+
+# Try random forest regression on Lipid mass
+set.seed(888)
+model.lipid <- randomForest(lipid_mass ~ .,
+                      data = lipid_morpho_test %>% 
+                        select(-c(prosome_mass, lipidfullness)), 
+                      iter = 6, 
+                      proximity = TRUE)
+model.lipid 
+plot(model.lipid)
+
+# Try random forest regression on Prosome mass
+set.seed(888)
+model.prosome <- randomForest(prosome_mass ~ .,
+                      data = lipid_morpho_test %>% 
+                        select(-c(lipid_mass, lipidfullness)), 
+                      iter = 6, 
+                      proximity = TRUE)
+model.prosome 
+plot(model.prosome)
+
+
+# Try random forest regression on lipid fullness
+set.seed(888)
+model.LF <- randomForest(lipidfullness ~ .,
+                      data = lipid_morpho_test %>% 
+                        select(-c(lipid_mass, prosome_mass)), 
+                      # iter = 6, 
+                      proximity = TRUE)
+model.LF 
+plot(model.LF)
+
+
+```
+
+## ordination of the RF results
+```{r}
+dist.mat <- dist(1 - model.lipid$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       Lipid = lipid_morpho_test$lipid_mass)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y, label = Sample)) +
+  geom_text(aes(color = Lipid)) +
+  scale_color_viridis_c() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("RF Lipid mass")
+
+
+dist.mat <- dist(1 - model.prosome$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       Prosome = lipid_morpho_test$prosome_mass)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y, label = Sample)) +
+  geom_text(aes(color = Prosome)) +
+  scale_color_viridis_c() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("RF Prosome mass")
+
+
+
+dist.mat <- dist(1 - model.LF$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       LF = lipid_morpho_test$lipidfullness)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y, label = Sample)) +
+  geom_text(aes(color = LF)) +
+  scale_color_viridis_c() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("Categorical RF lipid fullness")
 ```
 

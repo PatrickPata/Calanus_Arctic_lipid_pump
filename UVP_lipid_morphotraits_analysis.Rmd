@@ -374,8 +374,6 @@ ggplot(prosome_uvp6, aes(x = prosome_mass_annotated,
 
 
 ```{r}
-
-
 # Retraining of the LOKI2013 data for lipids and prosome, IOU is percent_overlap
 g1 <- ggplot(lipid_loki, aes(x = lipid_pixels_annotated,
                        y = percent_overlap)) +
@@ -438,6 +436,7 @@ uvp6_lipid_prosome <- prosome_uvp6 %>%
   filter(!is.na(lipid_pixels_annotated)) %>%  # if only those images with lipid annotations
   # calculate lipid fullness based on pixels
   mutate(lipidfullness = lipid_pixels_annotated / prosome_pixels_annotated * 100) %>% 
+  mutate(lipidfullness.mass = lipid_mass_annotated / prosome_mass_annotated * 100) %>% 
   # create object_id column to match the ecotaxa export data
   mutate(object_id = str_remove(filename,".png"))
   
@@ -449,6 +448,7 @@ ggplot(uvp6_lipid_prosome) +
 # subset of the ecotaxa export data with adjusted column names
 # NOTE slightly changed variable names
 uvp6_de_sub <- uvp6_de %>% 
+  bind_rows(uvp6_amund) %>% 
   distinct(object_id, .keep_all = TRUE) %>% 
   select(object_id, 
          lat = object_lat, lon = object_lon, depth = object_depth_min,
@@ -470,11 +470,11 @@ uvp6_lipid_morpho <- uvp6_lipid_prosome %>%
   left_join(uvp6_de_sub, by = "object_id")
 
 
-ggplot(uvp6_lipid_morpho, aes(x = lipid_mass_annotated, y = Perim.)) +
+ggplot(uvp6_lipid_morpho, aes(x = lipid_mass_annotated, y = Perim)) +
   geom_point(aes(color = depth)) +
   geom_smooth()
 
-ggplot(uvp6_lipid_morpho, aes(x = lipidfullness, y = Perim.)) +
+ggplot(uvp6_lipid_morpho, aes(x = lipidfullness, y = Perim)) +
   geom_point(aes(color = depth)) +
   geom_smooth()
 
@@ -504,17 +504,22 @@ ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
 ```
 
 # Random forest model of lipid estimation from morphotraits
-Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 87%) and prosome mass (% var exp = 94%) are not that bad. But RF model for lipid fullness is awful at %var exp = 5%. Wonder why the latter is performs badly. Both prosome and lipid mass have a nonlinear relationship to lipid fullness.
+Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 88%) and prosome mass (% var exp = 95%) are not that bad. RF model for lipid fullness based on mass is at %var exp = 96.3%.
+
+But RF model for lipid fullness based on pixels is awful at %var exp = 6% and LF based on mass at 5.5%. Wonder why the latter is performs badly. Both prosome and lipid mass have a nonlinear relationship to lipid fullness. 
+
 
 Running the random forest models without Depth as a predictor does not affect the performance for lipid and prosome mass but it actually makes the lipid fullness RF model weaker with (% var exp = 2.6%) indicating that depth is likely an important predictor of fullness, even if these two variables do not have a clear relationship when doing a correlation. Interestingly, including lipid and prosome mass as predictors for the lipid fullness RF model increases the %var expl to 61% which means that the morpho traits could potentially predict for LF but doesn't in this RF model. This is probably simulated with a neural network instead?
 ```{r}
 library(randomForest)
+library(randomForestExplainer)
 
 lipid_morpho_test <- uvp6_lipid_morpho %>% 
   filter(!is.na(Major)) %>% # simply to subset which have morphotrait data
   select(prosome_mass = prosome_mass_annotated,
          lipid_mass = lipid_mass_annotated,
          lipidfullness, 
+         lipidfullness.mass,
          depth, # include sampling depth as a predictor? 
          Major:Perim.Major)
 
@@ -527,8 +532,6 @@ ggplot(lipid_morpho_test, aes(x = prosome_mass, y = lipidfullness)) +
   geom_point() +
   geom_smooth()
 
-
-
 ggplot(lipid_morpho_test, aes(x = lipidfullness)) +
   geom_histogram()
 
@@ -536,9 +539,8 @@ ggplot(lipid_morpho_test, aes(x = lipidfullness)) +
 set.seed(888)
 model.lipid <- randomForest(lipid_mass ~ .,
                       data = lipid_morpho_test %>% 
-                        select(-c(prosome_mass, lipidfullness)), 
-                      iter = 6, 
-                      proximity = TRUE)
+                        select(-c(prosome_mass, lipidfullness, lipidfullness.mass)), 
+                      importance = TRUE, proximity = TRUE)
 model.lipid 
 plot(model.lipid)
 
@@ -546,20 +548,18 @@ plot(model.lipid)
 set.seed(888)
 model.prosome <- randomForest(prosome_mass ~ .,
                       data = lipid_morpho_test %>% 
-                        select(-c(lipid_mass, lipidfullness)), 
-                      iter = 6, 
-                      proximity = TRUE)
+                        select(-c(lipid_mass, lipidfullness, lipidfullness.mass)), 
+                      importance = TRUE, proximity = TRUE)
 model.prosome 
 plot(model.prosome)
 
 
 # Try random forest regression on lipid fullness
 set.seed(888)
-model.LF <- randomForest(lipidfullness ~ .,
+model.LF <- randomForest(lipidfullness.mass ~ .,
                       data = lipid_morpho_test %>% 
-                        select(-c(lipid_mass, prosome_mass)), 
-                      # iter = 6, 
-                      proximity = TRUE)
+                        select(-c(lipid_mass, prosome_mass, lipidfullness)), 
+                      importance = TRUE, proximity = TRUE)
 model.LF 
 plot(model.LF)
 
@@ -627,5 +627,189 @@ ggplot(data = mds.data,
   
   ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
   ggtitle("Categorical RF lipid fullness")
+```
+
+## Predicted vs annoated
+LF from modeled lipid and prosome mass
+
+LF is calculated from area/pixels... not mass, so prosomes might need a separate area to mass conversion.
+```{r}
+predicted_lipid <- predict(model.lipid, 
+                           lipid_morpho_test %>% 
+                        select(-c(prosome_mass, lipid_mass, 
+                                  lipidfullness, , lipidfullness)))
+
+# Create a dataframe with actual and predicted values
+results_lipid <- data.frame(Actual = lipid_morpho_test$lipid_mass, 
+                         Predicted = predicted_lipid,
+                         LF = lipid_morpho_test$lipidfullness.mass)
+
+# Seems like higher lipid fullness underestimates lipid mass while lower fullness overestimates
+ggplot(results_lipid, aes(x = Actual, y = Predicted, color = LF)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated lipid mass",
+       y = "Predicted lipid mass")
+
+
+predicted_prosome <- predict(model.prosome, 
+                           lipid_morpho_test %>% 
+                        select(-c(prosome_mass, prosome_mass, 
+                                  lipidfullness, lipidfullness.mass)))
+
+# Create a dataframe with actual and predicted values
+results_prosome <- data.frame(Actual = lipid_morpho_test$prosome_mass, 
+                         Predicted = predicted_prosome,
+                         LF = lipid_morpho_test$lipidfullness.mass)
+
+# No clear pattern on how LF affects prosome prediction
+ggplot(results_prosome, aes(x = Actual, y = Predicted, color = LF)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated prosome mass",
+       y = "Predicted prosome mass")
+
+
+# Compare LF calculated from predicted values and actual LF
+# Note that LF calulated from mass is not actually the LF from the annotated pixels... why??
+results_LF <- bind_cols(results_lipid %>% 
+                          rename(Actual_lipid = Actual,
+                                 Predicted_lipid = Predicted) %>% 
+                          select(-LF),
+                        results_prosome %>% 
+                          rename(Actual_prosome = Actual,
+                                 Predicted_prosome = Predicted) %>% 
+                          select(-LF)) %>% 
+  mutate(LF_actual = Actual_lipid / Actual_prosome * 100,
+         LF_predicted = Predicted_lipid / Predicted_prosome * 100) %>% 
+  mutate(LF.pixel = lipid_morpho_test$lipidfullness)
+
+ggplot(results_LF, aes(x = LF.pixel, y = LF_predicted, color = LF_actual)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated LF calculated from pixel",
+       y = "Predicted LF calculated")
+
+ggplot(results_LF, aes(x = LF_actual, y = LF_predicted, color = LF_actual)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated LF calculated from mass",
+       y = "Predicted LF calculated")
+
+```
+
+
+## importance of parameters
+Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
+```{r}
+plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
+plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+
+
+plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes")
+plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+```
+
+
+# TODO basic allometric scaling equations, get R2 and compare performance with RF and CNN models
+Models to test:
+1. Prosome mass - lipid mass
+2. Area/Major/Feret/Perim - lipid mass and prosome mass
+
+## The function getRegressionModel2 from lmodel2 allows for reduced major axis regression but here OLS is used.
+```{r}
+# Calculates regression model using the lmodel2() function that allows major axis regressions
+# df is a standardized trait dataframe
+getRegressionModel2 <- function(df, grp = "All", X, Y, 
+                               model = "OLS", base = "10"){
+  trait.sub <- df
+  if (grp != "All") {
+    trait.sub <- trait.sub %>% 
+      filter(str_detect(group, grp)) 
+  }
+  trait.sub <- trait.sub %>% 
+    filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
+    relocate(X, Y)
+  
+  # This calculates both the OLS and RMA
+  if(base == "10") {
+    reg <- lmodel2::lmodel2(log10(get(Y)) ~ log10(get(X)), data = trait.sub)
+  } else if (base == "e") {
+    reg <- lmodel2::lmodel2(log(get(Y)) ~ log(get(X)), data = trait.sub)
+  } else {
+    stop("Error: Please select either base 10 or e.")
+  }
+
+  if (model == "OLS"){
+    ii <- 1
+  } else if (model =="RMA") {
+    ii <- 3
+  } else {
+    stop("Error: Please select either OLS or RMA regression model.")
+  }
+  
+  # return(reg)
+  
+  reg.results.size <- data.frame(grp = grp, X = X,  Y = Y, 
+                                 a = reg$regression.results$Intercept[ii], 
+                                 b = reg$regression.results$Slope[ii], 
+                                 a.ci.2.5 = reg$confidence.intervals$`2.5%-Intercept`[ii],
+                                 a.ci.97.5 = reg$confidence.intervals$`97.5%-Intercept`[ii],
+                                 b.ci.2.5 = reg$confidence.intervals$`2.5%-Slope`[ii],
+                                 b.ci.97.5 = reg$confidence.intervals$`97.5%-Slope`[ii],
+                                 n = nrow(trait.sub), 
+                                 R2 = reg$rsquare,
+                                 # RSE = reg$sigma,
+                                 pval = reg$P.param, 
+                                 model = model, base = as.character(base),
+                                 minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
+}
+```
+
+
+## Calculate regressions
+The OLS models have R2 ranging from 0.64-0.88. Best models use area to predict for prosome mass (R2 = 0.88) and lipid mass (R2 = 0.81). So the random forest models result in better models based on higher R2.
+```{r, fig.width=5}
+allom_sub <- lipid_morpho_test %>% 
+  select(prosome_mass, lipid_mass, Area, Major, Perim, Feret)
+
+# basic correlations
+GGally::ggpairs(allom_sub, progress = FALSE)
+GGally::ggpairs(log10(allom_sub), progress = FALSE)
+
+# prepare data frame of models to test
+reg.models <- data.frame( modelNum = c(1:9),
+                          X = c("prosome_mass", 
+                                "Area", "Major", 
+                                "Perim", "Feret",
+                                "Area", "Major", 
+                                "Perim", "Feret"),
+                          Y = c("lipid_mass", 
+                                "lipid_mass", "lipid_mass", 
+                                "lipid_mass", "lipid_mass",
+                                "prosome_mass", "prosome_mass",
+                                "prosome_mass", "prosome_mass") ) %>% 
+  mutate(model = "OLS", 
+         base = 10,
+         group = "All") # the dataset can be grouped if preferred
+
+# survey linear regression models
+reg.results <- data.frame()
+for (i in c(1:nrow(reg.models))){
+  reg.results <- bind_rows(reg.results, 
+                           getRegressionModel2(allom_sub, reg.models$group[i],
+                                              reg.models$X[i], reg.models$Y[i],
+                                              model = reg.models$model[i],
+                                              base = reg.models$base[i]))
+}
+
 ```
 

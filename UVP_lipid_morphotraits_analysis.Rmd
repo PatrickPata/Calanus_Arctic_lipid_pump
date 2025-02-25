@@ -122,11 +122,6 @@ lipid_loki <- read.csv("data/prediction_results_loki2013_lipid.csv",
                          header = TRUE)
 ```
 
-## temporary fix to get loki arcticnet2013 to match lipid segmentations, and loki arcticnet2015 to get potential copepod distributions
-```{r}
-
-```
-
 
 
 # Explore the metadata
@@ -484,6 +479,323 @@ ggplot(uvp6_lipid_morpho, aes(x = lipidfullness, y = Area)) +
   geom_smooth()
 ```
 
+# Relate accuracy of CNN with morphospace
+Difference in values is annotated - predicted. So + values mean that the model underestimated.
+```{r}
+uvp6_accuracy_prosome <- prosome_uvp6 %>% 
+  mutate(prosome_pixels_diff = prosome_pixels_annotated - prosome_pixels_predicted,
+         prosome_mass_diff = prosome_mass_annotated - prosome_mass_predicted) %>% 
+  rename(prosome_iou = IoU, prosome_recall = Recall, prosome_f1score = F1score) 
+  # select(directory, filename, prosome_pixels_diff, prosome_mass_diff,
+  #        prosome_iou, prosome_recall, prosome_f1score)
+
+uvp6_accuracy_lipid <- lipid_uvp6 %>% 
+  mutate(lipid_pixels_diff = lipid_pixels_annotated - lipid_pixels_predicted,
+         lipid_mass_diff = lipid_mass_annotated - lipid_mass_predicted) %>% 
+  rename(lipid_iou = IoU, lipid_recall = Recall, lipid_f1score = F1score) 
+  # select(directory, filename, lipid_pixels_diff, lipid_mass_diff,
+  #        lipid_iou, lipid_recall, lipid_f1score)
+  
+uvp6_accuracy <- left_join(uvp6_accuracy_prosome, uvp6_accuracy_lipid,
+                           by = "filename") %>% 
+  
+  filter(!is.na(lipid_pixels_diff)) %>%  # only images with lipid annotations
+  # calculate lipid fullness 
+  mutate(lipidfullness_pixels_annotated = lipid_pixels_annotated / 
+           prosome_pixels_annotated * 100) %>% 
+  mutate(lipidfullness_pixels_predicted = lipid_pixels_predicted / 
+           prosome_pixels_predicted * 100) %>% 
+  mutate(lipidfullness_mass_annotated = lipid_mass_annotated / 
+           prosome_mass_annotated * 100) %>% 
+  mutate(lipidfullness_mass_predicted = lipid_mass_predicted / 
+           prosome_mass_predicted * 100) %>%
+  mutate(lf_pixels_diff = lipidfullness_pixels_annotated -
+           lipidfullness_pixels_predicted,
+         lf_mass_diff = lipidfullness_mass_annotated -
+           lipidfullness_mass_predicted) %>% 
+  
+  # remove the raw values, only retain differences
+  select(-c(prosome_pixels_annotated, prosome_pixels_predicted,
+            prosome_mass_annotated, prosome_mass_predicted,
+            lipid_pixels_annotated, lipid_pixels_predicted,
+            lipid_mass_annotated, lipid_mass_predicted,
+            lipidfullness_pixels_annotated, lipidfullness_pixels_predicted,
+            lipidfullness_mass_annotated, lipidfullness_mass_predicted,
+            directory.x, directory.y)) %>% 
+  
+  # create object_id column to match the ecotaxa export data
+  mutate(object_id = str_remove(filename,".png")) %>% 
+  
+  # TODO filter model performance quality
+  # sometimes the segmentation model fails of very bad
+  filter(is.finite(lf_mass_diff)) %>%
+  filter(lf_mass_diff >= -100)
+
+rm(uvp6_accuracy_prosome, uvp6_accuracy_lipid)
+
+ggplot(uvp6_accuracy) +
+  geom_histogram(aes(x = lf_pixels_diff))
+  
+
+# subset of the ecotaxa export data with adjusted column names
+# NOTE slightly changed variable names
+uvp6_de_sub <- bind_rows(uvp6_de, uvp6_amund) %>% 
+  # sometimes the ecotaxa output can be doubled each for the white and black bg images
+  distinct(object_id, .keep_all = TRUE) %>% 
+  select(object_id, 
+         lat = object_lat, lon = object_lon, depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, sample_id, sample_cruise,
+         Major = object_major, Minor = object_minor, Perim = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+         Circ = object_circ., Thickr = object_thickr, 
+         Meangrey = object_mean, Medgrey = object_median,
+         Histgrey75 = object_histcum3, 
+         Sdevgrey = object_stddev, Skewgrey = object_skew,
+         Fractal = object_fractal, 
+         Perim.Feret = object_perimferet,
+         Perim.Major = object_perimmajor) 
+
+# add morphotrait information
+uvp6_accuracy <- uvp6_accuracy %>% 
+  left_join(uvp6_de_sub, by = "object_id")
+
+
+# check some patterns
+ggplot(uvp6_accuracy, aes(x = lipid_iou, y = Perim)) +
+  geom_point(aes(color = depth)) +
+  geom_smooth()
+
+ggplot(uvp6_accuracy, aes(x = lf_mass_diff, y = Perim)) +
+  geom_point(aes(color = depth)) +
+  geom_smooth()
+
+
+ggplot(uvp6_accuracy, aes(x = prosome_pixels_diff, y = Area)) +
+  geom_point(aes(color = Elongation)) +
+  geom_smooth()
+```
+
+## TODO Characteristics of model accuracy
+### 1. Basic regression 
+test to check if any of the morphological traits are strong predictors of segmentation model accuracy - no clear linear trends
+```{r}
+reg.models <- expand.grid(X = colnames(uvp6_accuracy[2:13]),
+                          Y = colnames(uvp6_accuracy[23:40]),
+                          stringsAsFactors = FALSE) %>% 
+  mutate(base = "none")
+
+reg.results <- data.frame()
+for (i in c(1:nrow(reg.models))){
+  reg.results <- bind_rows(reg.results, 
+                           getRegressionModel(uvp6_accuracy, 
+                                              reg.models$X[i], reg.models$Y[i],
+                                              base = reg.models$base[i]))
+}
+# find any high R2 
+reg.results.high <- reg.results %>% 
+  filter(R2 >= 0.1)
+
+# the highest R2 
+ggplot(uvp6_accuracy, aes(x = prosome_mass_diff, y = Area)) +
+  geom_point(aes(color = Major)) +
+  geom_smooth()
+
+```
+
+
+
+### 2. Exploratory ordination 
+and cluster analysis of the accuracy metrics 
+
+#### biplot function
+```{r}
+'p_biplot_pca_points' <- 
+  function(rdaoutput, xmat = NULL, cluster, axestoplot=c(1,2), 
+           legendtitle = 'Groups', plottitle = NULL, 
+           standardizeXmat = TRUE, alpha = 0.8, ellipse.conf = 0.8,
+           clrs = brewer.pal(9, "Set1"), 
+           rescaleSites = 1, scaleCorrelations = FALSE) {
+    require(RColorBrewer)
+    require(ggrepel)
+
+    # axismat <- rdaoutput$CA$u
+    axismat <- vegan::scores(rdaoutput, choices = axestoplot, display = "sites")
+    varexp <- round( rdaoutput$CA$eig/rdaoutput$tot.chi*100, digits = 1)
+    
+    # Change axis names to contain % variance explained
+    axisname <-  colnames(axismat) 
+    a1 <- axisname[1]
+    a2 <- axisname[2]
+    
+    
+    # Rescale the site scores to highlight the arrows in the biplot
+    axismat.rescaled <- axismat * rescaleSites
+    
+    
+    g <- ggplot(as.data.frame(axismat.rescaled), 
+                aes_string(axisname[1],axisname[2], colour = cluster)) + 
+      labs(x = paste0(a1," (",varexp[axestoplot[1]],"%)"), 
+           y = paste0(a2, " (",varexp[axestoplot[2]], "%)" )) +
+      geom_point(size = 3, alpha = alpha, shape = 16, aes(colour=cluster))  + 
+      stat_ellipse(size = 1.5,show.legend = FALSE,level = ellipse.conf) +
+      geom_vline(xintercept = 0, colour='darkgray') + geom_hline(yintercept = 0, colour='darkgray') +
+      theme_bw() +
+      theme(legend.position="none", 
+            # legend.background = element_rect(colour="gray", size=0.5, linetype="solid"),
+            legend.title = element_text(color = 'black', size = 12, face = 'bold'),
+            legend.text = element_text(size = 12),
+            axis.title = element_text(size = 12),
+            axis.text = element_text(size = 12),
+            aspect.ratio = 1) 
+      # ggtitle(plottitle)
+    
+    if (is.factor(cluster) == TRUE)  { 
+      g <- g + scale_color_manual(values = clrs, name = legendtitle)#+scale_color_brewer(palette="Set1")
+    } else { 
+      g <- g + scale_colour_continuous(name = legendtitle)
+    }
+    
+    # Project standardized explanatory variables to PCoA axes
+    if (is.null(xmat) == FALSE) {
+      if (standardizeXmat == TRUE) {
+        xmat = scale(xmat , center=TRUE, scale=TRUE)
+      } 
+      n <- nrow(xmat)
+      points.stand <- scale(axismat)
+      
+      # Predictors appear as correlations
+      U <- cor(xmat, points.stand, use="pairwise.complete.obs")  # pairwise to disregard NAs for variables with blanks
+      
+      if (scaleCorrelations == TRUE) {
+        maxpos <-  min(max(abs(axismat[,1])),max(abs(axismat[,2])))# previously = 1
+      } else {
+        maxpos <- c(1,1)
+      }
+      
+      Udf <- data.frame(x1 = rep(0,nrow(U)),y1 =rep(0,nrow(U)), xend = U[,1]*maxpos, yend = U[,2]*maxpos)
+      g <- g + 
+        geom_point(data = Udf, aes(x = xend, y = yend),
+                   color = "black", size = 2) +
+        # geom_segment(data = Udf, aes(x = x1, y = y1, xend = xend, yend = yend),
+        #              lineend = "round", size = 0.5, colour = "grey40") +
+        ggrepel::geom_text_repel(data = Udf, aes(x = xend, y = yend, label=rownames(U)), 
+                        color="black", size = 4) 
+    }
+    
+    plot(g)
+  }
+
+```
+
+axis 1: accuracy metrics IoU, f1score, recall
+axis 2: difference in values
+axis 3: lipid accuracy - ish
+axis 4: prosome accuracy - ish
+```{r}
+uvp6_ord <- uvp6_accuracy %>% 
+  column_to_rownames("object_id") %>% 
+  select(prosome_iou:lf_mass_diff)
+
+uvp6_ord <- scale(uvp6_ord)
+
+# pca with vegan + cluster analysis
+pca.uvp6 <- vegan::rda(uvp6_ord)
+# Variance explained
+head(round( pca.ctv$CA$eig/pca.ctv$tot.chi*100, digits = 1),10)
+sum(head(round( pca.ctv$CA$eig/pca.ctv$tot.chi*100, digits = 1),6))
+
+
+# visualize all community level traits instead of the selected 20?
+# Correlate the axes
+axismat <- vegan::scores(pca.uvp6, choices = c(1:4), display = "sites")
+points.stand <- scale(axismat)
+xmat = scale(uvp6_accuracy %>% select(Major:Perim.Major), 
+             center=TRUE, scale=TRUE)
+
+U <- cor(xmat, points.stand, use="pairwise.complete.obs")
+# Only retain correlations > 0.2 for axes 1-4
+U12 <- as.data.frame(U) %>%
+  filter( abs(PC1) > 0.2 | abs(PC2) > 0.2 )
+U34 <- as.data.frame(U) %>%
+  filter( abs(PC3) > 0.2 | abs(PC4) > 0.2 )
+
+# Filter the relatively strong correlations
+for.pca12 <- as.data.frame(xmat) %>%
+  dplyr::select(rownames(U12))
+for.pca34 <- as.data.frame(xmat) %>%
+   dplyr::select(rownames(U34))
+
+
+# Hierarchical cluster analysis - exploratory, nonsystematic clustering
+pca.hc <- hclust(dist(axismat), method = "ward.D2")
+plot(pca.hc, labels = FALSE)
+pca.clusters <- as.factor(cutree(pca.hc, k = 7))
+
+
+
+p_biplot_pca_points(rdaoutput = pca.uvp6, 
+                    xmat = uvp6_ord, 
+                    cluster = pca.clusters,
+                    axestoplot = c(1,2), rescaleSites = 0.5,
+                    alpha = 0.4, scaleCorrelations = FALSE)
+
+p_biplot_pca_points(rdaoutput = pca.uvp6, 
+                    xmat = for.pca12, 
+                    cluster = pca.clusters,
+                    axestoplot = c(1,2), rescaleSites = 0.5,
+                    alpha = 0.4, scaleCorrelations = FALSE)
+
+p_biplot_pca_points(rdaoutput = pca.uvp6, 
+                    xmat = uvp6_ord, 
+                    cluster = pca.clusters,
+                    axestoplot = c(3,4), rescaleSites = 0.5,
+                    alpha = 0.4, scaleCorrelations = FALSE)
+
+p_biplot_pca_points(rdaoutput = pca.uvp6, 
+                    xmat = for.pca34, 
+                    cluster = pca.clusters,
+                    axestoplot = c(3,4), rescaleSites = 0.5,
+                    alpha = 0.4, scaleCorrelations = FALSE)
+
+
+
+# ## pca with factorminer
+# pca <- FactoMineR::PCA(as.matrix(uvp6_ord), graph = FALSE)
+# 
+# plot(pca, label = "var")
+# plot(pca, choix="var", axes = c(1,2))
+# plot(pca, choix="var", axes = c(3,4))
+# 
+# # selection of axis :
+# kaiser_guttman(pca.uvp6)
+```
+
+
+### 3. RDA of model perfomance metrics 
+and explained by morphological traits
+
+- probably not that productive right now since none of the morphotraits seem to be strongly linearly related to any of the accuracy metrics
+```{r}
+xmat = scale(uvp6_accuracy %>% select(Major:Perim.Major), 
+             center=TRUE, scale=TRUE)
+
+rda.uvp6 <- vegan::rda(uvp6_ord ~ xmat)
+
+# variance explained by contrained axes
+rda.uvp6$CCA$tot.chi/rda.uvp6$tot.chi*100
+# contrained
+head(round( rda.uvp6$CCA$eig/rda.uvp6$tot.chi*100, digits = 1),10)
+# uncoonstrained
+head(round( rda.uvp6$CA$eig/rda.uvp6$tot.chi*100, digits = 1),10)
+
+vegan::ordiplot(rda.uvp6, scaling = 1)
+vegan::ordiplot(rda.uvp6, scaling = 2)
+```
+
+
+
 # Plot depth distribution of lipid content
 ```{r}
 ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
@@ -501,7 +813,25 @@ ggplot(uvp6_lipid_morpho, aes(x = date, y = depth)) +
   theme(axis.text.x=element_text(angle=45, hjust=1)) 
 
 
+# Is there a depth bias in accuracy?
+
+ggplot(uvp6_accuracy, aes(x = date, y = depth)) +
+  geom_point(aes(color = lf_pixels_diff), size = 2) +
+  scale_color_viridis_c() +
+  scale_y_reverse(limits = c(750, 0)) +
+  theme_bw() + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+
+ggplot(uvp6_accuracy, aes(x = date, y = depth)) +
+  geom_point(aes(color = lipid_mass_diff), size = 2) +
+  scale_color_viridis_c() +
+  scale_y_reverse(limits = c(750, 0)) +
+  theme_bw() + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+
+
 ```
+
 
 # Random forest model of lipid estimation from morphotraits
 Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 88%) and prosome mass (% var exp = 95%) are not that bad. RF model for lipid fullness based on mass is at %var exp = 96.3%.
@@ -772,7 +1102,55 @@ getRegressionModel2 <- function(df, grp = "All", X, Y,
                                  model = model, base = as.character(base),
                                  minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
 }
+
+# OLS regression model function
+
+getRegressionModel <- function(df, X, Y, base = "10") {
+  trait.sub <- df %>% 
+    filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
+    relocate(X, Y)
+  
+  if (nrow(trait.sub) > 3) {
+    # Calculate OLS
+    if(base == "10") {
+      reg <- lm(log10(get(Y)) ~ log10(get(X)), data = trait.sub)
+    } else if (base == "e") {
+      reg <- lm(log(get(Y)) ~ log(get(X)), data = trait.sub)
+    } else if (base == "none") {
+      reg <- lm(get(Y) ~ get(X), data = trait.sub)
+    } else {
+      stop("Error: Please select either base 10, e, or none.")
+    }
+    
+    reg.results <- data.frame(X = X,  Y = Y, 
+                              a = reg$coefficients[1],
+                              b = reg$coefficients[2],
+                              n = nrow(trait.sub),
+                              R2 = summary(reg)$adj.r.squared,
+                              RSE = summary(reg)$sigma,
+                              pval = getpval(summary(reg)$fstatistic), 
+                              model = "OLS", base = as.character(base),
+                              minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
+  } else {
+    reg.results <- data.frame(X = X,  Y = Y, 
+                              a = NA, b = NA, n = nrow(trait.sub),
+                              R2 = NA, RSE = NA, pval = NA, 
+                              model = "OLS", base = as.character(base),
+                              minX = NA, maxX = NA)
+  }
+  
+  return(reg.results %>% 
+           remove_rownames())
+}
+
+getpval <- function(x){ 
+  p <- pf(x[1],x[2],x[3],lower.tail = F) 
+  attributes(p) <- NULL
+  return(p)
+}
+
 ```
+
 
 
 ## Calculate regressions
@@ -781,9 +1159,9 @@ The OLS models have R2 ranging from 0.64-0.88. Best models use area to predict f
 allom_sub <- lipid_morpho_test %>% 
   select(prosome_mass, lipid_mass, Area, Major, Perim, Feret)
 
-# basic correlations
-GGally::ggpairs(allom_sub, progress = FALSE)
-GGally::ggpairs(log10(allom_sub), progress = FALSE)
+# # basic correlations
+# GGally::ggpairs(allom_sub, progress = FALSE)
+# GGally::ggpairs(log10(allom_sub), progress = FALSE)
 
 # prepare data frame of models to test
 reg.models <- data.frame( modelNum = c(1:9),
@@ -798,18 +1176,21 @@ reg.models <- data.frame( modelNum = c(1:9),
                                 "prosome_mass", "prosome_mass",
                                 "prosome_mass", "prosome_mass") ) %>% 
   mutate(model = "OLS", 
-         base = 10,
-         group = "All") # the dataset can be grouped if preferred
+         base = 10)
 
 # survey linear regression models
 reg.results <- data.frame()
 for (i in c(1:nrow(reg.models))){
   reg.results <- bind_rows(reg.results, 
-                           getRegressionModel2(allom_sub, reg.models$group[i],
+                           getRegressionModel(allom_sub, 
                                               reg.models$X[i], reg.models$Y[i],
-                                              model = reg.models$model[i],
                                               base = reg.models$base[i]))
 }
+
+```
+
+
+```{r}
 
 ```
 

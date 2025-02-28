@@ -83,6 +83,6 @@ ggplot(data = mds.data,
 ## importance of parameters
 ```{r}
 plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
-plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+plot_multi_way_importance(model.lipid, x_measure = "accuracy_decrease ", y_measure = "gini_decrease ", size_measure = "p_value", no_of_labels = 5)
 
 ```

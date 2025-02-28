@@ -1,0 +1,88 @@
+---
+title: "RF lipid models"
+author: "Patrick Pata"
+date: "2025-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load libraries
+```{r}
+library(tidyverse)
+library(randomForest)
+
+library(randomForestExplainer)
+```
+
+
+# RF model to classify if image can be segmented for lipid
+```{r}
+uvp6_amund <- read.table("../../Laval-imaging-analysis/UVP6_amundsen2023/Calanus/ecotaxa_export_10101_20250117_1943.tsv",sep = '\t', header = TRUE) %>% 
+  arrange(-img_rank) %>%  
+  distinct(object_id, .keep_all = TRUE) %>% 
+  select(object_id, 
+         # lat = object_lat, lon = object_lon, depth = object_depth_min,
+         # date = object_date, time = object_time,
+         # annotation = object_annotation_category, sample_id, sample_cruise,
+         Major = object_major, Minor = object_minor, Perim = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+         Circ = object_circ., Thickr = object_thickr, 
+         Meangrey = object_mean, Medgrey = object_median,
+         Histgrey75 = object_histcum3, 
+         Sdevgrey = object_stddev, Skewgrey = object_skew,
+         Fractal = object_fractal, 
+         Perim.Feret = object_perimferet,
+         Perim.Major = object_perimmajor) 
+
+
+image_class <- read.csv("C:/Users/patri/python_workspace/test_lipid_classification/metadata_uvp6_lipid.csv")
+
+traindata <- image_class %>% 
+  rename(object_id = filename) %>% 
+  mutate(object_id = str_remove(object_id, ".png")) %>% 
+  left_join(uvp6_amund) %>% 
+  column_to_rownames("object_id") %>% 
+  mutate(label = factor(label))
+
+set.seed(888)
+model.lipid <- randomForest(label ~ .,
+                      data = traindata, 
+                      importance = TRUE, proximity = TRUE)
+model.lipid 
+plot(model.lipid)
+
+
+```
+
+## ordination of the RF results
+```{r}
+dist.mat <- dist(1 - model.lipid$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       Lipid = traindata$label)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y)) +
+  geom_point(aes(color = Lipid)) +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("RF Lipid mass")
+```
+
+## importance of parameters
+```{r}
+plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
+plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+
+```

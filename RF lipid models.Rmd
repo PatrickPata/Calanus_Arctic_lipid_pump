@@ -81,8 +81,9 @@ ggplot(data = mds.data,
 ```
 
 ## importance of parameters
+Gini: degree of probability is wrongly classified when randomly chosen. '0' denotes that all elements belong to a certain class or there exists only one class (pure), and '1' denotes that the elements are randomly distributed across various classes (impure)
 ```{r}
 plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
-plot_multi_way_importance(model.lipid, x_measure = "accuracy_decrease ", y_measure = "gini_decrease ", size_measure = "p_value", no_of_labels = 5)
+plot_multi_way_importance(model.lipid, x_measure = "accuracy_decrease", y_measure = "gini_decrease", size_measure = "p_value", no_of_labels = 5)
 
 ```

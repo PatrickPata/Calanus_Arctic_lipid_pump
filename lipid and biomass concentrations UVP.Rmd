@@ -1,0 +1,169 @@
+---
+title: "Lipid and biomass concentrations"
+author: "Patrick Pata"
+date: "2025-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 0. Load libraries and data
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+
+# Morphotraits and other sample information
+uvp6_de_side <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1521.tsv", sep = '\t', header = TRUE)
+uvp6_de_top <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1518.tsv", sep = '\t', header = TRUE)
+uvp6_de <- bind_rows(uvp6_de_side, uvp6_de_top) %>% 
+  filter(img_rank == 100)
+rm(uvp6_de_side, uvp6_de_top)
+
+# Lipid and prosome segmentation information
+prosome_uvp6 <- read.csv("data/prediction_results_uvp6_20250311.csv",
+                         header = TRUE)
+lipid_uvp6 <- read.csv("data/prediction_results_uvp6deamund_lipid.csv",
+                         header = TRUE)
+
+# For now, work on images both with prosome and lipid and the annotated values
+uvp6_de_seg <- lipid_uvp6 %>% 
+  select(filename, lipid_pixels_annotated) %>% 
+  left_join(prosome_uvp6 %>% 
+              select(filename, prosome_pixels_annotated, 
+                     prosome_major_annotated, prosome_minor_annotated),
+            by = "filename") %>% 
+  mutate(lipid.lf.area = lipid_pixels_annotated/prosome_pixels_annotated*100) %>% 
+  # only select the Dark Edge 2021 for now
+  mutate(object_id = str_remove(filename,".png")) %>% 
+  filter(object_id %in% uvp6_de$object_id)
+rm(prosome_uvp6, lipid_uvp6)
+
+# The volume per 5m bin information from ECOPART
+uvp6_de_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  # Rename sample_id and Depth_5m to clearly specify bin size
+  rename(sample_id = Profile, Depth_5m = Depth_m)
+
+# Match sample to volume (+- 2.5)
+uvp6_de <- uvp6_de %>% 
+  mutate(Depth_5m = floor(object_depth_min / 5)*5+2.5) %>% 
+  left_join(uvp6_de_ecopart %>% 
+              select(sample_id, Depth_5m, Sampled_volume_L),
+            by = join_by(sample_id, Depth_5m)) 
+
+rm(uvp6_de_ecopart)
+```
+
+# Useful equations
+Device image resolutions:
+LOKI 23 um/0.023 mm
+UVP5 125 um/ 0.125 mm
+UVP6 84 um/0.084 mm
+area (mm^2) = pixel_area * res(mm)^2
+
+Convert area to total lipids (mg): 0.197 Area (mm2) ^ 1.38 (Vogedes et al. 2010)
+total lipid (mg) to carbon (mg C) conversion factor: Lambda = 0.81 (Kattner & Graeve 1991); which is actually from this equation C2L <- (36*12) / (36*12 + 2*36 + 2*16)
+
+Biovolume (mm3) to biomass (mgC)
+From McConville et al. (2016):
+- C. finmarchicus female 0.1473
+- C. glacialis female 0.1177
+- C. hyperboreus 0.1902
+- M. longa female 0.1077
+
+In Dubois et al. (2022):
+"correction is around -20% for the ESD method and +10% for the ellipse method"
+
+Potential diapause duration (Schmid et al. 2018)
+
+In Jonasdottir et al. (2019) for C. finmarchicus:
+Prosome Volume (mm3) = 0.0292 × Prosomelength(mm)^3.6699 (Miller et al. 2000)
+DW = 0.0106 × ProsomeLength^3.64 
+Carbon mass = 0.623 × DW − 0.0143 (Ingvarsdóttir et al. 1999)
+
+
+
+# 1. Calculate prosome and lipid biomass in DW and carbon
+```{r}
+# Conversion factor to get lipid mg C from TL
+lambda <- (36*12) / (36*12 + 2*36 + 2*16)
+# Conversion factor to get biomass (mg C) from biovolume (mm3)
+vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 species
+
+# Calculate lipid area in mm and biomass in total lipid (mg) and mg C
+uvp6_de_seg <- uvp6_de_seg %>% 
+  mutate(lipid_area_mm2 = lipid_pixels_annotated * 0.084 * 0.084,
+         prosome_area_mm2 = prosome_pixels_annotated * 0.084 * 0.084) %>% 
+  mutate(lipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>% 
+  mutate(lipid_mass_mgC = lipid_mass_mg * lambda)
+
+# Are prosome pixel area and the morphotrait area (in pixels) strongly correlated?
+# Yes, and the annotated prosome has a lower area value than the ellipsoid area
+uvp6_de_seg <- uvp6_de_seg %>% 
+  left_join(
+    uvp6_de %>% 
+      select(object_id, 
+             Major = object_major, Minor = object_minor, Area = object_area),
+    by = "object_id")
+
+summary(lm(prosome_pixels_annotated ~ Area, data = uvp6_de_seg))
+ggplot(uvp6_de_seg, aes(x = Area, y = prosome_pixels_annotated)) +
+  geom_point() +
+  geom_abline()
+
+# How about the major and minor axes from Ecotaxa vs the segmented prosomes
+# Surprisingly the fits are not that strong with major axis R = 0.86 and minor axis R = 0.69.
+# For the most part, the ecotaxa values are often larger, especially for the minor axis.
+summary(lm(prosome_major_annotated ~ Major, data = uvp6_de_seg))
+ggplot(uvp6_de_seg, aes(x = Major, y = prosome_major_annotated)) +
+  geom_point() +
+  geom_abline()
+
+summary(lm(prosome_minor_annotated ~ Minor, data = uvp6_de_seg))
+ggplot(uvp6_de_seg, aes(x = Minor, y = prosome_minor_annotated)) +
+  geom_point() +
+  geom_abline()
+
+
+# Calculate prosome biovolume (mm3) and mass in mg and mg C, then calculate lipid fullness by mass
+# A. Biovolume from 4/3*pi*(Major*Minor*Minor) and biomass from biovolume, not the best approach since LF can be > 100%, i.e. the prosome biomass calculated is smaller
+uvp6_de_seg <- uvp6_de_seg %>% 
+  # Use major and minor axis from Ecotaxa morphotrait
+  mutate(biovolume_mm3_morphptrait = 4/3 * pi * (Major/2 * 0.084) * ((Minor/2 * 0.084)^2)) %>% 
+  mutate(biomass_mgC_biovol_morphptrait = biovolume_mm3_morphptrait * vol2massC) %>% 
+  mutate(LF_mgC_biovol_morphptrait = lipid_mass_mgC / biomass_mgC_biovol_morphptrait * 100) %>% 
+# B. Use major and minor axis from segmented prosome. Less likely to have fullness > 100%
+  mutate(biovolume_mm3_annotated = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((prosome_minor_annotated/2 * 0.084)^2)) %>% 
+  mutate(biomass_mgC_biovol_annotated = biovolume_mm3_annotated * vol2massC) %>% 
+  mutate(LF_mgC_biovol_annotated = lipid_mass_mgC / biomass_mgC_biovol_annotated * 100) %>% 
+# C. Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
+  mutate(prosome_volume_Jonasdottir = 0.0292 * (prosome_major_annotated* 0.084)^3.6699,
+         prosome_dryweight_Jonasdottir = 0.0106 * (prosome_major_annotated* 0.084)^3.64,
+         prosome_mgC_Jonasdottir = 0.623 * prosome_dryweight_Jonasdottir - 0.0143)
+
+
+# Compare the Jonasdottir estimates with the segmented estimates
+# Given the Jonasdottir estimates were specifically for C. finmarchicus, the values based on prosome length only overestimate the ones from segmentation by more than x2
+ggplot(uvp6_de_seg, aes(x = biovolume_mm3_annotated, y = prosome_volume_Jonasdottir)) +
+  geom_point() +
+  geom_abline()
+
+ggplot(uvp6_de_seg, aes(x = biomass_mgC_biovol_annotated, y = prosome_mgC_Jonasdottir)) +
+  geom_point() +
+  geom_abline()
+```
+
+
+# 2. Calculate abundance and biomass concentration
+Simply count by 5m bins (Depth_5m) and divide according to Sampled_volume_L
+```{r}
+
+```
+
+# 3. Plot distributions
+```{r}
+
+```
+
+

@@ -176,6 +176,8 @@ ggplot(data = sample.list, aes(x = object_date, y = object_depth_min)) +
   theme_bw() +
   theme(axis.text.x=element_text(angle=45, hjust=1)) 
   
+
+# To do, compare tow depth vs actual depth
 ```
 
 # Explore the morphospace from the UVP data

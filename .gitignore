@@ -3,3 +3,5 @@
 .RData
 .Ruserdata
 /data
+*.csv
+/Copepod_lipids_script_and_data_Schmid_et_al_2018

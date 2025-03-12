@@ -50,9 +50,30 @@ uvp6_de <- uvp6_de %>%
   mutate(Depth_5m = floor(object_depth_min / 5)*5+2.5) %>% 
   left_join(uvp6_de_ecopart %>% 
               select(sample_id, Depth_5m, Sampled_volume_L),
-            by = join_by(sample_id, Depth_5m)) 
+            by = join_by(sample_id, Depth_5m)) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
 
 rm(uvp6_de_ecopart)
+
+# TODO something wrong in the data here because total copepod abundance can be zero from the aggregated information but there are images for the depth bins!
+# # for copepoda fractions of abundance and biomass in 50m bins
+# "export_reduced_20250311_copepoda_fraction.tsv"
+uvp6_de_ecopart_cope <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_copepoda_fraction.tsv",  header = TRUE, sep = "\t") %>% 
+  # Rename sample_id and Depth_5m to clearly specify bin size
+  rename(sample_id = Profile, Depth_25m = Depth_m) %>%  
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+uvp6_de_ecopart_cope[is.na(uvp6_de_ecopart_cope)] <- 0
+# weighted average for 50 m intervals for "Copepoda" abundance and biovolume
+uvp6_ecopart_50m <- uvp6_de_ecopart_cope %>% 
+  mutate(Depth_50m = floor(Depth_25m / 50)*50+25) %>% 
+  mutate(Copepoda_biovolume_mm3_m3 = Copepoda_biovolume_mm3_l / 0.001) %>% 
+  group_by(sample_id, Depth_50m) %>% 
+  summarise(cope_abundance_m3 = weighted.mean(Copepoda_abundance_m3, Sampled_volume_m3),
+            cope_biovolume_mm3_m3 = weighted.mean(Copepoda_biovolume_mm3_m3, Sampled_volume_m3),
+            .groups = "drop")
+  
 ```
 
 # Useful equations
@@ -130,9 +151,9 @@ ggplot(uvp6_de_seg, aes(x = Minor, y = prosome_minor_annotated)) +
 # A. Biovolume from 4/3*pi*(Major*Minor*Minor) and biomass from biovolume, not the best approach since LF can be > 100%, i.e. the prosome biomass calculated is smaller
 uvp6_de_seg <- uvp6_de_seg %>% 
   # Use major and minor axis from Ecotaxa morphotrait
-  mutate(biovolume_mm3_morphptrait = 4/3 * pi * (Major/2 * 0.084) * ((Minor/2 * 0.084)^2)) %>% 
-  mutate(biomass_mgC_biovol_morphptrait = biovolume_mm3_morphptrait * vol2massC) %>% 
-  mutate(LF_mgC_biovol_morphptrait = lipid_mass_mgC / biomass_mgC_biovol_morphptrait * 100) %>% 
+  mutate(biovolume_mm3_morphotrait = 4/3 * pi * (Major/2 * 0.084) * ((Minor/2 * 0.084)^2)) %>% 
+  mutate(biomass_mgC_biovol_morphotrait = biovolume_mm3_morphotrait * vol2massC) %>% 
+  mutate(LF_mgC_biovol_morphotrait = lipid_mass_mgC / biomass_mgC_biovol_morphotrait * 100) %>% 
 # B. Use major and minor axis from segmented prosome. Less likely to have fullness > 100%
   mutate(biovolume_mm3_annotated = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((prosome_minor_annotated/2 * 0.084)^2)) %>% 
   mutate(biomass_mgC_biovol_annotated = biovolume_mm3_annotated * vol2massC) %>% 
@@ -152,18 +173,153 @@ ggplot(uvp6_de_seg, aes(x = biovolume_mm3_annotated, y = prosome_volume_Jonasdot
 ggplot(uvp6_de_seg, aes(x = biomass_mgC_biovol_annotated, y = prosome_mgC_Jonasdottir)) +
   geom_point() +
   geom_abline()
+
+# Compare lipidfullness calculated from area vs carbon mass
+# LF is higher when calculated from carbon mass since lipids are more carbon dense
+ggplot(uvp6_de_seg, aes(x = lipid.lf.area, y = LF_mgC_biovol_annotated)) +
+  geom_point() +
+  geom_abline()
 ```
 
+For now: assume that best approach is the biovolume from the segmented prosomes using conversion factor average of the three Calanus species
 
 # 2. Calculate abundance and biomass concentration
 Simply count by 5m bins (Depth_5m) and divide according to Sampled_volume_L
 ```{r}
+# Clean the data for now and assume best estimates
+uvp6_now <- uvp6_de_seg %>% 
+  select(object_id, 
+         prosome_mass = biomass_mgC_biovol_annotated,
+         lipid_mass = lipid_mass_mgC,
+         lf.area = lipid.lf.area,
+         lf.mass = LF_mgC_biovol_annotated) %>% 
+  # # exclude samples which likely underestimated the prosome biomass?
+  # filter(lf.mass < 90) %>%
+  
+  # Add metadata of each image
+  left_join(uvp6_de %>% 
+              select(object_id, sample_id, Depth_5m, Sampled_volume_m3,
+                     depth = object_depth_min,
+                     lon = object_lon,lat = object_lat,
+                     date = object_date, time = object_time),
+            by = "object_id")
 
+AA <-  uvp6_now %>% 
+  distinct(sample_id, date, lon, lat, Depth_5m)
+
+# Sample totals at 5m bins
+uvp6_5mbin <- uvp6_now %>% 
+  group_by(sample_id, date, lon, lat, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance  = n(),
+            prosome_mgC = sum(prosome_mass),
+            lipid_mgC = sum(lipid_mass),
+            lf.area.mean = mean(lf.area),
+            lf.area.sd = sd(lf.area),
+            lf.mass.mean = mean(lf.mass),
+            lf.mass.sd = mean(lf.mass),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / Sampled_volume_m3,
+         prosome_mgC_m3 = prosome_mgC / Sampled_volume_m3,
+         lipid_mgC_m3 = lipid_mgC / Sampled_volume_m3)
+
+
+# average to 50 m bins
+uvp6_50mbin <- uvp6_5mbin %>% 
+  mutate(Depth_50m = floor(Depth_5m / 50)*50+25) %>% 
+  group_by(sample_id, date, lon, lat, Depth_50m) %>% 
+  summarise(abundance = sum(abundance),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m3 = mean(abundance_m3),
+            prosome_mgC_m3 = mean(prosome_mgC_m3),
+            lipid_mgC_m3 = mean(lipid_mgC_m3),
+            lf.area.mean = mean(lf.area.mean),
+            lf.mass.mean = mean(lf.mass.mean),
+            .groups = "drop") %>% 
+  # Add total "Copepoda" information
+  left_join(uvp6_ecopart_50m,
+            by = join_by(sample_id, Depth_50m)) %>% 
+  # Calculate fraction of abundance
+  mutate(frac.abund = abundance_m3 / cope_abundance_m3) %>% 
+  # Convert depth bin to factors for plots
+  mutate(Depth_50m = factor(Depth_50m)) %>% 
+  # Add factor lat bins
+  mutate(Lat_bin = factor(floor(lat)))
 ```
 
 # 3. Plot distributions
+UVP6 Darkedge: October 12-27, 2021
 ```{r}
+# Plot depth distributions
+ggplot(uvp6_50mbin, aes(x = Depth_50m, y = lipid_mgC_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid concentration (mgC/m3)")
 
+
+ggplot(uvp6_50mbin, aes(x = Depth_50m, y = prosome_mgC_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Biomass concentration (mgC/m3)")
+
+
+ggplot(uvp6_50mbin, aes(x = Depth_50m, y = lf.area.mean)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid fullness (% Prosome area)")
+
+
+ggplot(uvp6_50mbin, aes(x = Depth_50m, y = lf.mass.mean)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid fullness (% Prosome mass)")
+
+
+# By latitude bins (removed 68 and 72 lat from Baffin Bay)
+ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)), 
+       aes(x = Depth_50m, y = abundance_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Abundance (images/m3)") +
+  facet_wrap(~Lat_bin)
+
+ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)),  
+       aes(x = Depth_50m, y = lipid_mgC_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid concentration (mgC/m3)") +
+  facet_wrap(~Lat_bin)
+
+
+ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)),  
+       aes(x = Depth_50m, y = lf.area.mean)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid fullness (% Prosome area)") +
+  facet_wrap(~Lat_bin)
+
+
+ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)),  
+       aes(x = Depth_50m, y = lipid_mgC_m3/abundance_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid content of individiual (mgC/indiv)") +
+  facet_wrap(~Lat_bin)
 ```
 
 

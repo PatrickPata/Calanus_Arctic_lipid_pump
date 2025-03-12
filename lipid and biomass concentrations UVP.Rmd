@@ -17,9 +17,13 @@ theme_set(theme_bw())
 # Morphotraits and other sample information
 uvp6_de_side <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1521.tsv", sep = '\t', header = TRUE)
 uvp6_de_top <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1518.tsv", sep = '\t', header = TRUE)
-uvp6_de <- bind_rows(uvp6_de_side, uvp6_de_top) %>% 
+# Only "Calanus" so far
+uvp6_amund <- read.table("../../Laval-imaging-analysis/UVP6_amundsen2023/Calanus/ecotaxa_export_10101_20250117_1943.tsv",sep = '\t', header = TRUE)
+# filter columns?
+
+uvp6_meta <- bind_rows(uvp6_de_side, uvp6_de_top, uvp6_amund) %>% 
   filter(img_rank == 100)
-rm(uvp6_de_side, uvp6_de_top)
+rm(uvp6_de_side, uvp6_de_top,uvp6_amund)
 
 # Lipid and prosome segmentation information
 prosome_uvp6 <- read.csv("data/prediction_results_uvp6_20250311.csv",
@@ -28,7 +32,7 @@ lipid_uvp6 <- read.csv("data/prediction_results_uvp6deamund_lipid.csv",
                          header = TRUE)
 
 # For now, work on images both with prosome and lipid and the annotated values
-uvp6_de_seg <- lipid_uvp6 %>% 
+uvp6_seg <- lipid_uvp6 %>% 
   select(filename, lipid_pixels_annotated) %>% 
   left_join(prosome_uvp6 %>% 
               select(filename, prosome_pixels_annotated, 
@@ -37,24 +41,27 @@ uvp6_de_seg <- lipid_uvp6 %>%
   mutate(lipid.lf.area = lipid_pixels_annotated/prosome_pixels_annotated*100) %>% 
   # only select the Dark Edge 2021 for now
   mutate(object_id = str_remove(filename,".png")) %>% 
-  filter(object_id %in% uvp6_de$object_id)
+  filter(object_id %in% uvp6_meta$object_id)
 rm(prosome_uvp6, lipid_uvp6)
 
 # The volume per 5m bin information from ECOPART
 uvp6_de_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
   # Rename sample_id and Depth_5m to clearly specify bin size
-  rename(sample_id = Profile, Depth_5m = Depth_m)
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L)
+uvp6_amund_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_40_Amudsen2023/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L)
 
 # Match sample to volume (+- 2.5)
-uvp6_de <- uvp6_de %>% 
+uvp6_meta <- uvp6_meta %>% 
   mutate(Depth_5m = floor(object_depth_min / 5)*5+2.5) %>% 
-  left_join(uvp6_de_ecopart %>% 
-              select(sample_id, Depth_5m, Sampled_volume_L),
+  left_join(bind_rows(uvp6_de_ecopart,uvp6_amund_ecopart),
             by = join_by(sample_id, Depth_5m)) %>% 
   # convert volume in L to m3
   mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
 
-rm(uvp6_de_ecopart)
+rm(uvp6_de_ecopart, uvp6_amund_ecopart)
 
 # TODO something wrong in the data here because total copepod abundance can be zero from the aggregated information but there are images for the depth bins!
 # # for copepoda fractions of abundance and biomass in 50m bins
@@ -113,7 +120,7 @@ lambda <- (36*12) / (36*12 + 2*36 + 2*16)
 vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 species
 
 # Calculate lipid area in mm and biomass in total lipid (mg) and mg C
-uvp6_de_seg <- uvp6_de_seg %>% 
+uvp6_seg <- uvp6_seg %>% 
   mutate(lipid_area_mm2 = lipid_pixels_annotated * 0.084 * 0.084,
          prosome_area_mm2 = prosome_pixels_annotated * 0.084 * 0.084) %>% 
   mutate(lipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>% 
@@ -121,35 +128,35 @@ uvp6_de_seg <- uvp6_de_seg %>%
 
 # Are prosome pixel area and the morphotrait area (in pixels) strongly correlated?
 # Yes, and the annotated prosome has a lower area value than the ellipsoid area
-uvp6_de_seg <- uvp6_de_seg %>% 
+uvp6_seg <- uvp6_seg %>% 
   left_join(
-    uvp6_de %>% 
+    uvp6_meta %>% 
       select(object_id, 
              Major = object_major, Minor = object_minor, Area = object_area),
     by = "object_id")
 
-summary(lm(prosome_pixels_annotated ~ Area, data = uvp6_de_seg))
-ggplot(uvp6_de_seg, aes(x = Area, y = prosome_pixels_annotated)) +
+summary(lm(prosome_pixels_annotated ~ Area, data = uvp6_seg))
+ggplot(uvp6_seg, aes(x = Area, y = prosome_pixels_annotated)) +
   geom_point() +
   geom_abline()
 
 # How about the major and minor axes from Ecotaxa vs the segmented prosomes
 # Surprisingly the fits are not that strong with major axis R = 0.86 and minor axis R = 0.69.
 # For the most part, the ecotaxa values are often larger, especially for the minor axis.
-summary(lm(prosome_major_annotated ~ Major, data = uvp6_de_seg))
-ggplot(uvp6_de_seg, aes(x = Major, y = prosome_major_annotated)) +
+summary(lm(prosome_major_annotated ~ Major, data = uvp6_seg))
+ggplot(uvp6_seg, aes(x = Major, y = prosome_major_annotated)) +
   geom_point() +
   geom_abline()
 
-summary(lm(prosome_minor_annotated ~ Minor, data = uvp6_de_seg))
-ggplot(uvp6_de_seg, aes(x = Minor, y = prosome_minor_annotated)) +
+summary(lm(prosome_minor_annotated ~ Minor, data = uvp6_seg))
+ggplot(uvp6_seg, aes(x = Minor, y = prosome_minor_annotated)) +
   geom_point() +
   geom_abline()
 
 
 # Calculate prosome biovolume (mm3) and mass in mg and mg C, then calculate lipid fullness by mass
 # A. Biovolume from 4/3*pi*(Major*Minor*Minor) and biomass from biovolume, not the best approach since LF can be > 100%, i.e. the prosome biomass calculated is smaller
-uvp6_de_seg <- uvp6_de_seg %>% 
+uvp6_seg <- uvp6_seg %>% 
   # Use major and minor axis from Ecotaxa morphotrait
   mutate(biovolume_mm3_morphotrait = 4/3 * pi * (Major/2 * 0.084) * ((Minor/2 * 0.084)^2)) %>% 
   mutate(biomass_mgC_biovol_morphotrait = biovolume_mm3_morphotrait * vol2massC) %>% 
@@ -166,17 +173,17 @@ uvp6_de_seg <- uvp6_de_seg %>%
 
 # Compare the Jonasdottir estimates with the segmented estimates
 # Given the Jonasdottir estimates were specifically for C. finmarchicus, the values based on prosome length only overestimate the ones from segmentation by more than x2
-ggplot(uvp6_de_seg, aes(x = biovolume_mm3_annotated, y = prosome_volume_Jonasdottir)) +
+ggplot(uvp6_seg, aes(x = biovolume_mm3_annotated, y = prosome_volume_Jonasdottir)) +
   geom_point() +
   geom_abline()
 
-ggplot(uvp6_de_seg, aes(x = biomass_mgC_biovol_annotated, y = prosome_mgC_Jonasdottir)) +
+ggplot(uvp6_seg, aes(x = biomass_mgC_biovol_annotated, y = prosome_mgC_Jonasdottir)) +
   geom_point() +
   geom_abline()
 
 # Compare lipidfullness calculated from area vs carbon mass
 # LF is higher when calculated from carbon mass since lipids are more carbon dense
-ggplot(uvp6_de_seg, aes(x = lipid.lf.area, y = LF_mgC_biovol_annotated)) +
+ggplot(uvp6_seg, aes(x = lipid.lf.area, y = LF_mgC_biovol_annotated)) +
   geom_point() +
   geom_abline()
 ```
@@ -187,7 +194,7 @@ For now: assume that best approach is the biovolume from the segmented prosomes 
 Simply count by 5m bins (Depth_5m) and divide according to Sampled_volume_L
 ```{r}
 # Clean the data for now and assume best estimates
-uvp6_now <- uvp6_de_seg %>% 
+uvp6_now <- uvp6_seg %>% 
   select(object_id, 
          prosome_mass = biomass_mgC_biovol_annotated,
          lipid_mass = lipid_mass_mgC,
@@ -197,7 +204,7 @@ uvp6_now <- uvp6_de_seg %>%
   # filter(lf.mass < 90) %>%
   
   # Add metadata of each image
-  left_join(uvp6_de %>% 
+  left_join(uvp6_meta %>% 
               select(object_id, sample_id, Depth_5m, Sampled_volume_m3,
                      depth = object_depth_min,
                      lon = object_lon,lat = object_lat,
@@ -248,6 +255,7 @@ uvp6_50mbin <- uvp6_5mbin %>%
 
 # 3. Plot distributions
 UVP6 Darkedge: October 12-27, 2021
+UVP6 Amundsen: August 13-September 22, 2023
 ```{r}
 # Plot depth distributions
 ggplot(uvp6_50mbin, aes(x = Depth_50m, y = lipid_mgC_m3)) +
@@ -282,6 +290,15 @@ ggplot(uvp6_50mbin, aes(x = Depth_50m, y = lf.mass.mean)) +
   ylab("Lipid fullness (% Prosome mass)")
 
 
+ggplot(uvp6_50mbin,  
+       aes(x = Depth_50m, y = lipid_mgC_m3/abundance_m3)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  xlab("Depth (50 m bins)") + 
+  ylab("Lipid content of individiual (mgC/indiv)") 
+
+# FOR now only show the trends for Dark Edge
 # By latitude bins (removed 68 and 72 lat from Baffin Bay)
 ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)), 
        aes(x = Depth_50m, y = abundance_m3)) +

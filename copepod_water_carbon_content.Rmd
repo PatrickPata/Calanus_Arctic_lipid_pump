@@ -1,0 +1,54 @@
+---
+title: "Copepod water and carbon content"
+author: "Patrick Pata"
+date: "2025-03-13"
+output: html_document
+---
+
+Get the copepod water and carbon content data from the trait database. Filter for Calanus complex.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+trait.lvl1 <- read.csv("C:/Sync/R Workspace/Zooplankton_trait_database/data_input/Trait_dataset_level1/trait_dataset_level1-2023-08-15.csv")
+
+
+copepods <- trait.lvl1 %>% 
+  filter(majorgroup == "Calanoid") %>% 
+  filter(traitName %in% c("carbonPDW","carbonPWW","dryWeightPWW",
+                          "lipidPDW")) %>%  #"lipidPWW"
+  mutate(traitValue = as.numeric(traitValue)) 
+```
+
+
+Plot dat
+```{r}
+ggplot(copepods %>% 
+         filter(genus %in% c("Calanus", "Neocalanus")), 
+       aes(x = scientificName, y = traitValue)) +
+  geom_boxplot() + 
+  geom_point(shape = 4) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~traitName, ncol = 2, scales = "free")
+
+ggsave("calanus_carbon_water_content.png")
+
+ggplot(copepods %>% 
+         filter(traitName %in% c("carbonPDW","dryWeightPWW")),
+       aes(x = genus, y = traitValue)) +
+  geom_boxplot() + 
+  geom_point(shape = 4) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~traitName, ncol = 2, scales = "free")
+  
+
+ggsave("copepod_genus_carbon_content.png")
+
+```
+

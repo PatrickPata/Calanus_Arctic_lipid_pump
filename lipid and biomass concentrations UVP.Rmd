@@ -110,7 +110,8 @@ Prosome Volume (mm3) = 0.0292 × Prosomelength(mm)^3.6699 (Miller et al. 2000)
 DW = 0.0106 × ProsomeLength^3.64 
 Carbon mass = 0.623 × DW − 0.0143 (Ingvarsdóttir et al. 1999)
 
-
+TODO add Lucie's method
+data['prosome_carbon_area'] = (data["prosome_area_mm2"] - data['lipid_area_mm2']) * 0.2 * 0.45 # Ikeda et al., 1989
 
 # 1. Calculate prosome and lipid biomass in DW and carbon
 ```{r}

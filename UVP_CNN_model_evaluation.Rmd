@@ -1,0 +1,605 @@
+---
+title: "UVP CNN model evaluation"
+author: "Patrick Pata"
+date: "2025-03-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+
+theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
+
+
+res.lipid <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidUVP6_deamundp1/prediction_lipids_20250319.csv")
+
+res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1/prediction_lipids_20250319.csv")
+
+# These results have versions wherein the training data was 20% and test was 80%
+# res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/flipped pct_valid 20percent train/prediction_lipids_cropped_20250317.csv")
+
+res.prosome <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1/prediction_prosome_UVP6_20250319.csv")
+
+meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+
+
+# Clean data (unclear why one file gets repeated and another file not in meta)
+res.prosome <- res.prosome %>% 
+  select(-c(percent_overlap, directory)) %>%
+  left_join(meta.prosome %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices))
+
+res.lipid <- res.lipid %>% 
+  select(-c(percent_overlap, directory)) %>%
+  left_join(meta.lipid %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices))
+
+
+res.lipid.crop <- res.lipid.crop %>% 
+  select(-c(percent_overlap, directory)) %>%
+  left_join(meta.lipid %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices))
+
+rm(meta.lipid, meta.prosome)
+```
+
+# Train vs Test data
+
+## Prosome results
+- compare pixels, axes
+- plot size/pixels vs accuracy
+- separate test and train
+```{r}
+# Summary stats
+res.prosome %>% 
+  filter(prosome_pixels_predicted != 0) %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score),
+            .groups = "drop")
+
+
+# Is accuracy related to how "complex" the polygon mask is?
+ggplot(res.prosome, aes(x = num_vertices,
+                        y = IoU,
+                        color = split)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = prosome_pixels_predicted,
+                          color = split)) +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    geom_abline(),
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = IoU,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = F1score,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = Recall,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange")
+)
+```
+
+## Lipids results
+### Compare cropped prosome vs original image
+```{r, eval=FALSE}
+res.lipid %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score, na.rm = TRUE),
+            .groups = "drop")
+res.lipid.crop %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score, na.rm = TRUE),
+            .groups = "drop")
+
+# Compare metrics for with cropped prosome or not
+comp.lipids <- res.lipid %>% 
+  mutate(model = "original image") %>% 
+  # pivot_longer(cols = lipid_pixels_annotated:F1score,
+  #              names_to = "metric", values_to = "value") %>% 
+  left_join(res.lipid.crop %>% 
+              mutate(model = "cropped prosome"),
+            by = join_by(filename, split, num_vertices))
+
+# Model performance is OFTEN (but not always) better when prosome is cropped. The cropped-prosome model can perform really well even when the original image model has poor performance
+cowplot::plot_grid(
+  ggplot(comp.lipids, aes(x = lipid_pixels_predicted.x, 
+                          y = lipid_pixels_predicted.y, color = split)) +
+    geom_point() +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = IoU.x, y = IoU.y, color = split)) +
+    geom_point() +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = Recall.x, y = Recall.y, color = split)) +
+    geom_point() +
+    theme(legend.position = "bottom") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = F1score.x, y = F1score.y, color = split)) +
+    geom_point() +
+    theme(legend.position = "bottom") +
+    geom_abline(),
+  rel_heights = c(1,1.2)
+)
+
+rm(comp.lipids)
+rm(res.lipid)
+```
+
+### Analyze the cropped-prosome lipids
+```{r}
+ggplot(res.lipid.crop, aes(x = num_vertices,
+                        y = IoU,
+                        color = split)) +
+  geom_point() +
+  geom_smooth(model = "lm") 
+
+
+# Is accuracy related to how "complex" the polygon mask is?
+cowplot::plot_grid(
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = lipid_pixels_predicted,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = IoU,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = F1score,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = Recall,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  rel_heights = c(1,1.2)
+)
+
+```
+
+## Compare major and minor axis predictions
+```{r}
+calc_r2 <- function(x, y) {
+  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
+    model <- lm(y ~ x, data = df, na.action = na.omit)
+    return(round(summary(model)$r.squared, 3))
+  } else {
+    return(NA) # Return NA if column is not numeric or has insufficient data
+  }
+}
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_major_annotated,
+                          y = prosome_major_predicted)) +
+    geom_point(alpha = 0.2) +
+    geom_abline() +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(res.prosome$prosome_major_annotated, na.rm = TRUE),
+             y = min(res.prosome$prosome_major_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.prosome$prosome_major_annotated, 
+                                             res.prosome$prosome_major_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(res.prosome, aes(x = prosome_minor_annotated,
+                          y = prosome_minor_predicted)) +
+    geom_point(alpha = 0.2) +
+    geom_abline() +
+    geom_smooth(method = "lm")  +
+    annotate("text", x = max(res.prosome$prosome_minor_annotated, na.rm = TRUE),
+             y = min(res.prosome$prosome_minor_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.prosome$prosome_minor_annotated, 
+                                             res.prosome$prosome_minor_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(res.lipid.crop, aes(x = lipid_major_annotated,
+                             y = lipid_major_predicted,)) +
+    geom_point(alpha = 0.2) +
+    geom_abline() +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(res.lipid.crop$lipid_major_annotated, na.rm = TRUE),
+             y = min(res.lipid.crop$lipid_major_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.lipid.crop$lipid_major_annotated, 
+                                             res.lipid.crop$lipid_major_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  
+  # Compare minor axis from ellipse or calculated from area
+  res.prosome %>% 
+    mutate(minor_derived = prosome_pixels_annotated / prosome_major_annotated) %>% 
+    ggplot(aes(x = prosome_minor_annotated, y = minor_derived)) +
+    geom_point() +
+    geom_abline() +
+    annotate("text", x = max(res.prosome$prosome_minor_annotated, na.rm = TRUE),
+             y = min(res.prosome$prosome_minor_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.prosome$prosome_minor_annotated, 
+                                             res.prosome$prosome_minor_predicted)),
+             hjust = 1, vjust = 0, size = 5)
+)
+```
+
+## Images to exclude from "retraining"
+```{r, eval=FALSE}
+# TODO exclude images with very poor IoU in retraining
+lowIoU.prosome <- res.prosome %>% 
+  filter(IoU <= 50) %>% 
+  mutate(label = "prosome")
+
+lowIoU.lipid <- res.lipid.crop %>% 
+  filter(IoU <= 50) %>% 
+  mutate(label = "lipid")
+
+# Any overlap?
+inner_join(lowIoU.prosome, lowIoU.lipid, by = "filename")
+
+exclude.list <- bind_rows(lowIoU.lipid, lowIoU.prosome) %>% 
+  select(filename, label, IoU, Recall, F1score)
+
+rm(lowIoU.lipid, lowIoU.prosome)
+```
+
+
+# Morphotraits as predictors for segmentation quality
+## Load morphotrait data
+```{r}
+# Morphotraits and other sample information
+uvp6_de_side <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1521.tsv", sep = '\t', header = TRUE) %>% 
+  mutate(dataset = "darkedge2021_vislipid_side")
+uvp6_de_top <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/ecotaxa_export_5108_20241018_1518.tsv", sep = '\t', header = TRUE) %>% 
+  mutate(dataset = "darkedge2021_vislipid_top")
+uvp6_de_calanus <- read.table("../../Laval-imaging-analysis/UVP6_darkedge/export_5108_20250311_1406_Calanus_no_visible_lipid_sac/ecotaxa_export_5108_20250311_1406.tsv", sep = '\t', header = TRUE) %>% 
+  mutate(dataset = "darkedge2021_calanus")
+
+
+# Only "Calanus" so far for UVP6 Amund 2023
+uvp6_amund <- read.table("../../Laval-imaging-analysis/UVP6_amundsen2023/Calanus/ecotaxa_export_10101_20250117_1943.tsv",sep = '\t', header = TRUE) %>% 
+  mutate(dataset = "amundsen2023_calanus")
+
+
+uvp6_meta <- bind_rows(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund) %>% 
+  filter(img_rank == 100)
+rm(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund)
+
+# rename object_id for matching with the ecotaxa metadata
+res.prosome <- res.prosome %>% 
+  mutate(object_id = str_remove(filename,".png"))
+res.lipid.crop <- res.lipid.crop %>% 
+  mutate(object_id = str_remove(filename,".png"))
+
+# subset to files found in res.lipid.crop OR res.prosome
+uvp6_meta.sub <- uvp6_meta %>% 
+  filter(object_id %in% res.lipid.crop$object_id | 
+           object_id %in% res.prosome$object_id) %>% 
+  select(object_id,
+         lat = object_lat, lon = object_lon, depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, sample_id, sample_cruise,
+         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
+         Circ. = object_circ., Thickr = object_thickr, 
+         Mean.grey = object_mean, Med.grey = object_median,
+         `Hist.grey 75%` = object_histcum3, 
+         Sdev.grey = object_stddev, Skew.grey = object_skew,
+         Fractal = object_fractal, 
+         `Perim./Feret` = object_perimferet,
+         `Perim./Major` = object_perimmajor)
+```
+
+## Morphotrait - segmentation relationships 
+- the segmentations are unrealistic if the predicted major axis is outside the confidence range of the morphotrait major axis
+- also if the image is circular, it is probably not the best imaging angle captured
+```{r}
+# Compile major axis information
+df <- uvp6_meta.sub %>% 
+  select(object_id, Major, Feret) %>% 
+  left_join(select(res.prosome, object_id, IoU.prosome = IoU,
+                   prosome_major_annotated, prosome_major_predicted),
+            by = "object_id") %>% 
+  left_join(select(res.lipid.crop, object_id, IoU.lipid = IoU,
+                   lipid_major_annotated, lipid_major_predicted),
+            by = "object_id")
+
+df.low.iou <- df %>% 
+  filter(IoU.prosome <= 50 | IoU.lipid <= 50)
+
+# Compre major axis values
+cowplot::plot_grid(
+  ggplot(df, aes(x = prosome_major_annotated, y = Major)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+    geom_point(data = df.low.iou,
+               color = "red", shape = 4) +
+    annotate("text", x = max(df$prosome_major_annotated, na.rm = TRUE),
+             y = min(df$Major, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Major, 
+                                             df$prosome_major_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(df, aes(x = lipid_major_annotated, y = Major)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+    geom_point(data = df.low.iou,
+               color = "red", shape = 4) +
+    annotate("text", x = max(df$lipid_major_annotated, na.rm = TRUE),
+             y = min(df$Major, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Major, 
+                                             df$lipid_major_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(df, aes(x = prosome_major_predicted, y = Major)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+    geom_point(data = df.low.iou,
+               color = "red", shape = 4) +
+    annotate("text", x = max(df$prosome_major_predicted, na.rm = TRUE),
+             y = min(df$Major, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Major, 
+                                             df$prosome_major_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(df, aes(x = lipid_major_predicted, y = Major)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+    geom_point(data = df.low.iou,
+               color = "red", shape = 4) +
+    annotate("text", x = max(df$lipid_major_predicted, na.rm = TRUE),
+             y = min(df$Major, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Major, 
+                                             df$lipid_major_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  ggplot(df, aes(x = Major, y = IoU.prosome)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(),
+  
+  ggplot(df, aes(x = Major, y = IoU.lipid)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(),
+  nrow = 3
+)
+
+
+# # Relationship between circularity, thickness, elongation and IoU? 
+# # No clear relationships
+# df <- uvp6_meta.sub %>%
+#   select(object_id, Circ., Thickr, Elongation) %>%
+#   left_join(select(res.prosome, object_id, IoU.prosome = IoU),
+#             by = "object_id") %>%
+#   left_join(select(res.lipid.crop, object_id, IoU.lipid = IoU),
+#             by = "object_id")
+# 
+# cowplot::plot_grid(
+#   ggplot(df, aes(x = Elongation, y = IoU.prosome)) +
+#     geom_point(alpha = 0.2) +
+#     geom_smooth(),
+# 
+#   ggplot(df, aes(x = Elongation, y = IoU.lipid)) +
+#     geom_point(alpha = 0.2) +
+#     geom_smooth()
+# )
+```
+
+## Find which column can be used as a linear/loess predictor of the accuracy
+- No good R2 with a linear model.
+- Still no good one with loess with highest R2 between Area and IoU.prosome
+```{r}
+# Function to calculate R² using nonparametric LOESS fit
+calc_r2_loess <- function(x, y) {
+  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
+    loess_fit <- loess(y ~ x, na.action = na.omit)
+    y_pred <- predict(loess_fit, x)
+    r2 <- 1 - sum((y - y_pred)^2, na.rm = TRUE) / sum((y - mean(y, na.rm = TRUE))^2, na.rm = TRUE)
+    return(round(r2, 3))
+  } else {
+    return(NA)
+  }
+}
+
+df <- uvp6_meta.sub %>%
+  select(object_id, Major:`Perim./Major`) %>% 
+  left_join(select(res.prosome, object_id, IoU.prosome = IoU),
+            by = "object_id") %>% 
+  left_join(select(res.lipid.crop, object_id, IoU.lipid = IoU),
+            by = "object_id")
+
+
+# Compute R² values relative to IoU.prosome
+r2_prosome <- df %>%
+  summarise(across(where(is.numeric), ~ calc_r2_loess(.x, df$IoU.prosome), .names = "{.col}")) %>%
+  pivot_longer(cols = everything(), names_to = "Column", values_to = "R2_vs_IoU.prosome")
+
+# Compute R² values relative to IoU.lipid
+r2_lipid <- df %>%
+  summarise(across(where(is.numeric), ~ calc_r2_loess(.x, df$IoU.lipid), .names = "{.col}")) %>%
+  pivot_longer(cols = everything(), names_to = "Column", values_to = "R2_vs_IoU.lipid")
+
+# Combine both R² results into a single table
+r2_table <- full_join(r2_prosome, r2_lipid, by = "Column") %>% 
+  filter(Column %notin% c("IoU.lipid", "IoU.prosome"))
+
+
+```
+
+
+## Get the minimum values of morphotraits for images segmented
+```{r}
+uvp6_sub_table <- uvp6_meta.sub %>%
+  select(Major:`Perim./Major`) %>% 
+  summarise(across(everything(), list(
+    min = ~min(., na.rm = TRUE),
+    max = ~max(., na.rm = TRUE),
+    mean = ~mean(., na.rm = TRUE),
+    median = ~median(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    n = ~sum(!is.na(.)) # Count of non-NA values
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(cols = everything(), names_to = "statistic", values_to = "value") %>%
+  separate(statistic, into = c("column", "metric"), sep = "_") %>%
+  pivot_wider(names_from = metric, values_from = value)
+
+min_major <- filter(uvp6_sub_table, column == "Major")$min
+```
+
+
+
+
+# Pipeline predictions
+```{r}
+# The predictions on new images from the pipeline
+# Note that these may contain images that were manually segmented for prosomes but not lipids
+newimgs <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp2/new_predictions_uvp6_20250319.csv") %>% 
+  mutate(object_id = str_remove(filename,".png"))
+
+uvp6_meta.new <- uvp6_meta %>% 
+  select(object_id,
+         lat = object_lat, lon = object_lon, depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, sample_id, sample_cruise,
+         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
+         Circ. = object_circ., Thickr = object_thickr, 
+         Mean.grey = object_mean, Med.grey = object_median,
+         `Hist.grey 75%` = object_histcum3, 
+         Sdev.grey = object_stddev, Skew.grey = object_skew,
+         Fractal = object_fractal, 
+         `Perim./Feret` = object_perimferet,
+         `Perim./Major` = object_perimmajor) %>% 
+  filter(object_id %in% newimgs$object_id)
+
+uvp6_meta.new.2small <- uvp6_meta.new  %>% 
+  filter(Major < min_major)
+
+# TODO filter the ones with lipid segmentattions AND potentially eroneous/too small??
+
+ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicted)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
+  geom_point() +
+  geom_smooth()
+```
+
+# Does the UVP6 model work with the downscaled LOKI by 1/4?
+The model trained on the UVP6 data tends to overestimate the lipid content of the downscaled LOKI images. Maybe this is because the downscaled LOKI resolution is actually coarser at 92 um versus the 84 um uvp 6 resolution, which means images are smaller for the downscaled UVP.
+```{r, eval=FALSE}
+res.loki4 <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lokid4/new_predictions_LOKId4_20250319.csv")
+
+# how many images did the classification model predicted that a lipid sac can't be identified? Ideally this should be close to zero since all these images were manually segmented for lipid sacs but for the full resolution LOKI images
+res.loki4 %>% 
+  group_by(predLipidSac) %>% 
+  summarise(count = n(),
+            conf_no = mean(prob_0),
+            conf_yes = mean(prob_1),
+            .groups = "drop")
+
+sum.loki4 <- res.loki4 %>% 
+  group_by(predLipidSac) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score, na.rm = TRUE),
+            .groups = "drop")
+
+ggplot(res.loki4, aes(x = lipid_pixels_annotated, 
+                      y = lipidpcrop_pixels_predicted,
+                      color = predLipidSac)) +
+  geom_point(alpha = 0.3) +
+  geom_abline()
+
+cowplot::plot_grid(
+  ggplot(res.loki4, aes(x = lipid_pixels_annotated, 
+                        y = IoU,
+                        color = predLipidSac)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.loki4, aes(x = lipidpcrop_pixels_predicted, 
+                        y = IoU,
+                        color = predLipidSac)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange")
+)
+```

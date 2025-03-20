@@ -166,7 +166,13 @@ uvp6_seg <- uvp6_seg %>%
   mutate(biovolume_mm3_annotated = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((prosome_minor_annotated/2 * 0.084)^2)) %>% 
   mutate(biomass_mgC_biovol_annotated = biovolume_mm3_annotated * vol2massC) %>% 
   mutate(LF_mgC_biovol_annotated = lipid_mass_mgC / biomass_mgC_biovol_annotated * 100) %>% 
-# C. Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
+# C. Use Lucie's method of calculating the minor axis as area/major then get biovolume
+  mutate(minor_derived = prosome_pixels_annotated / prosome_major_annotated) %>% 
+  mutate(biovolume_mm3_annotderived = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((minor_derived/2 * 0.084)^2)) %>% 
+  mutate(biomass_mgC_biovol_annotderived = biovolume_mm3_annotderived * vol2massC) %>% 
+  mutate(LF_mgC_biovol_annotderived = lipid_mass_mgC / biomass_mgC_biovol_annotderived * 100) %>% 
+  
+# D. Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
   mutate(prosome_volume_Jonasdottir = 0.0292 * (prosome_major_annotated* 0.084)^3.6699,
          prosome_dryweight_Jonasdottir = 0.0106 * (prosome_major_annotated* 0.084)^3.64,
          prosome_mgC_Jonasdottir = 0.623 * prosome_dryweight_Jonasdottir - 0.0143)
@@ -185,6 +191,21 @@ ggplot(uvp6_seg, aes(x = biomass_mgC_biovol_annotated, y = prosome_mgC_Jonasdott
 # Compare lipidfullness calculated from area vs carbon mass
 # LF is higher when calculated from carbon mass since lipids are more carbon dense
 ggplot(uvp6_seg, aes(x = lipid.lf.area, y = LF_mgC_biovol_annotated)) +
+  geom_point() +
+  geom_abline()
+
+
+# Does lipid fullness relate to overall size?
+ggplot(uvp6_seg, aes(x = prosome_major_annotated, y = lipid.lf.area)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+# Compare minor axis from ellipse or if derived from area/major
+ggplot(uvp6_seg, aes(x = prosome_minor_annotated, y = minor_derived)) +
+  geom_point() +
+  geom_abline()
+
+ggplot(uvp6_seg, aes(x = biovolume_mm3_annotated, y = biovolume_mm3_annotderived)) +
   geom_point() +
   geom_abline()
 ```
@@ -340,4 +361,9 @@ ggplot(uvp6_50mbin %>% filter(Lat_bin %in% c(75,76,78)),
   facet_wrap(~Lat_bin)
 ```
 
+
+# TODO 4. Morphotraits weighted average by depth
+```{r}
+
+```
 

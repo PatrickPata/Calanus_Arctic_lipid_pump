@@ -171,6 +171,8 @@ cowplot::plot_grid(
   rel_heights = c(1,1.2)
 )
 
+
+
 rm(comp.lipids)
 rm(res.lipid)
 ```
@@ -224,7 +226,6 @@ cowplot::plot_grid(
     geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
   rel_heights = c(1,1.2)
 )
-
 ```
 
 ## Compare major and minor axis predictions
@@ -306,6 +307,56 @@ exclude.list <- bind_rows(lowIoU.lipid, lowIoU.prosome) %>%
 
 rm(lowIoU.lipid, lowIoU.prosome)
 ```
+
+
+## Combine prosome and lipid, calculate fullness and plot distributions
+```{r}
+res.lf <- res.lipid.crop %>% 
+  select(filename, lipid_pixels_annotated:lipid_mass_predicted) %>% 
+  left_join(select(res.prosome,
+                   filename, prosome_pixels_annotated,
+                   prosome_pixels_predicted),
+            by = join_by(filename)) %>% 
+  mutate(lipidfullness_annotated = lipid_pixels_annotated/prosome_pixels_annotated*100,
+         lipidfullness_predicted = lipid_pixels_predicted/prosome_pixels_predicted*100) %>% 
+  mutate(object_id = str_remove(filename,".png"))
+
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = prosome_pixels_annotated)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipidfullness_annotated)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(res.lf %>% 
+         filter(lipidfullness_predicted < 100), aes(x = lipid_pixels_predicted, 
+                                                    y = lipidfullness_predicted)) +
+  geom_point() +
+  geom_smooth()
+
+
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipid_pixels_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+
+ggplot(res.lf, aes(x = prosome_pixels_annotated, y = prosome_pixels_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+
+# TODO Why is the predicted lipid fullness a bad fit when the predicted pixels are good? Because predicted prosome is slightly larger and predicted lipids slightly smaller??
+ggplot(res.lf %>% 
+         filter(lipidfullness_predicted < 100), aes(x = lipidfullness_annotated, 
+                                                    y = lipidfullness_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+```
+
 
 
 # Morphotraits as predictors for segmentation quality
@@ -497,8 +548,16 @@ r2_table <- full_join(r2_prosome, r2_lipid, by = "Column") %>%
 
 ## Get the minimum values of morphotraits for images segmented
 ```{r}
+# TODO Change the source of prosome_annotated to the full range
+
 uvp6_sub_table <- uvp6_meta.sub %>%
-  select(Major:`Perim./Major`) %>% 
+  select(object_id,Major:`Perim./Major`) %>% 
+  left_join(res.lf %>% 
+              select(object_id, lipid = lipid_pixels_annotated, 
+                     prosome = prosome_pixels_annotated, 
+                     lipidfullness = lipidfullness_annotated),
+            by = "object_id") %>% 
+  select(-object_id) %>% 
   summarise(across(everything(), list(
     min = ~min(., na.rm = TRUE),
     max = ~max(., na.rm = TRUE),
@@ -506,12 +565,11 @@ uvp6_sub_table <- uvp6_meta.sub %>%
     median = ~median(., na.rm = TRUE),
     sd = ~sd(., na.rm = TRUE),
     n = ~sum(!is.na(.)) # Count of non-NA values
-  ), .names = "{.col}_{.fn}")) %>%
+  ), .names = "{.col}_{.fn}")) %>% 
   pivot_longer(cols = everything(), names_to = "statistic", values_to = "value") %>%
   separate(statistic, into = c("column", "metric"), sep = "_") %>%
   pivot_wider(names_from = metric, values_from = value)
 
-min_major <- filter(uvp6_sub_table, column == "Major")$min
 ```
 
 
@@ -541,19 +599,381 @@ uvp6_meta.new <- uvp6_meta %>%
          `Perim./Major` = object_perimmajor) %>% 
   filter(object_id %in% newimgs$object_id)
 
-uvp6_meta.new.2small <- uvp6_meta.new  %>% 
-  filter(Major < min_major)
+# TODO *** EXCLUDE EXTRAPOLATIONS ***
+to_exclude <- uvp6_meta.new %>% 
+  left_join(newimgs %>% 
+              select(object_id, prosome_pixels_predicted,
+                     lipidpcrop_pixels_predicted, lipidfullness2),
+            by = "object_id") %>% 
+  # remove all images smaller than the minimum size of the training data, also remove too small/large lipid and prosome pixel area!
+  filter(Major < filter(uvp6_sub_table, column == "Major")$min |
+           Minor > filter(uvp6_sub_table, column == "Major")$max |
+           prosome_pixels_predicted < filter(uvp6_sub_table, column == "prosome")$min |
+           prosome_pixels_predicted > filter(uvp6_sub_table, column == "prosome")$max |
+           lipidpcrop_pixels_predicted < filter(uvp6_sub_table, column == "lipid")$min |
+           lipidpcrop_pixels_predicted > filter(uvp6_sub_table, column == "lipid")$max |
+           lipidfullness2 < filter(uvp6_sub_table, column == "lipidfullness")$min |
+           lipidfullness2 > filter(uvp6_sub_table, column == "lipidfullness")$max )
 
-# TODO filter the ones with lipid segmentattions AND potentially eroneous/too small??
 
 ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicted)) +
   geom_point() +
-  geom_smooth()
+  geom_smooth() +
+  geom_hline(yintercept = c(filter(uvp6_sub_table, column == "prosome")$min,
+                            filter(uvp6_sub_table, column == "prosome")$max),
+             color = "red", linetype = "dotted") +
+  geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
+                            filter(uvp6_sub_table, column == "lipid")$max),
+             color = "red", linetype = "dotted")
 
 ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
   geom_point() +
-  geom_smooth()
+  geom_smooth() +
+  geom_hline(yintercept = c(filter(uvp6_sub_table, column == "lipidfullness")$min,
+                            filter(uvp6_sub_table, column == "lipidfullness")$max),
+             color = "red", linetype = "dotted") +
+  geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
+                            filter(uvp6_sub_table, column == "lipid")$max),
+             color = "red", linetype = "dotted")
+
+
+# TODO filter the ones with lipid segmentattions AND potentially eroneous/too small??
+# Apply the "image quality filter to the images data
+uvp6_meta.new <- uvp6_meta.new %>% 
+  filter(object_id %notin% to_exclude$object_id)
+newimgs <- newimgs %>% 
+  filter(object_id %notin% to_exclude$object_id)
+
+ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicted)) +
+  geom_point() +
+  geom_smooth() 
+
+ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
+  geom_point() +
+  geom_smooth() 
 ```
+
+
+## TODO Compare distrbutions of traint, test, new
+```{r}
+ggplot(res.lf, aes(x = lipid_pixels_annotated)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+  geom_density(aes(y = ..density.. * nrow(res.lf) * diff(range(res.lf$lipid_pixels_annotated)) / 30), size = 1)  +  # Scale density to match histogram
+  xlim(c(0,1600))
+
+ggplot(res.lf, aes(x = lipid_pixels_predicted)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+  geom_density(aes(y = ..density.. * nrow(res.lf) * diff(range(res.lf$lipid_pixels_predicted)) / 30), size = 1) +   # Scale density to match histogram
+  xlim(c(0,1600))
+
+
+ggplot(newimgs, aes(x = lipid_pixels_predicted)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+  geom_density(aes(y = ..density.. * nrow(newimgs) * diff(range(newimgs$lipid_pixels_predicted)) / 30), size = 1) +   # Scale density to match histogram
+  xlim(c(0,1600))
+
+
+# ****** Lipid fullness *******
+res.lf2 <- na.omit(res.lf)
+res.lf2 <- res.lf2 %>% 
+  filter(is.finite(lipidfullness_predicted))
+ggplot(res.lf2 , aes(x = lipidfullness_annotated)) + 
+  geom_histogram(aes(y = ..count..), bins = 50, position = "identity", alpha = 0.4) +  # Histogram with counts
+  # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+  geom_density(aes(y = ..density.. * nrow(res.lf2) * diff(range(res.lf2$lipidfullness_annotated)) / 50), size = 1)  +  # Scale density to match histogram
+  xlim(c(20,80))
+
+# ggplot(res.lf2, aes(x = lipidfullness_predicted)) + 
+#   geom_histogram(aes(y = ..count..), bins = 50, position = "identity", alpha = 0.4) +  # Histogram with counts
+#   # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+#   geom_density(aes(y = ..density.. * nrow(res.lf2) * diff(range(res.lf2$lipidfullness_predicted)) / 30), size = 1) +   # Scale density to match histogram
+#   xlim(c(20,80))
+
+
+ggplot(newimgs, aes(x = lipidfullness2)) + 
+  geom_histogram(aes(y = ..count..), bins = 50, position = "identity", alpha = 0.4) +  # Histogram with counts
+  # geom_density(aes(y = ..count.. * (max(..count..) / max(..density..))), size = 1)   # Density scaled to match histogram
+  geom_density(aes(y = ..density.. * nrow(newimgs) * diff(range(newimgs$lipidfullness2)) / 50), size = 1) +   # Scale density to match histogram
+  xlim(c(20,80))
+
+```
+
+
+# Create data file combining all curated information
+1. Have a column that says test, train, or predicted. Include the original prosome annotations
+2. Lengthen the prosome, lipid, and lipidfullness annotated and predicted
+3. Have all metadata and morphospace data organized and renamed
+4. Can systematically do significance testing after this
+
+## Load volume data from Ecopart
+```{r}
+# The volume per 5m bin information from ECOPART
+uvp6_de_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  # Rename sample_id and Depth_5m to clearly specify bin size
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L)
+uvp6_amund_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_40_Amudsen2023/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L)
+
+uvp6_volumes <- bind_rows(uvp6_de_ecopart,uvp6_amund_ecopart) %>%
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+rm(uvp6_de_ecopart, uvp6_amund_ecopart)
+```
+
+
+## Curate and organize
+```{r}
+df.temp <- res.lipid.crop %>% 
+  select(object_id, lipid_pixels_annotated, lipid_pixels_predicted) %>% 
+  full_join(res.prosome %>% 
+              select(object_id, 
+                     prosome_pixels_annotated, prosome_pixels_predicted),
+            by = "object_id") %>% 
+  # Predicted prosome area < 200 pixels are smaller than what is observed
+  mutate(prosome_pixels_predicted = if_else(prosome_pixels_predicted < 200,
+         NA, prosome_pixels_predicted)) %>% 
+  # Calculate lipid fullness
+    mutate(lipidfullness_annotated = lipid_pixels_annotated/prosome_pixels_annotated*100,
+         lipidfullness_predicted = lipid_pixels_predicted/prosome_pixels_predicted*100)  
+
+# Lengthen to [object, prosome, lipid, lipidfullness, annotated/predicted]
+# Note that there are instances here when there is annotated prosome but no annotated lipid, for simplicity, exclude them here and use the predicted prosome for these images instead so that there will be matching predicted lipids.
+uvp6_annot <- bind_rows(
+  df.temp %>% 
+    select(object_id, prosome = prosome_pixels_annotated,
+           lipid = lipid_pixels_annotated, 
+           lipidfullness = lipidfullness_annotated) %>% 
+    mutate(type = "annotated"),
+  
+  df.temp %>% 
+    select(object_id, prosome = prosome_pixels_predicted,
+           lipid = lipid_pixels_predicted, 
+           lipidfullness = lipidfullness_predicted) %>% 
+    mutate(type = "predicted"),
+) %>% 
+  filter(!is.na(lipidfullness))
+
+uvp6_pred <- newimgs %>% 
+  filter(object_id %notin% to_exclude$object_id) %>% 
+  select(object_id, prosome = prosome_pixels_predicted,
+         lipid = lipidpcrop_pixels_predicted,
+         lipidfullness = lipidfullness2,
+         type = predLipidSac)
+
+# Combine and add metadata
+uvp6_all <- bind_rows(uvp6_annot, uvp6_pred) %>% 
+  left_join(uvp6_meta %>% 
+              select(object_id,
+                     lat = object_lat, lon = object_lon, 
+                     depth = object_depth_min,
+                     date = object_date, time = object_time,
+                     annotation = object_annotation_category, 
+                     sample_id, sample_cruise,
+                     Major = object_major, Minor = object_minor, 
+                     Perim = object_perim.,
+                     Feret = object_feret, Area = object_area, 
+                     Elongation = object_elongation,
+                     VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+                     Circ = object_circ., Thickr = object_thickr, 
+                     MeanGrey = object_mean, MedGrey = object_median,
+                     HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
+                     SkewGrey = object_skew,Fractal = object_fractal, 
+                     PerimFeret = object_perimferet, 
+                     PerimMajor = object_perimmajor),
+            by = "object_id") %>% 
+  # Add the volumes matching the 5m depth bins
+  mutate(Depth_5m = floor(depth / 5)*5+2.5) %>% 
+  left_join(uvp6_volumes,
+            by = join_by(sample_id, Depth_5m))
+  
+rm(uvp6_annot, uvp6_pred, df.temp)
+
+cowplot::plot_grid(
+  ggplot(uvp6_all, aes(x = lipid, fill = type)) +
+    geom_histogram(aes(y = ..count..), bins = 30, 
+                   position = "identity", alpha = 0.4) +
+    theme(legend.position = "bottom"),
+  
+  # For the annotated images, the prediction pair as a similar distribution. The new data that were classified as with lipid sac, generally follows that distribution, although the mode is slightly higher. However, the images identified as "cant segment lipid sac" had more images predicted to have smaller lipid sacs and a significantly different distribution. T
+  ggplot(uvp6_all, aes(x = lipid, fill = type, color = type)) +
+    geom_density(alpha = 0.2) +
+    theme(legend.position = "bottom"),
+  
+  ggplot(uvp6_all, aes(x = prosome, fill = type, color = type)) +
+    geom_density(alpha = 0.2) +
+    theme(legend.position = "none"),
+  
+  ggplot(uvp6_all %>% 
+           filter(lipidfullness <= 65), # note that for the predicted LF during training, some overestimated LF because the prosome was separately segmented. Type = predicted will not be used in the analysis anyway but need to filter these out still for these figures. (N = 19 instances for LF > 65%)
+         aes(x = lipidfullness, fill = type, color = type)) +
+    geom_density(alpha = 0.2) +
+    theme(legend.position = "none"),
+  rel_heights = c(1.2,1)
+)
+
+
+# Export the single dataframe
+save(uvp6_all, 
+     file = "data/uvp6_lipids_20250320.RData")
+```
+
+## Test vertical profiles
+```{r}
+# Function to create depth profile average plots
+create_plot <- function(var_name, y_label) {
+  ggplot(uvp6_allBin, aes(y = depthBin, 
+                          x = !!sym(paste0(var_name, "_mean")))) +
+    geom_point() +
+    geom_errorbarh(
+      aes(xmin = !!sym(paste0(var_name, "_mean")) - !!sym(paste0(var_name, "_sd")), 
+          xmax = !!sym(paste0(var_name, "_mean")) + !!sym(paste0(var_name, "_sd"))), 
+      height = 1) +
+    geom_text(aes(label = !!sym(paste0(var_name, "_n"))), hjust = -0.2,
+              vjust = -0.5, size = 3) +
+    labs(y = "Depth Bin", x = y_label, title = paste("", y_label)) +
+    scale_y_discrete(limits = rev)
+}
+
+ggplot(uvp6_all %>% 
+         filter(type != "predicted"), 
+       aes(y = lipid, x = Depth_5m)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  coord_flip() 
+
+binsize <-  50
+uvp6_allBin <- uvp6_all %>% 
+  filter(type != "predicted")  %>% 
+  filter(sample_cruise == "darkedge") %>% 
+  # filter(type == "annotated") %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.))))) %>% 
+  # TODO change after new curation
+  filter(lipid_mean < 1000)
+  
+
+cowplot::plot_grid(create_plot("prosome", "Prosome"), 
+                   create_plot("lipid", "Lipid"), 
+                   create_plot("lipidfullness", "Lipid Fullness"),
+                   nrow = 1, labels = "AUTO")
+
+uvp6_allBin <- uvp6_all %>% 
+  filter(type != "predicted")  %>% 
+  filter(sample_cruise != "darkedge") %>% 
+  # filter(type == "annotated") %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.))))) %>% 
+  # TODO change after new curation
+  filter(lipid_mean < 1000)
+  
+
+cowplot::plot_grid(create_plot("prosome", "Prosome"), 
+                   create_plot("lipid", "Lipid"), 
+                   create_plot("lipidfullness", "Lipid Fullness"),
+                   nrow = 1, labels = "AUTO")
+
+
+uvp6_allBin <- uvp6_all %>% 
+  filter(type == "cant segment")  %>% 
+  # filter(type == "annotated") %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.))))) %>% 
+  # TODO change after new curation
+  filter(lipid_mean < 1000)
+  
+
+cowplot::plot_grid(create_plot("prosome", "Prosome"), 
+                   create_plot("lipid", "Lipid"), 
+                   create_plot("lipidfullness", "Lipid Fullness"),
+                   nrow = 1, labels = "AUTO")
+
+
+uvp6_allBin <- uvp6_all %>% 
+  filter(type == "lipid sac")  %>% 
+  # filter(type == "annotated") %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.))))) %>% 
+  # TODO change after new curation
+  filter(lipid_mean < 1000)
+  
+
+cowplot::plot_grid(create_plot("prosome", "Prosome"), 
+                   create_plot("lipid", "Lipid"), 
+                   create_plot("lipidfullness", "Lipid Fullness"),
+                   nrow = 1, labels = "AUTO")
+
+
+
+# how many observations with depth bins
+# few copepods beyond 1,000 m for now because this does not include much of the deep stations in Baffin Bay yet
+binsize <-  100
+uvp6_all %>% 
+  filter(type != "predicted") %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  group_by(depthBin) %>% 
+  summarise(n())
+```
+
+
+
+## Inspect likely erroneous segmentations
+- copepods smaller and larger than what was in the training data, which technically are extrapolations (now, no larger instances)... resolve to remove all images that are smaller than what was trained
+```{r, eval=FALSE}
+min_major <- filter(uvp6_sub_table, column == "Major")$min
+max_major <- filter(uvp6_sub_table, column == "Major")$max
+
+cnn_outfol <- "C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp2/"
+
+uvp6_meta.new.extrap <- uvp6_meta.new  %>% 
+  # filter(lipidpcrop_pixels_predicted > 2000) %>% 
+  filter(Major < min_major | Major > max_major) %>%
+  # complete the filenames
+  mutate(filename = paste0(cnn_outfol, object_id, "_overlapRGB.png"))
+
+# Display the images
+open_images <- function(filenames) {
+  for (file in filenames) {
+    if (file.exists(file)) {
+      if (.Platform$OS.type == "windows") {
+        shell.exec(file)  # Opens the image in the default viewer on Windows
+      } else {
+        system(paste("xdg-open", shQuote(file)), wait = FALSE)  # Linux
+        system(paste("open", shQuote(file)), wait = FALSE)  # macOS
+      }
+    } else {
+      message(paste("File not found:", file))
+    }
+  }
+}
+open_images(uvp6_meta.new.extrap$filename[1:4])
+```
+
 
 # Does the UVP6 model work with the downscaled LOKI by 1/4?
 The model trained on the UVP6 data tends to overestimate the lipid content of the downscaled LOKI images. Maybe this is because the downscaled LOKI resolution is actually coarser at 92 um versus the 84 um uvp 6 resolution, which means images are smaller for the downscaled UVP.

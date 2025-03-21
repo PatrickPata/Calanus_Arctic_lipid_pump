@@ -15,7 +15,87 @@ library(tidyverse)
 `%notin%` <- Negate(`%in%`)
 
 load("data/uvp6_deam_living_20250320.RData")
+theme_set(theme_bw())
 ```
+
+# Calculate overall mesozooplankton abundance and copepod fraction by depth
+- In darkedge 2021, three samples have very high image number in the 5m bins around 105 m for copepoda, these are: "de430_004_yo01" "de430_004_yo02" "de430_004_yo03". Could this be an artifact of repeated images or actually a concentration max? The sampled volumes at these bins were actually very high so the number of images are likely true.
+```{r}
+abund <- uvp6_de %>% 
+  rename(lon = object_lon, lat = object_lat, 
+         date = object_date, depth = object_depth_min,
+         volume_m3 = Sampled_volume_m3) %>% 
+  group_by(sample_id, lon, lat, Depth_5m, volume_m3, taxagroup) %>% 
+  summarise(nimgs = n(),
+            .groups = "drop") %>% 
+  mutate(abundance = nimgs/volume_m3)
+
+
+# To get abundance at other bin sizes, need to full join ?the volume data in uvp6_ecopart so it records the bins with zero abundance. Easier if the ecopart data is pre binned
+binsize <-  50
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n()) %>% 
+  mutate(binsize = binsize)
+
+# integrated to 50 m depth bins [must sum individuals and divide by volume BUT including zero abundances], not just average
+
+abundBin <- abund %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Depth_5m, volume_m3, abundance)) %>% 
+  left_join(uvp6_ecopartBin %>% select(-nbins),
+            by = join_by(sample_id, depthBin)) %>% 
+  group_by(sample_id, lon, lat, depthBin, taxagroup, binsize, volume_m3) %>% 
+  summarise(nimgsBin = sum(nimgs),
+            .groups = "drop") %>% 
+  mutate(abundanceBin = nimgsBin / volume_m3)
+  
+# Total abundance and copepod fraction
+abundBinTotal <- abundBin %>% 
+  group_by(sample_id, lon, lat, depthBin, binsize) %>% 
+  summarise(abundanceTotal = sum(abundanceBin), 
+            nimgsTotal = sum(nimgsBin),
+            .groups = "drop")  %>% 
+  # Copepod fraction of abundance
+  left_join(abundBin %>% 
+              filter(taxagroup == "Copepoda") %>% 
+              select(sample_id, depthBin, abundCope = abundanceBin),
+            by = join_by(sample_id, depthBin)) %>% 
+  mutate(copepod_frac = abundCope/abundanceTotal) %>% 
+  mutate(copepod_frac = if_else(is.na(copepod_frac),
+                                0, copepod_frac))
+
+
+ggplot(abundBinTotal, aes(y = abundanceTotal, x = depthBin,
+                          fill = copepod_frac)) +
+  geom_line(aes(color = sample_id), alpha = 0.4)+
+  geom_point(shape = 21) +
+  geom_smooth() +
+  scale_x_reverse() +
+  coord_flip() +
+  scale_fill_viridis_c() +
+  guides(color="none")
+
+# TODO add fraction of copepods with lipid segmented
+# TODO now try biovolume??
+
+# Get upper 200 m abundance?
+
+# # Check instances when number of images in a 5m bin is high
+# AA <- abund %>% 
+#   filter(nimgs > 100)
+# BB <- uvp6_de %>% 
+#   filter(sample_id %in% AA$sample_id) %>% 
+#   filter(Depth_5m %in% AA$Depth_5m) %>% 
+#   filter(taxagroup %in% AA$taxagroup)
+# 
+# ggplot(BB, aes(x = sample_id, y = object_major)) +
+#   geom_boxplot()
+
+```
+
 
 # Check the taxonomy list and export the reduced data 
 ```{r, eval=FALSE}
@@ -40,7 +120,7 @@ taxanames
 pattern <- paste(c("detritus","feces","egg","t00","dead","antenna","tentacle","part","over segmented","Actinopterygii",
                    "artefact","sphere","crystal","turbid","reflection",
                    "bubble","badfocus",
-                   "othertocheck","dark",
+                   "othertocheck","dark","Collodaria",
                    "solitary","Medusettidae","rhizaria","Rhizaria",
                    "Aulacanthidae","Aulophaeridae","Cannosphaeridae",
                    "Aulosphaeridae","Coelodendridae","Coelographis"),
@@ -49,8 +129,6 @@ to_exclude_taxa <- taxanames[grepl(pattern, taxanames)]
 
 to_exclude_taxa
 sort(taxanames[!grepl(pattern, taxanames)])
-
-# TODO manually reassign names
 
 
 # Curate taxa list
@@ -62,10 +140,107 @@ nrow(uvp6_am)
 uvp6_am <- uvp6_am %>% 
   filter(object_annotation_category %notin% to_exclude_taxa)
 
-save(uvp6_am, uvp6_de,
+# Organize to major groups
+taxamatch <- tibble(object_annotation_category = 
+                          unique(c(uvp6_am$object_annotation_category,
+                                   uvp6_de$object_annotation_category))) %>% 
+  arrange(object_annotation_category) %>% 
+  mutate(taxaname = object_annotation_category) %>% 
+  mutate(taxaname = if_else(taxaname %in% c("Copepoda<Maxillopoda"),
+                        "Copepoda", taxaname),
+         taxaname = if_else(taxaname %in% c("side<with visible lipid sac",
+                                            "top-bottom<with visible lipid sac"),
+                            "Calanus", taxaname),
+         taxaname = if_else(taxaname %in% c("Cnidaria<Metazoa"),
+                            "Cnidaria", taxaname),
+         taxaname = if_else(taxaname %in% c("Ctenophora X", "Ctenophora<Metazoa"),
+                            "Ctenophora", taxaname),
+         taxaname = if_else(taxaname %in% c("larvae<Echinodermata"),
+                            "Echinodermata", taxaname)) %>% 
+  mutate(taxagroup = taxaname) %>% 
+  mutate(taxagroup = if_else(taxaname %in% c("Calanus","Metridia","Paraeuchaeta",
+                                             "Oncaeidae"),
+                             "Copepoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Hyperiidea"),
+                             "Amphipoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Beroe abyssicola","Cydippida"),
+                             "Ctenophora", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Limacinidae","Clionidae"),
+                             "Pteropoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Eukrohnia"),
+                             "Chaetognatha", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Phyllodocida","Swima","Poeobius"),
+                             "Annelida", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Euphysa","Halitholus",
+                                             "Aeginopsis","Aglantha digitale",
+                                             "Botrynema ellinorae"),
+                             "Hydromedusae", taxagroup))
+
+uvp6_am <- uvp6_am %>% 
+  left_join(taxamatch)
+
+
+uvp6_de <- uvp6_de %>% 
+  left_join(taxamatch)
+
+# Add the volume per 5m bin information from ECOPART
+uvp6_de_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  # Rename sample_id and Depth_5m to clearly specify bin size
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+uvp6_amund_ecopart <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_40_Amudsen2023/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+uvp6_ecopart <- bind_rows(uvp6_de_ecopart, uvp6_amund_ecopart)
+
+# Match sample to volume (+- 2.5)
+uvp6_am <- uvp6_am %>% 
+  mutate(Depth_5m = floor(object_depth_min / 5)*5+2.5) %>% 
+  left_join(uvp6_de_ecopart,
+            by = join_by(sample_id, Depth_5m))
+
+uvp6_de <- uvp6_de %>% 
+  mutate(Depth_5m = floor(object_depth_min / 5)*5+2.5) %>% 
+  left_join(uvp6_de_ecopart,
+            by = join_by(sample_id, Depth_5m)) 
+
+
+save(uvp6_am, uvp6_de, taxamatch, uvp6_ecopart,
      file = "data/uvp6_deam_living_20250320.RData")
 ```
 
+## Check if the ecopart 5m bin skips and if volumes are consistent
+```{r}
+ggplot(uvp6_de_ecopart, aes(x = Depth_5m, y = Sampled_volume_L, 
+                            color = sample_id)) +
+  geom_point() +
+  geom_line()
+
+AA <- uvp6_de_ecopart %>% 
+  filter(Sampled_volume_L > 1000)
+
+# Check for gaps in Depth_5m per sample_id
+depth_gaps <- uvp6_de_ecopart %>%
+  group_by(sample_id) %>%
+  summarise(
+    actual_depths = list(sort(unique(Depth_5m))),
+    expected_depths = list(seq(min(Depth_5m, na.rm = TRUE),
+                               max(Depth_5m, na.rm = TRUE),
+                               by = 5)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    missing_depths = map2(expected_depths, actual_depths, setdiff),
+    has_gaps = lengths(missing_depths) > 0
+  )
+
+# No gaps so can full join!
+```
 
 # 
 ```{r}

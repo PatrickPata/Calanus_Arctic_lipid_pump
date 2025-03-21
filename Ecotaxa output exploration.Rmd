@@ -12,6 +12,72 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load libraries and data
 ```{r}
 library(tidyverse)
+`%notin%` <- Negate(`%in%`)
+
+load("data/uvp6_deam_living_20250320.RData")
+```
+
+# Check the taxonomy list and export the reduced data 
+```{r, eval=FALSE}
+# The sumarised abundance by sample
+uvp6_de_sum <- read.table("../../UVP/ecotaxa_exported_tsv/export_summary_5108_20250320_2118.tsv",
+                          sep = '\t', header = TRUE) %>% 
+  filter(count != 0)
+uvp6_am_sum <- read.table("../../UVP/ecotaxa_exported_tsv/export_summary_10101_20250320_2126.tsv",
+                          sep = '\t', header = TRUE) %>% 
+  filter(count != 0)
+
+uvp6_de <- read.table("../../UVP/ecotaxa_exported_tsv/ecotaxa_export_5108_20250320_2120.tsv",
+                          sep = '\t', header = TRUE) 
+
+uvp6_am <- read.table("../../UVP/ecotaxa_exported_tsv/ecotaxa_export_10101_20250320_2129.tsv",
+                          sep = '\t', header = TRUE) 
+
+taxanames <- unique(c(uvp6_am_sum$taxonid, uvp6_de_sum$taxonid))
+taxanames
+
+# Identify list of names to exclude (detritus, Rhizaria)
+pattern <- paste(c("detritus","feces","egg","t00","dead","antenna","tentacle","part","over segmented","Actinopterygii",
+                   "artefact","sphere","crystal","turbid","reflection",
+                   "bubble","badfocus",
+                   "othertocheck","dark",
+                   "solitary","Medusettidae","rhizaria","Rhizaria",
+                   "Aulacanthidae","Aulophaeridae","Cannosphaeridae",
+                   "Aulosphaeridae","Coelodendridae","Coelographis"),
+                 collapse = "|")
+to_exclude_taxa <- taxanames[grepl(pattern, taxanames)]
+
+to_exclude_taxa
+sort(taxanames[!grepl(pattern, taxanames)])
+
+# TODO manually reassign names
+
+
+# Curate taxa list
+nrow(uvp6_de)
+uvp6_de <- uvp6_de %>% 
+  filter(object_annotation_category %notin% to_exclude_taxa)
+
+nrow(uvp6_am)
+uvp6_am <- uvp6_am %>% 
+  filter(object_annotation_category %notin% to_exclude_taxa)
+
+save(uvp6_am, uvp6_de,
+     file = "data/uvp6_deam_living_20250320.RData")
+```
+
+
+# 
+```{r}
+
+```
+
+
+# -------- Old files
+
+# Load libraries and data
+```{r}
+library(tidyverse)
 # library(here)
 # set_here(path = "..")
 

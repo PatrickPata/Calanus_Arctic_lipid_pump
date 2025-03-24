@@ -22,6 +22,7 @@ theme_set(theme_bw())
 - In darkedge 2021, three samples have very high image number in the 5m bins around 105 m for copepoda, these are: "de430_004_yo01" "de430_004_yo02" "de430_004_yo03". Could this be an artifact of repeated images or actually a concentration max? The sampled volumes at these bins were actually very high so the number of images are likely true.
 ```{r}
 abund <- uvp6_de %>% 
+  # bind_rows(uvp6_am) %>% 
   rename(lon = object_lon, lat = object_lat, 
          date = object_date, depth = object_depth_min,
          volume_m3 = Sampled_volume_m3) %>% 
@@ -95,6 +96,148 @@ ggplot(abundBinTotal, aes(y = abundanceTotal, x = depthBin,
 #   geom_boxplot()
 
 ```
+
+# Surface concentrations
+Stereographic (North Pole): EPSG 3995
+Azimuthal Equal-area (North Pole): EPSG 3413
+```{r}
+binsize <-  150
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n()) %>% 
+  mutate(binsize = binsize)
+
+# integrated to 50 m depth bins [must sum individuals and divide by volume BUT including zero abundances], not just average
+
+abundBin <- abund %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Depth_5m, volume_m3, abundance)) %>% 
+  left_join(uvp6_ecopartBin %>% select(-nbins),
+            by = join_by(sample_id, depthBin)) %>% 
+  group_by(sample_id, lon, lat, depthBin, taxagroup, binsize, volume_m3) %>% 
+  summarise(nimgsBin = sum(nimgs),
+            .groups = "drop") %>% 
+  mutate(abundanceBin = nimgsBin / volume_m3)
+  
+# Total abundance and copepod fraction
+abundBinTotal <- abundBin %>% 
+  group_by(sample_id, lon, lat, depthBin, binsize) %>% 
+  summarise(abundanceTotal = sum(abundanceBin), 
+            nimgsTotal = sum(nimgsBin),
+            .groups = "drop")  %>% 
+  # Copepod fraction of abundance
+  left_join(abundBin %>% 
+              filter(taxagroup == "Copepoda") %>% 
+              select(sample_id, depthBin, abundCope = abundanceBin),
+            by = join_by(sample_id, depthBin)) %>% 
+  mutate(copepod_frac = abundCope/abundanceTotal) %>% 
+  mutate(copepod_frac = if_else(is.na(copepod_frac),
+                                0, copepod_frac))
+
+ggplot(abundBinTotal, aes(y = abundanceTotal, x = depthBin,
+                          fill = copepod_frac)) +
+  geom_line(aes(color = sample_id), alpha = 0.4)+
+  geom_point(shape = 21) +
+  geom_smooth() +
+  scale_x_reverse() +
+  coord_flip() +
+  scale_fill_viridis_c() +
+  guides(color="none")
+
+
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+
+abund_filtered <- abundBinTotal %>% 
+  filter(depthBin == 0)
+
+# *********** AKIMA-style basic interpolation *****************
+library(akima)
+# Interpolate values over a grid
+interp_data <- with(abund_filtered, 
+                    akima::interp(x = lon, y = lat, z = abundanceTotal,
+                                  duplicate = "mean", extrap = FALSE))
+# Convert interpolated data to data frame for ggplot
+interp_df <- with(interp_data, 
+                  expand.grid(x = x, y = y) |> 
+                    transform(z = as.vector(z)))
+
+# Get world coastlines as an sf object
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+ggplot() +
+  # geom_density_2d_filled(data = abund_filtered,
+  #                       aes(x = lon, y = lat, z = abundanceTotal), 
+  #                        contour_var = "ndensity", alpha = 0.5) +
+  geom_raster(data = interp_df, aes(x = x, y = y, fill = z), interpolate = TRUE, alpha = 0.7) +
+  # geom_contour(data = interp_df, aes(x = x, y = y, z = z), color = "black", alpha = 0.4) +
+  
+  geom_sf(data = world, fill = "white", color = "black", size = 0.4) +
+  
+  geom_point(data = abund_filtered,
+             aes(x = lon, y = lat, color = abundanceTotal),
+       size = 5, alpha = 0.8) +
+  scale_color_viridis_c(trans = "log10") +
+  
+  scale_fill_viridis_c(name = "Interpolated", trans = "log10") +
+  coord_sf(xlim = range(abund_filtered$lon),
+           ylim = range(abund_filtered$lat),
+           expand = FALSE) +
+  guides(fill="none")
+
+
+# *********** Kriging interpolation *****************
+# TODO krigging errors!
+library(gstat)
+# Convert to sf object
+abund_sf <- st_as_sf(abund_filtered, coords = c("lon", "lat"), crs = 4326)
+
+# Transform to projected CRS for distance-based analysis
+abund_proj <- st_transform(abund_sf, crs = 3857)  # Web Mercator
+
+# Create a grid for interpolation
+grid_proj <- st_make_grid(abund_proj, cellsize = 10000, what = "centers") |> 
+  st_as_sf() 
+
+# Convert to Spatial* objects (needed for gstat)
+abund_sp <- as_Spatial(abund_proj)
+grid_sp <- as_Spatial(grid_proj)
+
+# Fit variogram model
+vgm_model <- variogram(abundanceTotal ~ 1, data = abund_sp)
+fit_vgm <- fit.variogram(vgm_model, model = vgm("Sph"))
+
+# Kriging interpolation
+kriging_result <- krige(formula = abundanceTotal ~ 1, locations = abund_sp, 
+                        newdata = grid_sp, model = fit_vgm)
+
+# Convert kriging result to sf and back to original CRS
+kriging_sf <- st_as_sf(kriging_result) |> st_transform(crs = 4326)
+
+# Plotting
+ggplot() +
+  geom_sf(data = kriging_sf, aes(fill = var1.pred), color = NA, alpha = 0.8) +
+  geom_contour(data = kriging_sf |> 
+                 st_coordinates() |> 
+                 as.data.frame() |> 
+                 bind_cols(pred = kriging_sf$var1.pred),
+               aes(x = X, y = Y, z = pred), color = "black", alpha = 0.4) +
+  geom_sf(data = world, fill = "white", color = "black", size = 0.4) +
+  geom_point(data = abund_filtered,
+             aes(x = lon, y = lat, color = abundanceTotal),
+             size = 3, alpha = 0.9) +
+  scale_fill_viridis_c(name = "Interpolated", trans = "log10") +
+  scale_color_viridis_c(name = "Observed", trans = "log10") +
+  coord_sf(xlim = range(abund_filtered$lon), 
+           ylim = range(abund_filtered$lat),
+           expand = FALSE) +
+  theme_minimal()
+```
+
+
 
 
 # Check the taxonomy list and export the reduced data 

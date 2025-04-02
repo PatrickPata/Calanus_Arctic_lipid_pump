@@ -21,10 +21,14 @@ res.lipid <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/pr
 
 res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1/prediction_lipids_20250319.csv")
 
-# These results have versions wherein the training data was 20% and test was 80%
-# res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/flipped pct_valid 20percent train/prediction_lipids_cropped_20250317.csv")
-
 res.prosome <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1/prediction_prosome_UVP6_20250319.csv")
+
+
+# # These results have versions wherein the training data was 20% and test was 80%
+# res.lipid <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/flipped pct_valid 20percent train/prediction_lipids_20250317.csv")
+# res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/flipped pct_valid 20percent train/prediction_lipids_cropped_20250317.csv")
+# res.prosome <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/flipped pct_valid 20percent train/prediction_prosome_uvp6_20250317.csv")
+
 
 meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
   distinct(filename, .keep_all = TRUE)
@@ -56,6 +60,16 @@ res.lipid.crop <- res.lipid.crop %>%
   filter(!is.na(num_vertices))
 
 rm(meta.lipid, meta.prosome)
+
+calc_r2 <- function(x, y) {
+  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
+    df <- data.frame(x = x, y = y)
+    model <- lm(y ~ x, data = df, na.action = na.omit)
+    return(round(summary(model)$r.squared, 3))
+  } else {
+    return(NA) # Return NA if column is not numeric or has insufficient data
+  }
+}
 ```
 
 # Train vs Test data
@@ -71,6 +85,7 @@ res.prosome %>%
   group_by(split) %>% 
   summarise(n = n(),
             IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
             Recall.mean = mean(Recall),
             F1score.mean = mean(F1score),
             .groups = "drop")
@@ -87,7 +102,8 @@ cowplot::plot_grid(
   ggplot(res.prosome, aes(x = prosome_pixels_annotated,
                           y = prosome_pixels_predicted,
                           color = split)) +
-    geom_point() +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "none") +
     geom_smooth(method = "lm") +
     geom_abline(),
   
@@ -96,6 +112,7 @@ cowplot::plot_grid(
                           color = split)) +
     geom_point(alpha = 0.2) +
     geom_smooth() +
+    theme(legend.position = "none") +
     geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
     geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
   
@@ -105,6 +122,7 @@ cowplot::plot_grid(
                           color = split)) +
     geom_point(alpha = 0.2) +
     geom_smooth() +
+    theme(legend.position = "bottom") +
     geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
     geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
   
@@ -114,9 +132,15 @@ cowplot::plot_grid(
                           color = split)) +
     geom_point(alpha = 0.2) +
     geom_smooth() +
+    theme(legend.position = "bottom") +
     geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
-    geom_hline(yintercept = 90, linetype = "longdash", color = "orange")
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  rel_heights = c(1,1.2)
 )
+
+
+# ggsave("figures/UVP6_prosome_accuracy.png",
+#        heigh = 5, width = 7, units = "in")
 ```
 
 ## Lipids results
@@ -126,6 +150,7 @@ res.lipid %>%
   group_by(split) %>% 
   summarise(n = n(),
             IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
             Recall.mean = mean(Recall),
             F1score.mean = mean(F1score, na.rm = TRUE),
             .groups = "drop")
@@ -133,6 +158,7 @@ res.lipid.crop %>%
   group_by(split) %>% 
   summarise(n = n(),
             IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
             Recall.mean = mean(Recall),
             F1score.mean = mean(F1score, na.rm = TRUE),
             .groups = "drop")
@@ -150,22 +176,30 @@ comp.lipids <- res.lipid %>%
 cowplot::plot_grid(
   ggplot(comp.lipids, aes(x = lipid_pixels_predicted.x, 
                           y = lipid_pixels_predicted.y, color = split)) +
-    geom_point() +
+    geom_point(alpha = 0.2) +
     theme(legend.position = "none") +
+    xlab("lipid predicted no crop") + 
+    ylab("lipid predicted with crop") +
     geom_abline(),
   
   ggplot(comp.lipids, aes(x = IoU.x, y = IoU.y, color = split)) +
-    geom_point() +
+    geom_point(alpha = 0.2) +
+    xlab("IoU no crop") + 
+    ylab("IoU with crop") +
     theme(legend.position = "none") +
     geom_abline(),
   
   ggplot(comp.lipids, aes(x = Recall.x, y = Recall.y, color = split)) +
-    geom_point() +
+    geom_point(alpha = 0.2) +
+    xlab("Recall no crop") + 
+    ylab("Recall with crop") +
     theme(legend.position = "bottom") +
     geom_abline(),
   
   ggplot(comp.lipids, aes(x = F1score.x, y = F1score.y, color = split)) +
-    geom_point() +
+    geom_point(alpha = 0.2) +
+    xlab("F1 score no crop") + 
+    ylab("F1 score with crop") +
     theme(legend.position = "bottom") +
     geom_abline(),
   rel_heights = c(1,1.2)
@@ -173,18 +207,48 @@ cowplot::plot_grid(
 
 
 
-rm(comp.lipids)
-rm(res.lipid)
+ggsave("figures/UVP6_prosome_crop_comparison.png",
+       heigh = 5, width = 7, units = "in")
+
+
+# rm(comp.lipids)
+# rm(res.lipid)
 ```
 
 ### Analyze the cropped-prosome lipids
 ```{r}
-ggplot(res.lipid.crop, aes(x = num_vertices,
-                        y = IoU,
-                        color = split)) +
-  geom_point() +
-  geom_smooth(model = "lm") 
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = num_vertices,
+                          y = IoU)) +
+    geom_point(alpha = 0.2) +
+    xlab("Number of polygon vertices") +
+    ylab("Prosome IoU") +
+    geom_smooth(model = "lm"), 
+  
+  ggplot(res.lipid.crop, aes(x = num_vertices,
+                             y = IoU)) +
+    geom_point(alpha = 0.2) +
+    xlab("Number of polygon vertices") +
+    ylab("Lipid IoU") +
+    geom_smooth(model = "lm")
+  # 
+  # ggplot(res.prosome, aes(x = num_vertices,
+  #                         y = prosome_pixels_annotated)) +
+  #   geom_point(alpha = 0.2) +
+  #   xlab("Number of polygon vertices") +
+  #   ylab("Prosome pixels") +
+  #   geom_smooth(model = "lm"), 
+  # 
+  # ggplot(res.lipid.crop, aes(x = num_vertices,
+  #                            y = lipid_pixels_annotated)) +
+  #   geom_point(alpha = 0.2) +
+  #   xlab("Number of polygon vertices") +
+  #   ylab("Lipid pixels") +
+  #   geom_smooth(model = "lm") 
+)
 
+ggsave("figures/UVP6_annotation_vertices_accuracy.png",
+       heigh = 3.5, width = 7, units = "in")
 
 # Is accuracy related to how "complex" the polygon mask is?
 cowplot::plot_grid(
@@ -226,69 +290,206 @@ cowplot::plot_grid(
     geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
   rel_heights = c(1,1.2)
 )
+
+
+ggsave("figures/UVP6_lipidcrop_accuracy.png",
+       heigh = 5, width = 7, units = "in")
 ```
 
-## Compare major and minor axis predictions
+
+## Lipid fullness: Combine prosome and lipid, calculate fullness and plot distributions
 ```{r}
-calc_r2 <- function(x, y) {
-  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
-    model <- lm(y ~ x, data = df, na.action = na.omit)
-    return(round(summary(model)$r.squared, 3))
-  } else {
-    return(NA) # Return NA if column is not numeric or has insufficient data
+res.lf.all <- res.lipid.crop %>% 
+  select(filename, lipid_pixels_annotated:lipid_mass_predicted, IoU) %>% 
+  left_join(select(res.prosome,
+                   filename, prosome_pixels_annotated,
+                   prosome_pixels_predicted),
+            by = join_by(filename)) %>% 
+  mutate(lipidfullness_annotated = lipid_pixels_annotated/prosome_pixels_annotated*100,
+         lipidfullness_predicted = lipid_pixels_predicted/prosome_pixels_predicted*100) %>% 
+  mutate(object_id = str_remove(filename,".png"))
+
+# The range of values of the annotated data
+res.anot.range <- res.lf.all %>%
+  select(lipid = lipid_pixels_annotated, prosome = prosome_pixels_annotated,
+         lipidfullness = lipidfullness_annotated) %>% 
+  summarise(across(everything(), list(
+    min = ~min(., na.rm = TRUE),
+    max = ~max(., na.rm = TRUE),
+    mean = ~mean(., na.rm = TRUE),
+    median = ~median(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    n = ~sum(!is.na(.)) # Count of non-NA values
+  ), .names = "{.col}_{.fn}"))
+  # pivot_longer(cols = everything(), names_to = "statistic", values_to = "value") %>%
+  # separate(statistic, into = c("column", "metric"), sep = "_") %>% 
+  # pivot_wider(names_from = metric, values_from = value)
+
+
+# Remove instances when the lipid predicted is obviously wrong and small
+res.lf <- res.lf.all %>% 
+  filter(lipid_pixels_predicted >= res.anot.range$lipid_min &
+           lipid_pixels_predicted <= res.anot.range$lipid_max) %>% 
+  filter(prosome_pixels_predicted >= res.anot.range$prosome_min &
+           prosome_pixels_predicted <= res.anot.range$prosome_max)  %>% 
+  filter(lipidfullness_predicted >= res.anot.range$lipidfullness_min &
+           lipidfullness_predicted <= res.anot.range$lipidfullness_max) %>%
+  # Calculate residual error in lipidfullness for comparison with lipid IoU
+  mutate(fullness_residual = abs(lipidfullness_predicted-lipidfullness_annotated))
+
+cowplot::plot_grid(
+  ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipidfullness_annotated)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(res.lf$lipid_pixels_annotated, na.rm = TRUE),
+             y = min(res.lf$lipidfullness_annotated, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.lf$lipid_pixels_annotated,
+                                             res.lf$lipidfullness_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  
+  ggplot(res.lf, aes(x = lipid_pixels_predicted, y = lipidfullness_predicted)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm")  +
+    annotate("text", x = max(res.lf$lipid_pixels_predicted, na.rm = TRUE),
+             y = min(res.lf$lipidfullness_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.lf$lipid_pixels_predicted,
+                                             res.lf$lipidfullness_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+  
+  # ggplot(res.lf, aes(x = lipidfullness_annotated, y = IoU)) +
+  #   geom_point(alpha = 0.2) +
+  #   geom_smooth(method = "lm") +
+  #   annotate("text", x = max(res.lf$lipidfullness_annotated, na.rm = TRUE),
+  #            y = min(res.lf$IoU, na.rm = TRUE),
+  #            label = paste0("R² = ", calc_r2(res.lf$lipidfullness_annotated,
+  #                                            res.lf$IoU)),
+  #            hjust = 1, vjust = 0, size = 5),
+  
+  # TODO Why is the predicted lipid fullness a bad fit when the predicted pixels are good? Because predicted prosome is slightly larger and predicted lipids slightly smaller??
+  ggplot(res.lf, aes(x = lipidfullness_annotated, y = lipidfullness_predicted)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+    annotate("text", x = max(res.lf$lipidfullness_annotated, na.rm = TRUE),
+             y = min(res.lf$lipidfullness_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.lf$lipidfullness_annotated,
+                                             res.lf$lipidfullness_predicted)),
+             hjust = 1, vjust = 0, size = 5),
+  
+   ggplot(res.lf , aes(x = fullness_residual, y = IoU)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(res.lf$fullness_residual, na.rm = TRUE),
+             y = min(res.lf$IoU, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(res.lf$fullness_residual,
+                                             res.lf$IoU)),
+             hjust = 1, vjust = 0, size = 5) +
+   ylab("Lipid IoU"),
+
+  
+  nrow = 2, labels = "auto"
+)
+
+
+ggsave("figures/UVP6_lipidfullness_evaluation2.png",
+       heigh = 5, width = 7, units = "in")
+```
+
+
+## TODO Residual distribution
+- Negative prosome-LF residual relationship mean that the predicted LF are larger when the predicted prosomes are smaller, while positive lipid-LF residual relationship mean that larger predicted lipid result in high LF.
+```{r}
+residual.check <- res.lf %>% 
+  mutate(prosome_residual = prosome_pixels_predicted - prosome_pixels_annotated,
+         lipid_residual = lipid_pixels_predicted - lipid_pixels_annotated,
+         fullness_residual = lipidfullness_predicted-lipidfullness_annotated)
+
+ggplot(residual.check, aes(x = prosome_residual, y = fullness_residual)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm")
+
+ggplot(residual.check, aes(x = lipid_residual, y = fullness_residual)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm")
+
+ggplot(residual.check, aes(x = fullness_residual)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  geom_density(aes(y = ..density.. * nrow(residual.check) * diff(range(residual.check$fullness_residual)) / 30), size = 1) # Scale density to match histogram
+
+ggplot(residual.check, aes(x = prosome_residual)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  geom_density(aes(y = ..density.. * nrow(residual.check) * diff(range(residual.check$prosome_residual)) / 30), size = 1) 
+
+ggplot(residual.check, aes(x = lipid_residual)) + 
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts
+  geom_density(aes(y = ..density.. * nrow(residual.check) * diff(range(residual.check$lipid_residual)) / 30), size = 1) # Scale density to match histogram
+```
+
+
+
+## Outlier checks
+### Open images at extremes
+```{r, eval=FALSE}
+
+# uvp6_meta.new.extrap <- uvp6_meta.new  %>% 
+#   # filter(lipidpcrop_pixels_predicted > 2000) %>% 
+#   filter(Major < min_major | Major > max_major) %>%
+#   # complete the filenames
+#   mutate(filename = paste0(cnn_outfol, object_id, "_overlapRGB.png"))
+
+# Function to display the images
+open_images <- function(filenames) {
+  for (file in filenames) {
+    if (file.exists(file)) {
+      if (.Platform$OS.type == "windows") {
+        shell.exec(file)  # Opens the image in the default viewer on Windows
+      } else {
+        system(paste("xdg-open", shQuote(file)), wait = FALSE)  # Linux
+        system(paste("open", shQuote(file)), wait = FALSE)  # macOS
+      }
+    } else {
+      message(paste("File not found:", file))
+    }
   }
 }
 
-cowplot::plot_grid(
-  ggplot(res.prosome, aes(x = prosome_major_annotated,
-                          y = prosome_major_predicted)) +
-    geom_point(alpha = 0.2) +
-    geom_abline() +
-    geom_smooth(method = "lm") +
-    annotate("text", x = max(res.prosome$prosome_major_annotated, na.rm = TRUE),
-             y = min(res.prosome$prosome_major_predicted, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(res.prosome$prosome_major_annotated, 
-                                             res.prosome$prosome_major_predicted)),
-             hjust = 1, vjust = 0, size = 5),
-  
-  ggplot(res.prosome, aes(x = prosome_minor_annotated,
-                          y = prosome_minor_predicted)) +
-    geom_point(alpha = 0.2) +
-    geom_abline() +
-    geom_smooth(method = "lm")  +
-    annotate("text", x = max(res.prosome$prosome_minor_annotated, na.rm = TRUE),
-             y = min(res.prosome$prosome_minor_predicted, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(res.prosome$prosome_minor_annotated, 
-                                             res.prosome$prosome_minor_predicted)),
-             hjust = 1, vjust = 0, size = 5),
-  
-  ggplot(res.lipid.crop, aes(x = lipid_major_annotated,
-                             y = lipid_major_predicted,)) +
-    geom_point(alpha = 0.2) +
-    geom_abline() +
-    geom_smooth(method = "lm") +
-    annotate("text", x = max(res.lipid.crop$lipid_major_annotated, na.rm = TRUE),
-             y = min(res.lipid.crop$lipid_major_predicted, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(res.lipid.crop$lipid_major_annotated, 
-                                             res.lipid.crop$lipid_major_predicted)),
-             hjust = 1, vjust = 0, size = 5),
-  
-  
-  # Compare minor axis from ellipse or calculated from area
-  res.prosome %>% 
-    mutate(minor_derived = prosome_pixels_annotated / prosome_major_annotated) %>% 
-    ggplot(aes(x = prosome_minor_annotated, y = minor_derived)) +
-    geom_point() +
-    geom_abline() +
-    annotate("text", x = max(res.prosome$prosome_minor_annotated, na.rm = TRUE),
-             y = min(res.prosome$prosome_minor_predicted, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(res.prosome$prosome_minor_annotated, 
-                                             res.prosome$prosome_minor_predicted)),
-             hjust = 1, vjust = 0, size = 5)
-)
+
+# Prosomes
+cnn_outfol <- "C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1/"
+
+AA <- res.lf %>% 
+  mutate(resid = prosome_pixels_predicted - prosome_pixels_annotated) %>% 
+  filter(prosome_pixels_predicted > 0) %>% 
+  # complete the filenames
+  mutate(object_id = str_replace(filename, ".png","_overlapRGB.png")) %>% 
+  mutate(filename = paste0(cnn_outfol, object_id))
+
+open_images((AA %>% arrange(resid))$filename[1:2])
+open_images((AA %>% arrange(-resid))$filename[1:2])
+open_images((AA %>% 
+               # filter(prosome_pixels_annotated > res.anot.range$prosome_median+300) %>% 
+               arrange(-IoU))$filename[c(8:10)])
+
+cnn_outfol <- "C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1/"
+
+AA <- res.lf %>% 
+  mutate(resid = lipid_pixels_predicted - lipid_pixels_annotated) %>% 
+  filter(lipid_pixels_predicted > 0) %>% 
+  # complete the filenames
+  mutate(object_id = str_replace(filename, ".png","_overlapRGB.png")) %>% 
+  mutate(filename = paste0(cnn_outfol, object_id))
+
+open_images((AA %>% arrange(resid))$filename[1:2])
+open_images((AA %>% arrange(-resid))$filename[c(1,2,3,4)])
+open_images((AA %>% 
+               filter(lipid_pixels_annotated > res.anot.range$lipid_median+300) %>% 
+               arrange(-IoU))$filename[c(1,2,3,4)])
 ```
 
-## Images to exclude from "retraining"
+
+### Images to exclude from "retraining"
 ```{r, eval=FALSE}
 # TODO exclude images with very poor IoU in retraining
 lowIoU.prosome <- res.prosome %>% 
@@ -306,55 +507,6 @@ exclude.list <- bind_rows(lowIoU.lipid, lowIoU.prosome) %>%
   select(filename, label, IoU, Recall, F1score)
 
 rm(lowIoU.lipid, lowIoU.prosome)
-```
-
-
-## Combine prosome and lipid, calculate fullness and plot distributions
-```{r}
-res.lf <- res.lipid.crop %>% 
-  select(filename, lipid_pixels_annotated:lipid_mass_predicted) %>% 
-  left_join(select(res.prosome,
-                   filename, prosome_pixels_annotated,
-                   prosome_pixels_predicted),
-            by = join_by(filename)) %>% 
-  mutate(lipidfullness_annotated = lipid_pixels_annotated/prosome_pixels_annotated*100,
-         lipidfullness_predicted = lipid_pixels_predicted/prosome_pixels_predicted*100) %>% 
-  mutate(object_id = str_remove(filename,".png"))
-
-
-ggplot(res.lf, aes(x = lipid_pixels_annotated, y = prosome_pixels_annotated)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipidfullness_annotated)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(res.lf %>% 
-         filter(lipidfullness_predicted < 100), aes(x = lipid_pixels_predicted, 
-                                                    y = lipidfullness_predicted)) +
-  geom_point() +
-  geom_smooth()
-
-
-
-ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipid_pixels_predicted)) +
-  geom_point() +
-  geom_smooth() +
-  geom_abline()
-
-ggplot(res.lf, aes(x = prosome_pixels_annotated, y = prosome_pixels_predicted)) +
-  geom_point() +
-  geom_smooth() +
-  geom_abline()
-
-# TODO Why is the predicted lipid fullness a bad fit when the predicted pixels are good? Because predicted prosome is slightly larger and predicted lipids slightly smaller??
-ggplot(res.lf %>% 
-         filter(lipidfullness_predicted < 100), aes(x = lipidfullness_annotated, 
-                                                    y = lipidfullness_predicted)) +
-  geom_point() +
-  geom_smooth() +
-  geom_abline()
 ```
 
 
@@ -381,15 +533,18 @@ uvp6_meta <- bind_rows(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund) %
 rm(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund)
 
 # rename object_id for matching with the ecotaxa metadata
-res.prosome <- res.prosome %>% 
+res.prosome <- res.prosome %>%
   mutate(object_id = str_remove(filename,".png"))
-res.lipid.crop <- res.lipid.crop %>% 
+res.lipid.crop <- res.lipid.crop %>%
+  mutate(object_id = str_remove(filename,".png"))
+res.lf <- res.lf %>% 
   mutate(object_id = str_remove(filename,".png"))
 
 # subset to files found in res.lipid.crop OR res.prosome
 uvp6_meta.sub <- uvp6_meta %>% 
-  filter(object_id %in% res.lipid.crop$object_id | 
-           object_id %in% res.prosome$object_id) %>% 
+  filter(object_id %in% res.lf$object_id) %>% 
+  # filter(object_id %in% res.lipid.crop$object_id | 
+  #          object_id %in% res.prosome$object_id) %>% 
   select(object_id,
          lat = object_lat, lon = object_lon, depth = object_depth_min,
          date = object_date, time = object_time,
@@ -406,24 +561,176 @@ uvp6_meta.sub <- uvp6_meta %>%
          `Perim./Major` = object_perimmajor)
 ```
 
-## Morphotrait - segmentation relationships 
+## Major, Minor, Biovolume
 - the segmentations are unrealistic if the predicted major axis is outside the confidence range of the morphotrait major axis
 - also if the image is circular, it is probably not the best imaging angle captured
 ```{r}
 # Compile major axis information
 df <- uvp6_meta.sub %>% 
-  select(object_id, Major, Feret) %>% 
+  select(object_id, Major, Minor, Feret) %>% 
   left_join(select(res.prosome, object_id, IoU.prosome = IoU,
-                   prosome_major_annotated, prosome_major_predicted),
+                   prosome_major_annotated, prosome_major_predicted,
+                   prosome_minor_annotated, prosome_minor_predicted),
             by = "object_id") %>% 
   left_join(select(res.lipid.crop, object_id, IoU.lipid = IoU,
                    lipid_major_annotated, lipid_major_predicted),
-            by = "object_id")
+            by = "object_id") %>% 
+  # add the fullness info if needed
+  left_join(res.lf %>% select(-IoU),
+            by = "object_id") %>% 
+  # add "derived" major axis as pixel_area/major=
+    mutate(prosome_minor_derived_anot = (prosome_pixels_annotated / 
+            (pi * prosome_major_annotated/2)) * 2) %>% 
+    mutate(prosome_minor_derived_pred = (prosome_pixels_predicted / 
+            (pi * prosome_major_predicted/2)) * 2) %>% 
+  # TODO calculate biovolumes based on spheroid (4/3 * pi * a * b * c)
+  mutate(biovolume_EcoTaxa = (4/3) * pi * (Major/2) * (Minor/2)^2,
+         biovolume_annotated = (4/3) * pi * (prosome_major_annotated/2) * (prosome_minor_annotated/2)^2,
+         biovolume_predicted = (4/3) * pi * (prosome_major_predicted/2) * (prosome_minor_predicted/2)^2,
+         biovolume_annotated_deriv = (4/3) * pi * (prosome_major_annotated/2) * (prosome_minor_derived_anot/2)^2,
+         biovolume_predicted_deriv = (4/3) * pi * (prosome_major_predicted/2) * (prosome_minor_derived_pred/2)^2)
 
-df.low.iou <- df %>% 
-  filter(IoU.prosome <= 50 | IoU.lipid <= 50)
 
-# Compre major axis values
+df2 <- df %>% 
+  select(object_id, annotated = prosome_major_annotated, 
+         predicted = prosome_major_predicted,
+         EcoTaxa = Major) %>% 
+  pivot_longer(cols = c(predicted, EcoTaxa),
+               names_to = "method", values_to = "value") %>% 
+  # convert pixles to mm3
+  mutate(value = value * 0.023,
+         annotated = annotated * 0.023) %>% 
+  mutate(method = factor(method, levels = c("predicted","EcoTaxa")))
+
+p2 <- ggplot(df2, aes(x = annotated,
+                      y = value, color = method)) +
+  geom_abline() +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  xlab("Major axis annotated (mm)") + ylab("Major axis (mm)") +
+  theme(legend.position = "bottom") 
+
+df3 <- df %>% 
+  select(object_id, annotated = prosome_minor_annotated, 
+         predicted = prosome_minor_predicted,
+         EcoTaxa = Minor, 
+         annotated_deriv = prosome_minor_derived_anot,
+         predicted_deriv = prosome_minor_derived_pred) %>% 
+  pivot_longer(cols = c(predicted, EcoTaxa, 
+                        annotated_deriv, predicted_deriv),
+               names_to = "method", values_to = "value") %>% 
+  # convert pixles to mm3
+  mutate(value = value * 0.023,
+         annotated = annotated * 0.023) %>% 
+  mutate(method = factor(method, levels = c("predicted","EcoTaxa",
+                                          "annotated_deriv","predicted_deriv")))
+
+p3 <- ggplot(df3, aes(x = annotated,
+                      y = value, color = method)) +
+  geom_abline() +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  xlab("Minor axis annotated (mm)") + ylab("Minor axis (mm)") +
+  theme(legend.position = "bottom")
+
+
+# Plot all biovolumes against best guess (major, derived_minor of annotated)
+df4 <- df %>% 
+  select(object_id, biovolume_EcoTaxa:biovolume_predicted_deriv) %>% 
+  relocate(object_id, biovolume_annotated) %>% 
+  pivot_longer(biovolume_EcoTaxa:biovolume_predicted_deriv,
+               names_to = "method", values_to = "value") %>% 
+  mutate(method = str_remove(method, "biovolume_")) %>% 
+  # convert pixles to mm3
+  mutate(value = value * (0.023^3),
+         biovolume_annotated = biovolume_annotated * (0.023^3)) %>% 
+  mutate(method = factor(method, levels = c("predicted","EcoTaxa",
+                                          "annotated_deriv","predicted_deriv")))
+
+p4 <- ggplot(df4, aes(x = biovolume_annotated,
+                      y = value, color = method)) +
+  geom_abline() +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  xlab("Biovolume based on annotated axes (mm^3)") + ylab("Biovolume (mm^3)") +
+  theme(legend.position = "bottom")
+
+cowplot::plot_grid(p2, p3, p4, ncol = 1, labels = "auto")
+
+
+ggsave("figures/UVP6_major_minor_biovolume2.png",
+       heigh = 9, width = 6, units = "in")
+
+p3
+```
+
+
+
+### extra with R2
+```{r}
+cowplot::plot_grid(
+  ggplot(df, aes(x = prosome_major_annotated * 0.023, 
+                 y = prosome_major_predicted * 0.023)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+   xlab("Major axis annotated") + ylab("Major axis predicted") +
+    annotate("text", x = max(df$prosome_major_annotated * 0.023, na.rm = TRUE),
+             y = min(df$prosome_major_predicted * 0.023, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$prosome_major_predicted, 
+                                             df$prosome_major_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+  
+ ggplot(df, aes(x = prosome_major_annotated * 0.023, y = Major * 0.023)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+   xlab("Major axis annotated") + ylab("Major axis EcoTaxa") +
+    annotate("text", x = max(df$prosome_major_annotated * 0.023, na.rm = TRUE),
+             y = min(df$Major * 0.023, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Major, 
+                                             df$prosome_major_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+ 
+ ggplot(df, aes(x = prosome_minor_annotated * 0.023, y = prosome_minor_predicted * 0.023)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+   xlab("Minor axis annotated") + ylab("Minor axis predicted") +
+    annotate("text", x = max(df$prosome_minor_annotated * 0.023, na.rm = TRUE),
+             y = min(df$prosome_minor_predicted * 0.023, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$prosome_minor_predicted, 
+                                             df$prosome_minor_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+ 
+ ggplot(df, aes(x = prosome_minor_annotated * 0.023, y = Minor * 0.023)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+   xlab("Minor axis annotated") + ylab("Minor axis EcoTaxa") +
+    annotate("text", x = max(df$prosome_minor_annotated * 0.023, na.rm = TRUE),
+             y = min(df$Minor * 0.023, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$Minor, 
+                                             df$prosome_minor_annotated)),
+             hjust = 1, vjust = 0, size = 5),
+ 
+  ggplot(df, aes(x = prosome_minor_annotated * 0.023, 
+                 y = prosome_minor_derived_anot * 0.023)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth(method = "lm") +
+    geom_abline() +
+   xlab("Minor axis annotated") + ylab("Minor axis derived") +
+    annotate("text", x = max(df$prosome_minor_annotated * 0.023, na.rm = TRUE),
+             y = min(df$prosome_minor_derived_anot * 0.023, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df$prosome_minor_derived_anot, 
+                                             df$prosome_minor_annotated)),
+             hjust = 1, vjust = 0, size = 5)
+)
+```
+
+
+```{r}
+# Compare major axis values
 cowplot::plot_grid(
   ggplot(df, aes(x = prosome_major_annotated, y = Major)) +
     geom_point(alpha = 0.2) +
@@ -482,7 +789,6 @@ cowplot::plot_grid(
     geom_smooth(),
   nrow = 3
 )
-
 
 # # Relationship between circularity, thickness, elongation and IoU? 
 # # No clear relationships
@@ -654,7 +960,7 @@ ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
 ```
 
 
-## TODO Compare distrbutions of traint, test, new
+## TODO Compare distrbutions of train, test, new
 ```{r}
 ggplot(res.lf, aes(x = lipid_pixels_annotated)) + 
   geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.4) +  # Histogram with counts

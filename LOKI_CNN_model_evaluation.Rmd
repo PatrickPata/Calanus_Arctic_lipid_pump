@@ -1,0 +1,332 @@
+---
+title: "LOKI_CNN_model_evaluation"
+author: "Patrick Pata"
+date: "2025-03-30"
+output: html_document
+---
+
+
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+
+theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
+
+
+res.lipid <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/loki2013_lipid/prediction_results_lipid.csv")
+
+res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/loki2013_lipid_pcrop/prediction_results_lipid_pcrop.csv")
+
+res.prosome <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/loki2013_prosome/prediction_results_prosome.csv")
+
+meta.testrain <- read.csv("C:/Users/patri/python_workspace/data_loki/dataset_split_lipid_prosomecrop.csv")
+
+res.lipid <- res.lipid %>% 
+  left_join(meta.testrain, by = "filename")
+res.lipid.crop <- res.lipid.crop %>% 
+  left_join(meta.testrain, by = "filename")
+res.prosome <- res.prosome %>% 
+  left_join(meta.testrain, by = "filename")
+
+# meta.lipid <- read.csv(".csv") %>% 
+#   distinct(filename, .keep_all = TRUE)
+# meta.prosome <- read.csv(".csv") %>% 
+#   distinct(filename, .keep_all = TRUE)
+
+# TODO add metadata info
+```
+
+# Train vs Test data
+
+## Prosome results
+- compare pixels, axes
+- plot size/pixels vs accuracy
+- separate test and train
+```{r}
+# Summary stats
+res.prosome %>% 
+  filter(prosome_pixels_predicted != 0) %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score),
+            .groups = "drop")
+
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = prosome_pixels_predicted,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "none") +
+    geom_smooth(method = "lm") +
+    geom_abline(),
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = IoU,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = F1score,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = Recall,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  rel_heights = c(1,1.2)
+)
+
+ggsave("figures/LOKI2013_prosome_accuracy.png",
+       heigh = 5, width = 7, units = "in")
+```
+
+## Lipids results
+### Compare cropped prosome vs original image
+```{r, eval=FALSE}
+res.lipid %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score, na.rm = TRUE),
+            .groups = "drop")
+res.lipid.crop %>% 
+  group_by(split) %>% 
+  summarise(n = n(),
+            IoU.mean = mean(IoU),
+            IoU.median = median(IoU),
+            Recall.mean = mean(Recall),
+            F1score.mean = mean(F1score, na.rm = TRUE),
+            .groups = "drop")
+
+# Compare metrics for with cropped prosome or not
+comp.lipids <- res.lipid %>% 
+  mutate(model = "original image") %>% 
+  # pivot_longer(cols = lipid_pixels_annotated:F1score,
+  #              names_to = "metric", values_to = "value") %>% 
+  left_join(res.lipid.crop %>% 
+              mutate(model = "cropped prosome"),
+            by = join_by(filename, split),
+            suffix = c(" no crop"," with crop")) %>% 
+  rename("lipid annotated no crop" = "lipid_pixels_annotated no crop",
+         "lipid predicted no crop" = "lipid_pixels_predicted no crop",
+         "lipid annotated with crop" = "lipid_pixels_annotated with crop",
+         "lipid predicted with crop" = "lipid_pixels_predicted with crop")
+
+# Model performance is OFTEN (but not always) better when prosome is cropped. The cropped-prosome model can perform really well even when the original image model has poor performance
+cowplot::plot_grid(
+  ggplot(comp.lipids, aes(x = `lipid predicted no crop`, 
+                          y = `lipid predicted with crop`, color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = `IoU no crop`, y = `IoU with crop`, color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = `Recall no crop`, y = `Recall with crop`, color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "bottom") +
+    geom_abline(),
+  
+  ggplot(comp.lipids, aes(x = `F1score no crop`, y = `F1score with crop`, color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "bottom") +
+    geom_abline(),
+  rel_heights = c(1,1.2)
+)
+
+
+ggsave("figures/LOKI2013_prosome_crop_comparison.png",
+       heigh = 5, width = 7, units = "in")
+
+# rm(comp.lipids)
+# rm(res.lipid)
+```
+
+### Analyze the cropped-prosome lipids
+```{r}
+cowplot::plot_grid(
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = lipid_pixels_predicted,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_abline(),
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = IoU,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = F1score,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = Recall,
+                             color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  rel_heights = c(1,1.2)
+)
+
+ggsave("figures/LOKI2013_lipidcrop_accuracy.png",
+       heigh = 5, width = 7, units = "in")
+```
+
+## Combine prosome and lipid, calculate fullness and plot distributions
+```{r}
+res.lf <- res.lipid.crop %>% 
+  select(filename, lipid_pixels_annotated:lipid_pixels_predicted) %>% 
+  left_join(select(res.prosome,
+                   filename, prosome_pixels_annotated,
+                   prosome_pixels_predicted),
+            by = join_by(filename)) %>% 
+  mutate(lipidfullness_annotated = lipid_pixels_annotated/prosome_pixels_annotated*100,
+         lipidfullness_predicted = lipid_pixels_predicted/prosome_pixels_predicted*100) %>% 
+  mutate(object_id = str_remove(filename,".png"))
+
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = prosome_pixels_annotated)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipidfullness_annotated)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(res.lf %>% 
+         filter(lipidfullness_predicted < 100), aes(x = lipid_pixels_predicted, 
+                                                    y = lipidfullness_predicted)) +
+  geom_point() +
+  geom_smooth()
+
+
+
+ggplot(res.lf, aes(x = lipid_pixels_annotated, y = lipid_pixels_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+
+ggplot(res.lf, aes(x = prosome_pixels_annotated, y = prosome_pixels_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+
+# TODO Why is the predicted lipid fullness a bad fit when the predicted pixels are good? Because predicted prosome is slightly larger and predicted lipids slightly smaller??
+ggplot(res.lf %>% 
+         filter(lipidfullness_predicted < 100), aes(x = lipidfullness_annotated, 
+                                                    y = lipidfullness_predicted)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline()
+```
+
+
+
+# Matching LOKI metadata
+Note that only 4 dates were used in the LOKI 2013 lipid sementations, (2013-08-15, 2013-08-16, 2013-08-18, 2013-09-02)
+```{r, eval=FALSE}
+load("data/LOKI2013_metadata.RData"))
+`%notin%` <- Negate(`%in%`)
+
+# The list of images used in the prosome and lipid segmentation
+meta.testrain <- meta.testrain %>% 
+  mutate(object_id = str_remove(filename, ".bmp"))
+
+# ** Both the JPR paper metadata and the Loki-copepod lipids ecotaxa project retain the longitude, latitude, and depth inforation that are found in the ArcticNet_2013 project
+
+# Only copepods with visible lipid sac (subset for prosome segmentation?)
+# This is a smaller set of images than those used in the JPR paper and even a smaller subset of images with segmented prosomes
+lokiLipid <- read.table("../../Laval-imaging-analysis/LOKI_for_prosome_segmentation/ecotaxa_export_2331_20250331_1834.tsv", sep = '\t', header = TRUE)
+
+# # Actually the JPR paper uses 2216 images which are list in this file. These will exactly match the object_ids of the files used in the segmentation
+# lokiJPR <- read.table("data/ecotaxa_table_JPR-2023-061.tsv",
+#                    sep = "\t", header = TRUE)
+# lokiJPR <- lokiJPR[-1,]
+
+AA <- lokiLipid %>% 
+  filter(object_id %in% meta.testrain$object_id)
+
+
+# 
+# # The LOKI_ArcticNet_2013 project data (takes a long time to open)
+# meta <- read.csv("C:/Users/patri/Downloads/export_12063_20250122_1820/ecotaxa_export_12063_20250122_1820.tsv",
+#                  sep = '\t', header = TRUE)
+
+meta <- meta %>% 
+  mutate(object_id = str_squish(object_id))
+
+metasub <- meta %>% 
+  filter(object_date %in% unique(lokiLipid$object_date)) %>% 
+  select(object_id:object_time) %>% 
+# sample_id is the first three segments of object_id
+  mutate(sample_id = str_sub(object_id, start = 1, end = 19)) %>% 
+  mutate(sample_id2 = str_sub(object_id, start = 1, end = 15))
+
+# Only 581 images have a direct match with the ArcticNet2013 metadata
+zz <- meta %>% 
+  filter(object_id %in% lokiLipid$object_id)
+
+# List the images in the JPR analysis with no clear metadata
+# Matching by object_date, object_time, and sample_id does not work and even the 12 supposed matches have wrong object_ids
+loki_tofind <- lokiLipid %>% 
+  filter(object_id %notin% metasub$object_id) %>% 
+  select(object_id_tofind = object_id,
+         object_date, object_time, sample_id, sample_cruise, sample_stationid) %>% 
+  mutate(sample_id2 = str_sub(object_id_tofind, start = 1, end = 15)) %>% 
+  left_join(metasub,
+            by = join_by(object_date, object_time, sample_id2)) %>% 
+  filter(!is.na(object_lon))
+
+# Most samples occured on the same date so object_data is not effective alone. Matching by both object_date and object_time also is not effective since many WRONG sample_id matches are linked to the same object_data and object_time.
+loki_tofind2 <- lokiLipid %>% 
+  filter(object_id %notin% metasub$object_id) %>% 
+  select(object_id_tofind = object_id,
+         object_date, object_time, sample_id, sample_cruise, sample_stationid) %>% 
+  left_join(metasub,
+            by = join_by(object_date, object_time))
+
+# save(meta, lokiLipid, file = "data/LOKI2013_metadata.RData")
+```
+

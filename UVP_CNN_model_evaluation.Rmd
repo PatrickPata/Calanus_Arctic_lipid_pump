@@ -729,7 +729,7 @@ cowplot::plot_grid(
 ```
 
 
-```{r}
+```{r, eval=FALSE}
 # Compare major axis values
 cowplot::plot_grid(
   ggplot(df, aes(x = prosome_major_annotated, y = Major)) +
@@ -921,27 +921,36 @@ to_exclude <- uvp6_meta.new %>%
            lipidfullness2 < filter(uvp6_sub_table, column == "lipidfullness")$min |
            lipidfullness2 > filter(uvp6_sub_table, column == "lipidfullness")$max )
 
+cowplot::plot_grid(
+  ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicted)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    geom_hline(yintercept = c(filter(uvp6_sub_table, column == "prosome")$min,
+                              filter(uvp6_sub_table, column == "prosome")$max),
+               color = "red", linetype = "dotted") +
+    geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
+                              filter(uvp6_sub_table, column == "lipid")$max),
+               color = "red", linetype = "dotted") +
+    xlab("lipid area pixels") +
+    ylab("prosome area pixels"),
+  
+  ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    geom_hline(yintercept = c(filter(uvp6_sub_table, column == "lipidfullness")$min,
+                              filter(uvp6_sub_table, column == "lipidfullness")$max),
+               color = "red", linetype = "dotted") +
+    geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
+                              filter(uvp6_sub_table, column == "lipid")$max),
+               color = "red", linetype = "dotted") +
+    xlab("lipid area pixels") +
+    ylab("lipid fullness"),
+   labels = "auto"
+)
 
-ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicted)) +
-  geom_point() +
-  geom_smooth() +
-  geom_hline(yintercept = c(filter(uvp6_sub_table, column == "prosome")$min,
-                            filter(uvp6_sub_table, column == "prosome")$max),
-             color = "red", linetype = "dotted") +
-  geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
-                            filter(uvp6_sub_table, column == "lipid")$max),
-             color = "red", linetype = "dotted")
 
-ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
-  geom_point() +
-  geom_smooth() +
-  geom_hline(yintercept = c(filter(uvp6_sub_table, column == "lipidfullness")$min,
-                            filter(uvp6_sub_table, column == "lipidfullness")$max),
-             color = "red", linetype = "dotted") +
-  geom_vline(xintercept = c(filter(uvp6_sub_table, column == "lipid")$min,
-                            filter(uvp6_sub_table, column == "lipid")$max),
-             color = "red", linetype = "dotted")
-
+ggsave("figures/UVP6_newimages_with_extremes.png",
+       height = 4, width = 7, units = "in")
 
 # TODO filter the ones with lipid segmentattions AND potentially eroneous/too small??
 # Apply the "image quality filter to the images data
@@ -1061,7 +1070,8 @@ uvp6_annot <- bind_rows(
     select(object_id, prosome = prosome_pixels_predicted,
            lipid = lipid_pixels_predicted, 
            lipidfullness = lipidfullness_predicted) %>% 
-    mutate(type = "predicted"),
+    mutate(type = "predicted") %>% 
+    filter(object_id %in% res.lf$object_id),
 ) %>% 
   filter(!is.na(lipidfullness))
 
@@ -1072,7 +1082,7 @@ uvp6_pred <- newimgs %>%
          lipidfullness = lipidfullness2,
          type = predLipidSac)
 
-# Combine and add metadata
+# Combine and add metadata (n = 8394)
 uvp6_all <- bind_rows(uvp6_annot, uvp6_pred) %>% 
   left_join(uvp6_meta %>% 
               select(object_id,
@@ -1096,7 +1106,14 @@ uvp6_all <- bind_rows(uvp6_annot, uvp6_pred) %>%
   # Add the volumes matching the 5m depth bins
   mutate(Depth_5m = floor(depth / 5)*5+2.5) %>% 
   left_join(uvp6_volumes,
-            by = join_by(sample_id, Depth_5m))
+            by = join_by(sample_id, Depth_5m)) %>% 
+  # rename and level the method type facors
+  mutate(type = if_else(type == "cant segment",
+                        "not visible", type),
+         type = if_else(type == "lipid sac",
+                        "visible",type)) %>% 
+  mutate(type = factor(type, levels = c("annotated","predicted",
+                                        "visible","not visible")))
   
 rm(uvp6_annot, uvp6_pred, df.temp)
 
@@ -1104,24 +1121,33 @@ cowplot::plot_grid(
   ggplot(uvp6_all, aes(x = lipid, fill = type)) +
     geom_histogram(aes(y = ..count..), bins = 30, 
                    position = "identity", alpha = 0.4) +
-    theme(legend.position = "bottom"),
+    xlab("lipid area pixels") +
+    theme(legend.position = "none"),
   
   # For the annotated images, the prediction pair as a similar distribution. The new data that were classified as with lipid sac, generally follows that distribution, although the mode is slightly higher. However, the images identified as "cant segment lipid sac" had more images predicted to have smaller lipid sacs and a significantly different distribution. T
   ggplot(uvp6_all, aes(x = lipid, fill = type, color = type)) +
     geom_density(alpha = 0.2) +
-    theme(legend.position = "bottom"),
+    xlab("lipid area pixels") +
+    theme(legend.position = "none"),
   
   ggplot(uvp6_all, aes(x = prosome, fill = type, color = type)) +
     geom_density(alpha = 0.2) +
-    theme(legend.position = "none"),
+    xlab("prosome area pixels") +
+    theme(legend.position = "bottom"),
   
   ggplot(uvp6_all %>% 
            filter(lipidfullness <= 65), # note that for the predicted LF during training, some overestimated LF because the prosome was separately segmented. Type = predicted will not be used in the analysis anyway but need to filter these out still for these figures. (N = 19 instances for LF > 65%)
          aes(x = lipidfullness, fill = type, color = type)) +
     geom_density(alpha = 0.2) +
-    theme(legend.position = "none"),
-  rel_heights = c(1.2,1)
+    xlab("lipid fullness") +
+    theme(legend.position = "bottom"),
+  rel_heights = c(1,1.2)
 )
+
+
+
+ggsave("figures/UVP6_distrib_new_and_segmented.png",
+       height = 5, width = 10, units = "in")
 
 
 # Export the single dataframe
@@ -1146,18 +1172,18 @@ create_plot <- function(var_name, y_label) {
     scale_y_discrete(limits = rev)
 }
 
-ggplot(uvp6_all %>% 
-         filter(type != "predicted"), 
-       aes(y = lipid, x = Depth_5m)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth() +
-  coord_flip() 
+# ggplot(uvp6_all %>% 
+#          filter(type != "predicted"), 
+#        aes(y = lipid, x = Depth_5m)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth() +
+#   coord_flip() 
 
 binsize <-  50
 uvp6_allBin <- uvp6_all %>% 
   filter(type != "predicted")  %>% 
   filter(sample_cruise == "darkedge") %>% 
-  # filter(type == "annotated") %>% 
+  filter(type == "annotated") %>%
   mutate(depthBin = floor(depth/binsize)*binsize) %>% 
   mutate(depthBin = as.factor(depthBin)) %>% 
   select(depthBin, prosome, lipid, lipidfullness) %>% 
@@ -1169,15 +1195,18 @@ uvp6_allBin <- uvp6_all %>%
   filter(lipid_mean < 1000)
   
 
-cowplot::plot_grid(create_plot("prosome", "Prosome"), 
-                   create_plot("lipid", "Lipid"), 
-                   create_plot("lipidfullness", "Lipid Fullness"),
-                   nrow = 1, labels = "AUTO")
+cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
+                   create_plot("lipid", "Lipid area"), 
+                   create_plot("lipidfullness", "Lipid fullness"),
+                   nrow = 1, labels = "auto")
+
+ggsave("figures/UVP6_vert_darkedge_annot.png",
+       height = 5, width = 7, units = "in")
 
 uvp6_allBin <- uvp6_all %>% 
   filter(type != "predicted")  %>% 
   filter(sample_cruise != "darkedge") %>% 
-  # filter(type == "annotated") %>% 
+  filter(type == "annotated") %>%
   mutate(depthBin = floor(depth/binsize)*binsize) %>% 
   mutate(depthBin = as.factor(depthBin)) %>% 
   select(depthBin, prosome, lipid, lipidfullness) %>% 
@@ -1189,14 +1218,17 @@ uvp6_allBin <- uvp6_all %>%
   filter(lipid_mean < 1000)
   
 
-cowplot::plot_grid(create_plot("prosome", "Prosome"), 
-                   create_plot("lipid", "Lipid"), 
-                   create_plot("lipidfullness", "Lipid Fullness"),
-                   nrow = 1, labels = "AUTO")
+cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
+                   create_plot("lipid", "Lipid area"), 
+                   create_plot("lipidfullness", "Lipid fullness"),
+                   nrow = 1, labels = "auto")
+
+ggsave("figures/UVP6_vert_amundsen_annot.png",
+       height = 5, width = 7, units = "in")
 
 
 uvp6_allBin <- uvp6_all %>% 
-  filter(type == "cant segment")  %>% 
+  filter(type == "not visible")  %>% 
   # filter(type == "annotated") %>% 
   mutate(depthBin = floor(depth/binsize)*binsize) %>% 
   mutate(depthBin = as.factor(depthBin)) %>% 
@@ -1209,14 +1241,18 @@ uvp6_allBin <- uvp6_all %>%
   filter(lipid_mean < 1000)
   
 
-cowplot::plot_grid(create_plot("prosome", "Prosome"), 
-                   create_plot("lipid", "Lipid"), 
-                   create_plot("lipidfullness", "Lipid Fullness"),
-                   nrow = 1, labels = "AUTO")
+cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
+                   create_plot("lipid", "Lipid area"), 
+                   create_plot("lipidfullness", "Lipid fullness"),
+                   nrow = 1, labels = "auto")
+
+ggsave("figures/UVP6_vert_pred_notvis.png",
+       height = 6, width = 7, units = "in")
+
 
 
 uvp6_allBin <- uvp6_all %>% 
-  filter(type == "lipid sac")  %>% 
+  filter(type == "visible")  %>% \\
   # filter(type == "annotated") %>% 
   mutate(depthBin = floor(depth/binsize)*binsize) %>% 
   mutate(depthBin = as.factor(depthBin)) %>% 
@@ -1229,10 +1265,14 @@ uvp6_allBin <- uvp6_all %>%
   filter(lipid_mean < 1000)
   
 
-cowplot::plot_grid(create_plot("prosome", "Prosome"), 
-                   create_plot("lipid", "Lipid"), 
-                   create_plot("lipidfullness", "Lipid Fullness"),
-                   nrow = 1, labels = "AUTO")
+cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
+                   create_plot("lipid", "Lipid area"), 
+                   create_plot("lipidfullness", "Lipid fullness"),
+                   nrow = 1, labels = "auto")
+
+ggsave("figures/UVP6_vert_pred_visible.png",
+       height = 6, width = 7, units = "in")
+
 
 
 

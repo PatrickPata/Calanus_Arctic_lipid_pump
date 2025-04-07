@@ -1,0 +1,100 @@
+---
+title: "UVP6_lipidscape_analysis"
+author: "Patrick Pata"
+date: "2025-04-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load the libraries and data
+```{r}
+library(tidyverse)
+library(lubridate)
+
+# This is the data with the annotated and predicted values (with annotation, visible lipid sac, no visible lipid sac). So make sure to curate first and that an object_id is only considered once. This file also contains a table of the annotated data, and the original list of UVP6 metadata with morphological descriptors (including the images excluded because outside the size range).
+load("data/uvp6_lipids_20250407.RData")
+
+theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
+```
+
+# Curate the lipid segmentation data
+```{r}
+uvp6 <- uvp6_all %>% 
+  # remove the predictions for images with manually annotated data
+  filter(type != "predicted") %>% 
+  # include the metadata for 
+  bind_rows(uvp6_meta %>% 
+              filter(object_id %notin% uvp6_all$object_id)) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date))
+
+# Make sure that an image is not considered twice. This has to match number of rows 
+length(unique(uvp6$object_id)) == nrow(uvp6)
+
+AA <- uvp6_all %>% 
+  filter(type == "not visible")
+```
+
+
+# Exploring vertical profiles
+## Overall number of images in 100 m depth bins
+```{r}
+# For all "valid" uvp6 Calanus images with segmentations
+
+binsize <-  100
+uvp6_allBin <- uvp6 %>%
+  
+  filter(type != "predicted")  %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthRange, depthBin, prosome, lipid, lipidfullness, Major) %>% 
+  group_by(depthRange, depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.)))),
+            .groups = "drop") %>% 
+  arrange(depthBin)
+# Set range to factors
+uvp6_allBin <- uvp6_allBin %>% 
+  mutate(depthRange = factor(depthRange,
+                                levels = unique(uvp6_allBin$depthRange)))
+
+# add cummulative number and percent of images
+uvp6_allBin <- uvp6_allBin %>% 
+  mutate(percent = lipid_n / sum(lipid_n) * 100) %>% 
+  mutate(cumtotal = cumsum(lipid_n),
+         cumpercent = cumsum(percent)) %>% 
+  mutate(cumpercentRev = 100 - cumpercent)
+
+
+cowplot::plot_grid(
+  ggplot(uvp6_allBin, aes(y = depthRange, 
+                          x = lipid_n)) +
+    geom_point() +
+    xlab("N images") + ylab("Depth bin") +
+    scale_y_discrete(limits = rev),
+  
+  ggplot(uvp6_allBin, aes(y = depthRange, 
+                          x = cumpercent)) +
+    geom_point() +
+    xlab("% images") + ylab("Depth bin") +
+    scale_y_discrete(limits = rev),
+  labels = "auto"
+)
+```
+
+## Temporal sampling distribution
+```{r}
+ggplot(uvp6, aes(x = DOY, fill = as.factor(Year), color = as.factor(Month))) +
+  geom_histogram()
+
+```
+
+

@@ -529,7 +529,38 @@ uvp6_amund <- read.table("../../Laval-imaging-analysis/UVP6_amundsen2023/Calanus
 
 
 uvp6_meta <- bind_rows(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund) %>% 
-  filter(img_rank == 100)
+  filter(img_rank == 100) %>% 
+  select(object_id,
+         lat = object_lat, lon = object_lon, 
+         depth = object_depth_min,
+         date = object_date, time = object_time,
+         annotation = object_annotation_category, 
+         sample_id, sample_cruise,
+         Major = object_major, Minor = object_minor, 
+         Perim = object_perim.,
+         Feret = object_feret, Area = object_area, 
+         Elongation = object_elongation,
+         VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+         Circ = object_circ., Thickr = object_thickr, 
+         MeanGrey = object_mean, MedGrey = object_median,
+         HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
+         SkewGrey = object_skew,Fractal = object_fractal, 
+         PerimFeret = object_perimferet, 
+         PerimMajor = object_perimmajor)
+  # select(object_id,
+  #        lat = object_lat, lon = object_lon, depth = object_depth_min,
+  #        date = object_date, time = object_time,
+  #        annotation = object_annotation_category, sample_id, sample_cruise,
+  #        Major = object_major, Minor = object_minor, Perim. = object_perim.,
+  #        Feret = object_feret, Area = object_area, Elongation = object_elongation,
+  #        Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
+  #        Circ. = object_circ., Thickr = object_thickr, 
+  #        Mean.grey = object_mean, Med.grey = object_median,
+  #        `Hist.grey 75%` = object_histcum3, 
+  #        Sdev.grey = object_stddev, Skew.grey = object_skew,
+  #        Fractal = object_fractal, 
+  #        `Perim./Feret` = object_perimferet,
+  #        `Perim./Major` = object_perimmajor)
 rm(uvp6_de_side, uvp6_de_top, uvp6_de_calanus, uvp6_amund)
 
 # rename object_id for matching with the ecotaxa metadata
@@ -542,23 +573,9 @@ res.lf <- res.lf %>%
 
 # subset to files found in res.lipid.crop OR res.prosome
 uvp6_meta.sub <- uvp6_meta %>% 
-  filter(object_id %in% res.lf.all$object_id) %>% 
+  filter(object_id %in% res.lf.all$object_id) 
   # filter(object_id %in% res.lipid.crop$object_id | 
-  #          object_id %in% res.prosome$object_id) %>% 
-  select(object_id,
-         lat = object_lat, lon = object_lon, depth = object_depth_min,
-         date = object_date, time = object_time,
-         annotation = object_annotation_category, sample_id, sample_cruise,
-         Major = object_major, Minor = object_minor, Perim. = object_perim.,
-         Feret = object_feret, Area = object_area, Elongation = object_elongation,
-         Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
-         Circ. = object_circ., Thickr = object_thickr, 
-         Mean.grey = object_mean, Med.grey = object_median,
-         `Hist.grey 75%` = object_histcum3, 
-         Sdev.grey = object_stddev, Skew.grey = object_skew,
-         Fractal = object_fractal, 
-         `Perim./Feret` = object_perimferet,
-         `Perim./Major` = object_perimmajor)
+  #          object_id %in% res.prosome$object_id) 
 ```
 
 ## Major, Minor, Biovolume
@@ -1061,7 +1078,7 @@ rm(uvp6_de_ecopart, uvp6_amund_ecopart)
 ```
 
 
-## Curate and organize
+## Curate, organize, export
 ```{r}
 df.temp <- res.lipid.crop %>% 
   select(object_id, lipid_pixels_annotated, lipid_pixels_predicted) %>% 
@@ -1173,7 +1190,7 @@ ggsave("figures/UVP6_distrib_new_and_segmented.png",
 
 uvp6_annot_table <- uvp6_sub_table
 # Export the single dataframe
-save(uvp6_all, uvp6_volumes, uvp6_annot_table,
+save(uvp6_all, uvp6_volumes, uvp6_annot_table, uvp6_meta,
      file = "data/uvp6_lipids_20250407.RData")
 ```
 

@@ -542,7 +542,7 @@ res.lf <- res.lf %>%
 
 # subset to files found in res.lipid.crop OR res.prosome
 uvp6_meta.sub <- uvp6_meta %>% 
-  filter(object_id %in% res.lf$object_id) %>% 
+  filter(object_id %in% res.lf.all$object_id) %>% 
   # filter(object_id %in% res.lipid.crop$object_id | 
   #          object_id %in% res.prosome$object_id) %>% 
   select(object_id,
@@ -856,12 +856,12 @@ r2_table <- full_join(r2_prosome, r2_lipid, by = "Column") %>%
 ```{r}
 # TODO Change the source of prosome_annotated to the full range
 
-uvp6_sub_table <- uvp6_meta.sub %>%
-  select(object_id,Major:`Perim./Major`) %>% 
-  left_join(res.lf %>% 
+uvp6_sub_table <- res.lf.all %>% 
               select(object_id, lipid = lipid_pixels_annotated, 
                      prosome = prosome_pixels_annotated, 
-                     lipidfullness = lipidfullness_annotated),
+                     lipidfullness = lipidfullness_annotated) %>% 
+  left_join(uvp6_meta.sub %>%
+              select(object_id,Major:`Perim./Major`),
             by = "object_id") %>% 
   select(-object_id) %>% 
   summarise(across(everything(), list(
@@ -980,9 +980,9 @@ ggplot(newimgs %>% filter(predLipidSac == "cant segment"), aes(x = lipidpcrop_pi
 
 # Check the probability of classification
 ggplot(newimgs %>% 
-         mutate(prob = if_else(predLipidSac == "cant segment",
+         mutate(classprob = if_else(predLipidSac == "cant segment",
                                prob_0, prob_1)), 
-       aes(x = prob, fill = predLipidSac)) +
+       aes(x = classprob, fill = predLipidSac)) +
     geom_density(alpha = 0.2) +
     xlab("probility")
 ```
@@ -1096,10 +1096,14 @@ uvp6_annot <- bind_rows(
 
 uvp6_pred <- newimgs %>% 
   filter(object_id %notin% to_exclude$object_id) %>% 
+  # The classification probability
+  mutate(classprob = if_else(predLipidSac == "cant segment",
+                             prob_0, prob_1)) %>% 
   select(object_id, prosome = prosome_pixels_predicted,
          lipid = lipidpcrop_pixels_predicted,
          lipidfullness = lipidfullness2,
-         type = predLipidSac)
+         type = predLipidSac,
+         classprob)
 
 # Combine and add metadata (n = 8394)
 uvp6_all <- bind_rows(uvp6_annot, uvp6_pred) %>% 
@@ -1167,9 +1171,9 @@ cowplot::plot_grid(
 ggsave("figures/UVP6_distrib_new_and_segmented.png",
        height = 5, width = 10, units = "in")
 
-
+uvp6_annot_table <- uvp6_sub_table
 # Export the single dataframe
-save(uvp6_all, uvp6_volumes,
+save(uvp6_all, uvp6_volumes, uvp6_annot_table,
      file = "data/uvp6_lipids_20250407.RData")
 ```
 

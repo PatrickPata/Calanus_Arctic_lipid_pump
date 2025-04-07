@@ -909,11 +909,12 @@ uvp6_meta.new <- uvp6_meta %>%
 to_exclude <- uvp6_meta.new %>% 
   left_join(newimgs %>% 
               select(object_id, prosome_pixels_predicted,
-                     lipidpcrop_pixels_predicted, lipidfullness2),
+                     lipidpcrop_pixels_predicted, lipidfullness2,
+                     predLipidSac, prob_0, prob_1),
             by = "object_id") %>% 
   # remove all images smaller than the minimum size of the training data, also remove too small/large lipid and prosome pixel area!
   filter(Major < filter(uvp6_sub_table, column == "Major")$min |
-           Minor > filter(uvp6_sub_table, column == "Major")$max |
+           Major > filter(uvp6_sub_table, column == "Major")$max |
            prosome_pixels_predicted < filter(uvp6_sub_table, column == "prosome")$min |
            prosome_pixels_predicted > filter(uvp6_sub_table, column == "prosome")$max |
            lipidpcrop_pixels_predicted < filter(uvp6_sub_table, column == "lipid")$min |
@@ -966,6 +967,24 @@ ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = prosome_pixels_predicte
 ggplot(newimgs, aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
   geom_point() +
   geom_smooth() 
+
+
+ggplot(newimgs %>% filter(predLipidSac == "lipid sac"), aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
+  geom_point() +
+  geom_smooth() 
+
+
+ggplot(newimgs %>% filter(predLipidSac == "cant segment"), aes(x = lipidpcrop_pixels_predicted, y = lipidfullness2)) +
+  geom_point() +
+  geom_smooth() 
+
+# Check the probability of classification
+ggplot(newimgs %>% 
+         mutate(prob = if_else(predLipidSac == "cant segment",
+                               prob_0, prob_1)), 
+       aes(x = prob, fill = predLipidSac)) +
+    geom_density(alpha = 0.2) +
+    xlab("probility")
 ```
 
 
@@ -1135,8 +1154,7 @@ cowplot::plot_grid(
     xlab("prosome area pixels") +
     theme(legend.position = "bottom"),
   
-  ggplot(uvp6_all %>% 
-           filter(lipidfullness <= 65), # note that for the predicted LF during training, some overestimated LF because the prosome was separately segmented. Type = predicted will not be used in the analysis anyway but need to filter these out still for these figures. (N = 19 instances for LF > 65%)
+  ggplot(uvp6_all,
          aes(x = lipidfullness, fill = type, color = type)) +
     geom_density(alpha = 0.2) +
     xlab("lipid fullness") +
@@ -1151,11 +1169,11 @@ ggsave("figures/UVP6_distrib_new_and_segmented.png",
 
 
 # Export the single dataframe
-save(uvp6_all, 
-     file = "data/uvp6_lipids_20250320.RData")
+save(uvp6_all, uvp6_volumes,
+     file = "data/uvp6_lipids_20250407.RData")
 ```
 
-## Test vertical profiles
+# Test vertical profiles
 ```{r}
 # Function to create depth profile average plots
 create_plot <- function(var_name, y_label) {
@@ -1252,7 +1270,7 @@ ggsave("figures/UVP6_vert_pred_notvis.png",
 
 
 uvp6_allBin <- uvp6_all %>% 
-  filter(type == "visible")  %>% \\
+  filter(type == "visible")  %>% 
   # filter(type == "annotated") %>% 
   mutate(depthBin = floor(depth/binsize)*binsize) %>% 
   mutate(depthBin = as.factor(depthBin)) %>% 

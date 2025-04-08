@@ -578,61 +578,12 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 ```
 
 
+# 
 
 
 # TODO prepare a data table to make a shiny app
 
 
-
-# Old/ Extra -----
-## Test vertical profiles
-```{r}
-# Function to create depth profile average plots
-create_plot <- function(var_name, y_label) {
-  ggplot(uvp6_allBin, aes(y = depthBin, 
-                          x = !!sym(paste0(var_name, "_mean")))) +
-    geom_point() +
-    geom_errorbarh(
-      aes(xmin = !!sym(paste0(var_name, "_mean")) - !!sym(paste0(var_name, "_sd")), 
-          xmax = !!sym(paste0(var_name, "_mean")) + !!sym(paste0(var_name, "_sd"))), 
-      height = 1) +
-    geom_text(aes(label = !!sym(paste0(var_name, "_n"))), hjust = -0.2,
-              vjust = -0.5, size = 3) +
-    labs(y = "Depth Bin", x = y_label, title = paste("", y_label)) +
-    scale_y_discrete(limits = rev)
-}
-
-# ggplot(uvp6_all %>% 
-#          filter(type != "predicted"), 
-#        aes(y = lipid, x = Depth_5m)) +
-#   geom_point(alpha = 0.1) +
-#   geom_smooth() +
-#   coord_flip() 
-
-binsize <-  50
-uvp6_allBin <- uvp6_all %>% 
-  filter(type != "predicted")  %>% 
-  # filter(sample_cruise == "darkedge") %>% 
-  # filter(type == "annotated") %>%
-  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
-  mutate(depthBin = as.factor(depthBin)) %>% 
-  select(depthBin, prosome, lipid, lipidfullness) %>% 
-  group_by(depthBin) %>%  
-  summarise(across(where(is.numeric), list(mean = mean, 
-                                           sd = sd, 
-                                           n = ~sum(!is.na(.))))) %>% 
-  # TODO change after new curation
-  filter(lipid_mean < 1000)
-  
-
-cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
-                   create_plot("lipid", "Lipid area"), 
-                   create_plot("lipidfullness", "Lipid fullness"),
-                   nrow = 1, labels = "auto")
-
-# ggsave("figures/UVP6_vert_darkedge_annot.png",
-#        height = 5, width = 7, units = "in")
-```
 
 
 

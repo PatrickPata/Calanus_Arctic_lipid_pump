@@ -95,6 +95,141 @@ cowplot::plot_grid(
 ggplot(uvp6, aes(x = DOY, fill = as.factor(Year), color = as.factor(Month))) +
   geom_histogram()
 
+
+binsize <-  100
+uvp6_allBin <- uvp6 %>%
+  
+  filter(type != "predicted")  %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(Month, depthRange, depthBin, prosome, lipid, lipidfullness, Major) %>% 
+  group_by(Month, depthRange, depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.)))),
+            .groups = "drop") %>% 
+  arrange(depthBin)
+# Set range to factors
+uvp6_allBin <- uvp6_allBin %>% 
+  mutate(depthRange = factor(depthRange,
+                                levels = unique(uvp6_allBin$depthRange)))
+
+# add cummulative number and percent of images
+uvp6_allBin <- uvp6_allBin %>% 
+  mutate(percent = lipid_n / sum(lipid_n) * 100) %>% 
+  mutate(cumtotal = cumsum(lipid_n),
+         cumpercent = cumsum(percent)) %>% 
+  mutate(cumpercentRev = 100 - cumpercent)
+
+
+cowplot::plot_grid(
+  ggplot(uvp6_allBin, aes(y = depthRange, 
+                          x = lipid_n)) +
+    geom_point() +
+    xlab("N images") + ylab("Depth bin") +
+    scale_y_discrete(limits = rev) +
+    facet_wrap(~Month),
+  
+  ggplot(uvp6_allBin, aes(y = depthRange, 
+                          x = cumpercent)) +
+    geom_point() +
+    xlab("% images") + ylab("Depth bin") +
+    scale_y_discrete(limits = rev) +
+    facet_wrap(~Month),
+  ncol = 1,
+  labels = "auto"
+)
 ```
+
+# Spatial sampling distribution
+TODO get bottom depth as fill color
+```{r}
+library(ggOceanMaps)
+
+
+```
+
+
+# Individual vertical profiles plot
+```{r}
+binsize <-  100
+uvp6_allBin <- uvp6 %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(Month, sample_id, depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(Month, sample_id, depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.)))),
+            .groups = "drop") %>% 
+  mutate(depthBin2 = as.numeric(depthBin))
+  
+
+ggplot(uvp6_allBin, aes(y = prosome_n,
+                        x = depthBin2, 
+                        color = sample_id)) +
+  geom_line(alpha = 0.2) +
+  # geom_point(alpha = 0.2) +
+  coord_flip() +
+  labs(x = "Depth Bin", y = "Number of images") +
+  theme(legend.position = "none") +
+  scale_x_reverse(breaks = unique(uvp6_allBin$depthBin2),
+                  labels = levels(uvp6_allBin$depthBin)) +
+  facet_wrap(~Month, scales = "free_x")
+```
+
+# Old/ Extra -----
+## Test vertical profiles
+```{r}
+# Function to create depth profile average plots
+create_plot <- function(var_name, y_label) {
+  ggplot(uvp6_allBin, aes(y = depthBin, 
+                          x = !!sym(paste0(var_name, "_mean")))) +
+    geom_point() +
+    geom_errorbarh(
+      aes(xmin = !!sym(paste0(var_name, "_mean")) - !!sym(paste0(var_name, "_sd")), 
+          xmax = !!sym(paste0(var_name, "_mean")) + !!sym(paste0(var_name, "_sd"))), 
+      height = 1) +
+    geom_text(aes(label = !!sym(paste0(var_name, "_n"))), hjust = -0.2,
+              vjust = -0.5, size = 3) +
+    labs(y = "Depth Bin", x = y_label, title = paste("", y_label)) +
+    scale_y_discrete(limits = rev)
+}
+
+# ggplot(uvp6_all %>% 
+#          filter(type != "predicted"), 
+#        aes(y = lipid, x = Depth_5m)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth() +
+#   coord_flip() 
+
+binsize <-  50
+uvp6_allBin <- uvp6_all %>% 
+  filter(type != "predicted")  %>% 
+  # filter(sample_cruise == "darkedge") %>% 
+  # filter(type == "annotated") %>%
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.))))) %>% 
+  # TODO change after new curation
+  filter(lipid_mean < 1000)
+  
+
+cowplot::plot_grid(create_plot("prosome", "Prosome area"), 
+                   create_plot("lipid", "Lipid area"), 
+                   create_plot("lipidfullness", "Lipid fullness"),
+                   nrow = 1, labels = "auto")
+
+# ggsave("figures/UVP6_vert_darkedge_annot.png",
+#        height = 5, width = 7, units = "in")
+```
+
+
+
 
 

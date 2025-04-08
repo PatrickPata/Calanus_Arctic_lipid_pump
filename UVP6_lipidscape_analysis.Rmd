@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(lubridate)
+library(paletteer)
 
 # This is the data with the annotated and predicted values (with annotation, visible lipid sac, no visible lipid sac). So make sure to curate first and that an object_id is only considered once. This file also contains a table of the annotated data, and the original list of UVP6 metadata with morphological descriptors (including the images excluded because outside the size range).
 load("data/uvp6_lipids_20250407.RData")
@@ -26,9 +27,9 @@ theme_set(theme_bw())
 uvp6 <- uvp6_all %>% 
   # remove the predictions for images with manually annotated data
   filter(type != "predicted") %>% 
-  # include the metadata for 
-  bind_rows(uvp6_meta %>% 
-              filter(object_id %notin% uvp6_all$object_id)) %>% 
+  # # include the metadata for images segmented but excluded?
+  # bind_rows(uvp6_meta %>% 
+  #             filter(object_id %notin% uvp6_all$object_id)) %>% 
   mutate(date = as.Date(date)) %>% 
   mutate(Year = year(date),
          Month = month(date),
@@ -143,10 +144,67 @@ cowplot::plot_grid(
 ```
 
 # Spatial sampling distribution
-TODO get bottom depth as fill color
+For plotting depth as contours instead:
+basemap(limits = c(0, 60, 68, 80), bathymetry = TRUE, bathy.style = "contour_blues") + 
+  scale_color_hue()
 ```{r}
 library(ggOceanMaps)
 
+df <- distinct(uvp6, sample_id, lon, lat, Year, Month, DOY) %>% 
+  mutate(Year = as.factor(Year))
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = TRUE,
+        land.border.col = NA, gla.border.col = NA,
+        data = df) +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, color = DOY),
+             size = 3) +
+  # scale_color_continuous() +
+  scale_color_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = TRUE,
+        data = df,bathy.style = "contour_blues") +
+  scale_color_hue() +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, fill = DOY),
+             size = 3, alpha = 0.5) +
+  scale_fill_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+
+# Check location of potential UVP5 data (calanoida images)
+uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
+uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
+uvp5_ge <- bind_rows(uvp5_ge_side, uvp5_ge_top)
+rm(uvp5_ge_side, uvp5_ge_top)
+
+df_uvp5 <- uvp5_ge %>% 
+  distinct(sample_id, lon = object_lon, lat = object_lat,
+           botdep = sample_bottomdepth, date = object_date) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+  mutate(Year = as.factor(Year))
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = TRUE,
+        limits = c(-65,-55,67,71), rotate = TRUE,
+        legends = TRUE,
+        data = df_uvp5) +
+  ggspatial::geom_spatial_point(data = df_uvp5, aes(x = lon, y = lat, 
+                                                    color = DOY),
+             size = 3, shape = 22) +
+  scale_color_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
 
 ```
 
@@ -163,7 +221,7 @@ uvp6_allBin <- uvp6 %>%
                                            sd = sd, 
                                            n = ~sum(!is.na(.)))),
             .groups = "drop") %>% 
-  mutate(depthBin2 = as.numeric(depthBin))
+  mutate(depthBin2 = as.numeric(depthBin)) 
   
 
 ggplot(uvp6_allBin, aes(y = prosome_n,
@@ -177,7 +235,354 @@ ggplot(uvp6_allBin, aes(y = prosome_n,
   scale_x_reverse(breaks = unique(uvp6_allBin$depthBin2),
                   labels = levels(uvp6_allBin$depthBin)) +
   facet_wrap(~Month, scales = "free_x")
+
+# Isolate the 15 profiles for samples with deep bottom depths > 1000m
+uvp6_allBin2 <- uvp6_allBin %>% 
+  group_by(sample_id) %>% 
+  mutate(maxdep = max(depthBin2)) %>% 
+  ungroup() %>% 
+  filter(maxdep >= 11)
+
+
+ggplot(uvp6_allBin2, aes(y = prosome_n,
+                        x = depthBin2, 
+                        color = sample_id)) +
+  geom_line(alpha = 0.4) +
+  geom_point(alpha = 0.4) +
+  coord_flip() +
+  labs(x = "Depth Bin", y = "Number of images") +
+  theme(legend.position = "none") +
+  scale_x_reverse(breaks = unique(uvp6_allBin$depthBin2),
+                  labels = levels(uvp6_allBin$depthBin)) +
+  ggtitle("Profiles beyond 1000 m") 
+
+
+
+df <- uvp6 %>% 
+  group_by(sample_id) %>% 
+  mutate(maxdep = max(depth)) %>% 
+  ungroup() %>% 
+  filter(maxdep >= 1000) %>% 
+  distinct(sample_id, lon, lat, Year, Month, DOY, maxdep) %>% 
+  mutate(Year = as.factor(Year))
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = TRUE,
+        legends = TRUE,
+        data = df) +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, color = DOY),
+             size = 3) +
+  # scale_color_continuous() +
+  scale_color_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())  +
+  ggtitle("Profiles beyond 1000 m") 
 ```
+
+
+# Horizontal spatial plot per depth layer
+```{r}
+binsize <-  100
+uvp6_allBin <- uvp6 %>% 
+  mutate(depthBin = floor(depth/binsize)*binsize) %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  select(Month, sample_id, depthBin, prosome, lipid, lipidfullness) %>% 
+  group_by(Month, sample_id, depthBin) %>%  
+  summarise(across(where(is.numeric), list(mean = mean, 
+                                           sd = sd, 
+                                           n = ~sum(!is.na(.)))),
+            .groups = "drop") %>% 
+  mutate(depthBin2 = as.numeric(depthBin)) 
+
+
+# Select a depth layer
+df <- uvp6 %>% 
+  distinct(sample_id, lon, lat, Year, Month, DOY) %>% 
+  mutate(Year = as.factor(Year)) %>% 
+  group_by(sample_id) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  left_join(uvp6_allBin) %>% 
+  filter(!is.na(prosome_mean))
+
+df0 <- df %>% 
+  filter(depthBin == 0)
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = lipid_mean),
+             size = 3, alpha = 0.7) +
+  # scale_color_continuous() +
+  # scale_fill_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_fill_viridis_c(limits = c(100, 1400)) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+
+df1 <- df %>% 
+  filter(depthBin == 100)
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df1, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = lipid_mean),
+             size = 3, alpha = 0.7) +
+  # scale_color_continuous() +
+  # scale_fill_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_fill_viridis_c(limits = c(100, 1400)) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+
+df5 <- df %>% 
+  filter(depthBin == 500)
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df5, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = lipid_mean),
+             size = 3, alpha = 0.7) +
+  # scale_color_continuous() +
+  # scale_fill_gradient(low = "yellow3", high = "red", na.value = NA) +
+  scale_fill_viridis_c(limits = c(100, 1400)) +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+```
+
+
+# TODO Plot proportion of images with segmentations relative to total living zoop images and total copepod images
+```{r}
+# The uvp6 data from ecotaxa
+load("data/uvp6_deam_living_20250320.RData")
+
+# Merge the 2021 an 2023 data 
+uvp6_ecotaxa <- bind_rows(uvp6_de, uvp6_am) 
+rm(uvp6_de, uvp6_am, uvp6_ecopart)
+
+# Metadata of samples
+meta_uvp6 <- uvp6_ecotaxa %>% 
+  distinct(sample_id, lon = object_lon, lat = object_lat,
+           botdep = sample_bottomdepth, date = object_date) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+  mutate(Year = as.factor(Year)) %>% 
+  group_by(sample_id) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() 
+
+# Get abundance
+abund <- uvp6_ecotaxa %>%
+  # separate copepods to with or without segmentations
+  mutate(taxagroup = if_else(object_id %in% uvp6$object_id,
+                              "Copepoda_segmented", taxagroup)) %>% 
+  rename(lon = object_lon, lat = object_lat, 
+         date = object_date, depth = object_depth_min,
+         volume_m3 = Sampled_volume_m3) %>% 
+  group_by(sample_id, lon, lat, Depth_5m, volume_m3, taxagroup) %>% 
+  summarise(nimgs = n(),
+            .groups = "drop") %>% 
+  mutate(abundance = nimgs/volume_m3)
+
+# # Check if all copepod with segmentation images are accounted for
+# ii <- uvp6_ecotaxa %>% 
+#   filter(object_id %in% uvp6_all$object_id)
+# jj <- uvp6_all %>% 
+#   filter(object_id %notin% uvp6_ecotaxa$object_id)
+
+
+# To get abundance at other bin sizes, need to full join ?the volume data in uvp6_volumes so it records the bins with zero abundance. Easier if the ecopart data is pre binned
+binsize <-  100
+uvp6_ecopartBin <- uvp6_volumes %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize)
+
+# integrated to 50 m depth bins [must sum individuals and divide by volume BUT including zero abundances], not just average
+
+abundBin <- abund %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Depth_5m, volume_m3, abundance)) %>% 
+  left_join(uvp6_ecopartBin %>% select(-nbins),
+            by = join_by(sample_id, depthBin)) %>% 
+  group_by(sample_id, lon, lat, depthBin, taxagroup, binsize, volume_m3) %>% 
+  summarise(nimgsBin = sum(nimgs),
+            .groups = "drop") %>% 
+  mutate(abundanceBin = nimgsBin / volume_m3)
+  
+# Total abundance and copepod fraction
+abundBinTotal <- abundBin %>% 
+  group_by(sample_id, lon, lat, depthBin, binsize) %>% 
+  summarise(abundanceTotal = sum(abundanceBin), 
+            nimgsTotal = sum(nimgsBin),
+            .groups = "drop")  %>% 
+  # Copepod with segmentation fraction of abundance
+  left_join(abundBin %>% 
+              filter(taxagroup == "Copepoda_segmented") %>% 
+              select(sample_id, depthBin, abundCope = abundanceBin),
+            by = join_by(sample_id, depthBin)) %>% 
+  mutate(copepod_frac = abundCope/abundanceTotal) %>% 
+  mutate(copepod_frac = if_else(is.na(copepod_frac),
+                                0, copepod_frac))
+
+
+ggplot(abundBinTotal, aes(y = abundanceTotal, x = depthBin,
+                          fill = copepod_frac)) +
+  geom_line(aes(color = sample_id), alpha = 0.4)+
+  geom_point(shape = 21, alpha = 0.5) +
+  geom_smooth() +
+  scale_x_reverse() +
+  coord_flip() +
+  scale_fill_viridis_c() +
+  guides(color="none")
+
+
+ggplot(abundBinTotal, aes(y = copepod_frac, x = depthBin)) +
+  geom_point(shape = 21, alpha = 0.5) +
+  geom_smooth() +
+  scale_x_reverse() +
+  coord_flip() +
+  ylab("Proporiton of images with segmentations") +
+  scale_fill_viridis_c() +
+  guides(color="none")
+```
+
+## Community composition 
+```{r}
+# Overall average per month
+abundBin2 <- abundBin %>% # abundance by taxa group
+  group_by(sample_id, depthBin) %>% 
+  mutate(abundanceTotal = sum(abundanceBin), 
+          nimgsTotal = sum(nimgsBin)) %>% 
+  ungroup() %>% 
+  # calculate proportion of taxa group to total abundance
+  mutate(percAbund = abundanceBin / abundanceTotal * 100) %>% 
+  left_join(meta_uvp6 %>% 
+              select(sample_id, Year, Month, DOY) %>% 
+              distinct(),
+            by = "sample_id")
+
+# Average all profiles collected in the same month
+abundBin3 <- abundBin2 %>% 
+  group_by(taxagroup, Year, Month, depthBin, binsize) %>% 
+  summarise(abundanceMean = mean(abundanceBin),
+            abundnaceSD = sd(abundanceBin),
+            nsamples = n(),
+            .groups = "drop")
+
+ggplot(abundBin3, aes(x = depthBin, y = abundanceMean, fill = taxagroup)) +
+  geom_bar(stat = "identity") + #position = "fill"
+  coord_flip() + 
+  scale_x_reverse() +
+  facet_wrap(~Month)
+
+# recount number of copepoda with segmentations per depth bin
+
+# Proportion copepoda (with and without segmentations), crustaceans, others 
+abundBin4 <- abundBin2 %>% 
+  mutate(taxagroup2 = if_else(taxagroup %in% c("Copepoda", "Copepoda_segmented"),
+                              taxagroup, "Other Mesozoop")) %>% 
+  group_by(taxagroup2, sample_id, Year, Month, depthBin, binsize) %>% 
+  summarise(abundanceBin = sum(abundanceBin),
+            .groups = "drop") %>% 
+  group_by(taxagroup2, Year, Month, depthBin, binsize) %>% 
+  summarise(abundanceMean = mean(abundanceBin),
+            abundnaceSD = sd(abundanceBin),
+            nsamples = n(),
+            .groups = "drop") %>% 
+  mutate(taxagroup2 = factor(taxagroup2,
+                             levels = c("Other Mesozoop","Copepoda",
+                                        "Copepoda_segmented")))
+
+clrs <- paletteer_d("colorBlindness::paletteMartin", n = 4)[c(1,3,4)]
+
+cowplot::plot_grid(
+  ggplot(abundBin4, aes(x = depthBin, y = abundanceMean, fill = taxagroup2)) +
+    geom_bar(stat = "identity") + #position = "fill"
+    coord_flip() + 
+    scale_x_reverse() +
+    scale_fill_manual(values = clrs) +
+    ylab("mean abundance (indivs  m-3)") + xlab("depth (m)") +
+    facet_wrap(~Month, scales = "free_x") +
+    theme(legend.position = "none"),
+  
+  ggplot(abundBin4, aes(x = depthBin, y = abundanceMean, fill = taxagroup2)) +
+    geom_bar(stat = "identity", position = "fill") + 
+    coord_flip() + 
+    scale_x_reverse() +
+    facet_wrap(~Month) + 
+    scale_fill_manual(values = clrs) +
+    ylab("mean abundance (indivs  m-3)") + xlab("depth (m)") +
+    theme(legend.position = "bottom"),
+  ncol = 1, rel_heights = c(1,1.2)
+)
+
+# TODO try biovolume but need to verify how these are calculated first
+```
+
+
+## Spatial distribution of zooplankton and copepod abundance
+```{r}
+df <- abundBinTotal %>% 
+  filter(depthBin == 0) %>% 
+  left_join(meta_uvp6, by = join_by(sample_id, lon, lat))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = NA, gla.border.col = NA,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = abundanceTotal),
+             size = 3, alpha = 0.7) +
+  scale_fill_viridis_c() +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = NA, gla.border.col = NA,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = abundCope),
+             size = 3, alpha = 0.7) +
+  scale_fill_viridis_c() +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = NA, gla.border.col = NA,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df, aes(x = lon, y = lat, 
+                                               shape = Year, 
+                                               fill = nimgsTotal),
+             size = 3, alpha = 0.7) +
+  scale_fill_viridis_c() +
+  scale_shape_manual(values = c(21, 24)) +
+  theme(axis.title = element_blank())
+
+
+```
+
+
+
+
+# TODO prepare a data table to make a shiny app
+
+
 
 # Old/ Extra -----
 ## Test vertical profiles

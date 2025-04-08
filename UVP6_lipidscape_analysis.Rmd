@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(lubridate)
-library(paletteer)
+# library(paletteer)
 
 # This is the data with the annotated and predicted values (with annotation, visible lipid sac, no visible lipid sac). So make sure to curate first and that an object_id is only considered once. This file also contains a table of the annotated data, and the original list of UVP6 metadata with morphological descriptors (including the images excluded because outside the size range).
 load("data/uvp6_lipids_20250407.RData")
@@ -38,8 +38,12 @@ uvp6 <- uvp6_all %>%
 # Make sure that an image is not considered twice. This has to match number of rows 
 length(unique(uvp6$object_id)) == nrow(uvp6)
 
+# TODO calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
+
 AA <- uvp6_all %>% 
   filter(type == "not visible")
+
+
 ```
 
 
@@ -484,6 +488,7 @@ abundBin3 <- abundBin2 %>%
 ggplot(abundBin3, aes(x = depthBin, y = abundanceMean, fill = taxagroup)) +
   geom_bar(stat = "identity") + #position = "fill"
   coord_flip() + 
+  scale_fill_manual(values = paletteer::paletteer_d("ggsci::default_ucscgb", n = 19)) +
   scale_x_reverse() +
   facet_wrap(~Month)
 
@@ -505,7 +510,8 @@ abundBin4 <- abundBin2 %>%
                              levels = c("Other Mesozoop","Copepoda",
                                         "Copepoda_segmented")))
 
-clrs <- paletteer_d("colorBlindness::paletteMartin", n = 4)[c(1,3,4)]
+# clrs <- paletteer_d("colorBlindness::paletteMartin", n = 19)
+clrs <- c("hotpink","gold2","black")
 
 cowplot::plot_grid(
   ggplot(abundBin4, aes(x = depthBin, y = abundanceMean, fill = taxagroup2)) +
@@ -578,7 +584,11 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 ```
 
 
-# 
+# Predict for the lipid fraction of copepod images without biomass?
+- filter by size?
+- adjust for the biovolume difference when using ecotaxa major and minor axis?
+- decide what coefficient to use for prosome dry weight and carbon weight
+- get proportion of assemblage at depth for deep tows
 
 
 # TODO prepare a data table to make a shiny app

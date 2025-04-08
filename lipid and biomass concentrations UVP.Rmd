@@ -167,7 +167,9 @@ uvp6_seg <- uvp6_seg %>%
   mutate(biomass_mgC_biovol_annotated = biovolume_mm3_annotated * vol2massC) %>% 
   mutate(LF_mgC_biovol_annotated = lipid_mass_mgC / biomass_mgC_biovol_annotated * 100) %>% 
 # C. Use Lucie's method of calculating the minor axis as area/major then get biovolume
-  mutate(minor_derived = prosome_pixels_annotated / prosome_major_annotated) %>% 
+    mutate(minor_derived = (prosome_pixels_annotated / 
+            (pi * prosome_major_annotated/2)) * 2) %>% 
+  
   mutate(biovolume_mm3_annotderived = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((minor_derived/2 * 0.084)^2)) %>% 
   mutate(biomass_mgC_biovol_annotderived = biovolume_mm3_annotderived * vol2massC) %>% 
   mutate(LF_mgC_biovol_annotderived = lipid_mass_mgC / biomass_mgC_biovol_annotderived * 100) %>% 

@@ -33,7 +33,12 @@ uvp6 <- uvp6_all %>%
   mutate(date = as.Date(date)) %>% 
   mutate(Year = year(date),
          Month = month(date),
-         DOY = yday(date))
+         DOY = yday(date)) %>% 
+  mutate(Month2 = if_else(Month == 8, "August", "")) %>% 
+  mutate(Month2 = if_else(Month == 9, "September", Month2)) %>% 
+  mutate(Month2 = if_else(Month == 10, "October", Month2)) %>% 
+  select(-Month) %>% rename(Month = Month2) %>% 
+  mutate(Month = factor(Month, levels = c("August","September","October")))
 
 # Make sure that an image is not considered twice. This has to match number of rows 
 length(unique(uvp6$object_id)) == nrow(uvp6)
@@ -93,13 +98,24 @@ cowplot::plot_grid(
     scale_y_discrete(limits = rev),
   labels = "auto"
 )
+
+
+ggsave("figures/UVP6_overall_vertical_dist.png",
+       height = 4, width = 6, units = "in")
 ```
 
 ## Temporal sampling distribution
 ```{r}
-ggplot(uvp6, aes(x = DOY, fill = as.factor(Year), color = as.factor(Month))) +
-  geom_histogram()
+ggplot(uvp6 %>% 
+         mutate(Year = as.factor(Year)), 
+       aes(x = DOY, fill = Year, color = Month)) +
+  geom_histogram(binwidth = 1) +
+  scale_fill_manual(values = c("grey60","grey90")) +
+  scale_color_manual(values = c("hotpink","blue3","black")) +
+  xlab("Day of year") + ylab("N images")
 
+ggsave("figures/UVP6_overall_temporal_dist.png",
+       height = 4, width = 6, units = "in")
 
 binsize <-  100
 uvp6_allBin <- uvp6 %>%
@@ -114,7 +130,9 @@ uvp6_allBin <- uvp6 %>%
                                            sd = sd, 
                                            n = ~sum(!is.na(.)))),
             .groups = "drop") %>% 
-  arrange(depthBin)
+  arrange(depthBin) 
+
+
 # Set range to factors
 uvp6_allBin <- uvp6_allBin %>% 
   mutate(depthRange = factor(depthRange,
@@ -145,6 +163,10 @@ cowplot::plot_grid(
   ncol = 1,
   labels = "auto"
 )
+
+
+ggsave("figures/UVP6_vertical_temporal_dist.png",
+       height = 6, width = 6, units = "in")
 ```
 
 # Spatial sampling distribution
@@ -170,6 +192,8 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
   scale_shape_manual(values = c(21, 24)) +
   theme(axis.title = element_blank())
 
+ggsave("figures/UVP6_spatial_dist_v1.png",
+       height = 8, width = 8, units = "in", bg = "white")
 
 basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
         limits = c(-90,-50,65,83), rotate = 10,
@@ -183,6 +207,8 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
   scale_shape_manual(values = c(21, 24)) +
   theme(axis.title = element_blank())
 
+ggsave("figures/UVP6_spatial_dist_v2.png",
+       height = 8, width = 8, units = "in", bg = "white")
 
 # Check location of potential UVP5 data (calanoida images)
 uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
@@ -209,6 +235,10 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = TRUE,
   scale_color_gradient(low = "yellow3", high = "red", na.value = NA) +
   scale_shape_manual(values = c(21, 24)) +
   theme(axis.title = element_blank())
+
+
+ggsave("figures/UVP5_spatial_dist_v1.png",
+       height = 8, width = 8, units = "in", bg = "white")
 
 ```
 
@@ -258,8 +288,11 @@ ggplot(uvp6_allBin2, aes(y = prosome_n,
   theme(legend.position = "none") +
   scale_x_reverse(breaks = unique(uvp6_allBin$depthBin2),
                   labels = levels(uvp6_allBin$depthBin)) +
-  ggtitle("Profiles beyond 1000 m") 
+  ggtitle("Samples beyond 1000 m") 
 
+
+ggsave("figures/UVP6_vert_1000m.png",
+       height = 3.5, width = 4, units = "in", bg = "white")
 
 
 df <- uvp6 %>% 
@@ -382,7 +415,12 @@ meta_uvp6 <- uvp6_ecotaxa %>%
   mutate(Year = as.factor(Year)) %>% 
   group_by(sample_id) %>% 
   filter(row_number() == 1) %>% 
-  ungroup() 
+  ungroup() %>% 
+  mutate(Month2 = if_else(Month == 8, "August", "")) %>% 
+  mutate(Month2 = if_else(Month == 9, "September", Month2)) %>% 
+  mutate(Month2 = if_else(Month == 10, "October", Month2)) %>% 
+  select(-Month) %>% rename(Month = Month2) %>% 
+  mutate(Month = factor(Month, levels = c("August","September","October"))) 
 
 # Get abundance
 abund <- uvp6_ecotaxa %>%
@@ -533,6 +571,10 @@ cowplot::plot_grid(
     theme(legend.position = "bottom"),
   ncol = 1, rel_heights = c(1,1.2)
 )
+
+
+ggsave("figures/UVP6_vertical_abundance.png",
+       height = 5, width = 7, units = "in", bg = "white")
 
 # TODO try biovolume but need to verify how these are calculated first
 ```

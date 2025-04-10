@@ -16,10 +16,21 @@ library(lubridate)
 # library(paletteer)
 
 # This is the data with the annotated and predicted values (with annotation, visible lipid sac, no visible lipid sac). So make sure to curate first and that an object_id is only considered once. This file also contains a table of the annotated data, and the original list of UVP6 metadata with morphological descriptors (including the images excluded because outside the size range).
-load("data/uvp6_lipids_20250407.RData")
+load("data/uvp6_lipids_20250410.RData")
 
 theme_set(theme_bw())
 `%notin%` <- Negate(`%in%`)
+
+
+calc_r2 <- function(x, y) {
+  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
+    df <- data.frame(x = x, y = y)
+    model <- lm(y ~ x, data = df, na.action = na.omit)
+    return(round(summary(model)$r.squared, 3))
+  } else {
+    return(NA) # Return NA if column is not numeric or has insufficient data
+  }
+}
 ```
 
 # Curate the lipid segmentation data
@@ -27,6 +38,7 @@ theme_set(theme_bw())
 uvp6 <- uvp6_all %>% 
   # remove the predictions for images with manually annotated data
   filter(type != "predicted") %>% 
+  
   # # include the metadata for images segmented but excluded?
   # bind_rows(uvp6_meta %>% 
   #             filter(object_id %notin% uvp6_all$object_id)) %>% 
@@ -43,15 +55,598 @@ uvp6 <- uvp6_all %>%
 # Make sure that an image is not considered twice. This has to match number of rows 
 length(unique(uvp6$object_id)) == nrow(uvp6)
 
-# TODO calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
+rm(uvp6_all, uvp6_volumes)
+```
 
-AA <- uvp6_all %>% 
-  filter(type == "not visible")
+# Derive volume, DW, carbon
+Note that the Vogedes equations to get lipid carbon weight (based on 3 Calanus species) results in slightly larger values compared to the Tarling equations which were set for C. finmarchicus.
+```{r}
+# TODO calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
+uvpRes <- 0.084
+# Conversion factor to get total lipid mg C from total lipid mg used in Schmid et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
+lambda <- (36*12) / (36*12 + 2*36 + 2*16)
+# Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
+vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 Calanus species in (McConville et al. (2016)
+
+
+uvp6 <- uvp6 %>% 
+  mutate(lipid_area_mm2 = lipid * uvpRes * uvpRes,
+         prosome_area_mm2 = prosome * uvpRes * uvpRes) %>% 
+    # Convert pixel area to mm2
+  mutate(lipid_area_mm2 = lipid * uvpRes * uvpRes,
+         prosome_area_mm2 = prosome * uvpRes * uvpRes) %>% 
+  
+  # Calculate minor axis based on prosome/lipid area and major axis
+  mutate(minor_derived = (prosome / (pi * prosomeMajor/2)) * 2) %>% 
+  mutate(minor_lipid_derived = (lipid / (pi * lipidMajor/2)) * 2) %>% 
+  
+  
+  # Calculate biovolume of prosome approximated as spheroid
+  mutate(prosome_biovolume_mm3 = 4/3 * pi * (prosomeMajor/2 * uvpRes) * ((minor_derived/2 * uvpRes)^2)) %>% 
+  
+  # Calculate lipid sac volume based on Tarling et al. (2022) eq1 derived from Miller et al. (1998) note that this is  based on cyclindrical volume approximation.. according to Miller et al. (1998) the oblate spheroid volume approximation is less accurate
+  mutate(lipid_volume_mm3 = 
+           (pi * lipid_area_mm2 ^ 2)/(4 * lipidMajor * uvpRes)) %>% 
+  
+  # # Calculate lipid sac volume based spheroid (results in slightly larger volume)
+  # mutate(lipid_volume_mm3_sph = 
+  #          4/3 * pi * (lipidMajor/2 * uvpRes) * ((minor_lipid_derived/2 * uvpRes)^2))
+
+  
+  # Calculate lipid fullness based on volume
+  mutate(lipidfullness_volume  = (lipid_volume_mm3/prosome_biovolume_mm3 * 100)) %>% 
+  
+  # (Calculate lipid carbon based on area following Vogedes et al. 2010 with coefficients for 3 Arctic Calanus species
+  mutate(totallipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>%  
+  mutate(waxester_mass_mg = 0.167 * (lipid_area_mm2 ^ 1.42)) %>%  
+  
+  # Calculate lipid carbon mass
+  mutate(lipid_mass_mgC = totallipid_mass_mg * lambda) %>%  
+  mutate(waxester_mass_mgC = waxester_mass_mg * lambda) %>%  
+  
+  
+  # TODO CLARIFY Calculate prosome carbon weight (** NOTE: many options ***)
+
+  # Option 1: Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
+  mutate(prosome_volume_Jonasdottir = 
+           0.0292 * (prosomeMajor * uvpRes)^3.6699,
+         prosome_dryweight_Jonasdottir = 
+           0.0106 * (prosomeMajor * uvpRes)^3.64,
+         prosome_mgC_Jonasdottir = 
+           0.623 * prosome_dryweight_Jonasdottir - 0.0143) %>% 
+  
+    # Option 2: Direct biovolume --> carbon mass based on conversion factors in McConville et al. 2016 assuming 1 mm3 = 1 mg wet weight
+  mutate(prosome_mgC_McConville = 
+           prosome_biovolume_mm3 * vol2massC) %>% 
+  
+  
+  # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
+  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
+# ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
+  
+  
+  # Calculate lipid fullness as % carbon
+  mutate(
+    LF_carbon_Jonasdottir = waxester_mass_mgC / prosome_mgC_Jonasdottir * 100,
+    LF_carbon_McConville = waxester_mass_mgC / prosome_mgC_McConville * 100,
+    LF_carbon_Bourreau = waxester_mass_mgC / prosome_mgC_Bourreau * 100)
+
+
+# For now the bases of values are the following
+uvp6 <- uvp6 %>% 
+  select(object_id:prosomeMajor, type:time, Depth_5m:prosome_area_mm2,
+         prosome_biovolume_mm3,
+         waxester_mass_mg,
+         waxester_mass_mgC,
+         structural_carbon,
+         prosome_mgC_Bourreau,
+         lipidfullness_volume,
+         LF_carbon_Bourreau,
+         annotation:PerimMajor )
+```
+
+## Check differences in prosome carbon and LF
+Note: uncomment the data curation section in the chunk above first
+```{r, eval=FALSE}
+# Prosome ellipsoid minor axis versus derived
+ggplot(uvp6, aes(x = prosomeMinor * uvpRes, y = minor_derived * uvpRes)) +
+  geom_abline() +
+  geom_point() +
+  annotate("text", x = max(uvp6$prosomeMinor * uvpRes, na.rm = TRUE),
+             y = min(uvp6$minor_derived * uvpRes, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$prosomeMinor, 
+                                             uvp6$minor_derived)),
+             hjust = 1, vjust = 0, size = 5) +
+  xlab("Minor axis from ellipse (mm)") + ylab("Minor axis derived (mm)")
+
+# Volume from area vs from prosome length equation in Jonasdottir et al. (2019). The volume from the prosome length is higher
+ggplot(uvp6, aes(x = prosome_biovolume_mm3, y = prosome_volume_Jonasdottir)) +
+  geom_abline() +
+  geom_point() +
+  geom_smooth() +
+  annotate("text", x = max(uvp6$prosome_biovolume_mm3, na.rm = TRUE),
+             y = min(uvp6$prosome_volume_Jonasdottir, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$prosome_biovolume_mm3, 
+                                             uvp6$prosome_volume_Jonasdottir)),
+             hjust = 1, vjust = 0, size = 5) +
+  ylab("Prosome volume Jonasdottir (mm3)") + 
+  xlab("Prosome volume from segmentation (mm3)")
+
+# total lipid vs wax ester carbon mass
+ggplot(uvp6, aes(x = lipid_mass_mgC, y = waxester_mass_mgC)) +
+  geom_abline() +
+  geom_point() +
+  annotate("text", x = max(uvp6$lipid_mass_mgC, na.rm = TRUE),
+             y = min(uvp6$waxester_mass_mgC, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$lipid_mass_mgC, 
+                                             uvp6$waxester_mass_mgC)),
+             hjust = 1, vjust = 0, size = 5) +
+  ylab("Total lipid carbon (mg C)") + 
+  xlab("Wax ester carbon (mg C)")
+
+# Prosome carbon mass
+cowplot::plot_grid(
+  ggplot(uvp6, aes(x = prosome_mgC_Bourreau, y = prosome_mgC_McConville)) +
+    geom_abline() +
+    geom_point() +
+    annotate("text", x = max(uvp6$prosome_mgC_Bourreau, na.rm = TRUE),
+             y = min(uvp6$prosome_mgC_McConville, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$prosome_mgC_Bourreau, 
+                                             uvp6$prosome_mgC_McConville)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Prosome carbon - Bourreau (mg C)") + 
+    ylab("Prosome carbon - McConville (mg C)"),
+  
+  ggplot(uvp6, aes(x = prosome_mgC_Bourreau, y = prosome_mgC_Jonasdottir)) +
+    geom_abline() +
+    geom_point() +
+    annotate("text", x = max(uvp6$prosome_mgC_Bourreau, na.rm = TRUE),
+             y = min(uvp6$prosome_mgC_Jonasdottir, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$prosome_mgC_Bourreau, 
+                                             uvp6$prosome_mgC_Jonasdottir)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Prosome carbon - Bourreau (mg C)") + 
+    ylab("Prosome carbon - Jonasdottir (mg C)")
+
+)
+
+# Lipid fullness
+cowplot::plot_grid(
+  ggplot(uvp6, aes(x = LF_carbon_Bourreau, y = LF_carbon_McConville)) +
+    geom_abline() +
+    geom_point() +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6$LF_carbon_Bourreau, na.rm = TRUE),
+             y = min(uvp6$LF_carbon_McConville, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$LF_carbon_Bourreau, 
+                                             uvp6$LF_carbon_McConville)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Lipid fullness carbon - Bourreau") + 
+    ylab("Lipid fullness carbon - McConville"),
+  
+  ggplot(uvp6, aes(x = LF_carbon_Bourreau, y = LF_carbon_Jonasdottir)) +
+    geom_abline() +
+    geom_point() +
+    annotate("text", x = max(uvp6$LF_carbon_Bourreau, na.rm = TRUE),
+             y = min(uvp6$LF_carbon_Jonasdottir, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$LF_carbon_Bourreau, 
+                                             uvp6$LF_carbon_Jonasdottir)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Lipid fullness carbon - Bourreau") + 
+    ylab("Lipid fullness carbon - Jonasdottir")
+
+)
+
+# Prosome carbon mass and lipid fullness figure to export
+cowplot::plot_grid(
+    ggplot(uvp6, aes(x = prosome_mgC_Bourreau, y = prosome_mgC_McConville)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6$prosome_mgC_Bourreau, na.rm = TRUE),
+             y = min(uvp6$prosome_mgC_McConville, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$prosome_mgC_Bourreau, 
+                                             uvp6$prosome_mgC_McConville)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Prosome carbon - Bourreau (mg C)") + 
+    ylab("Prosome carbon - McConville (mg C)"),
+  
+    
+  ggplot(uvp6, aes(x = LF_carbon_Bourreau, y = LF_carbon_McConville)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6$LF_carbon_Bourreau, na.rm = TRUE),
+             y = min(uvp6$LF_carbon_McConville, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$LF_carbon_Bourreau, 
+                                             uvp6$LF_carbon_McConville)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Lipid fullness carbon - Bourreau") + 
+    ylab("Lipid fullness carbon - McConville"),
+  
+  labels = "auto"
+)
+
+ggsave("figures/UVP6_prosome_carbon_LF.png",
+       height = 4, width = 6, units = "in")
+
+
+# lipid fullness between area, volume, and carbon
+cowplot::plot_grid(
+  ggplot(uvp6, aes(x = lipidfullness, y = lipidfullness_volume)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6$lipidfullness, na.rm = TRUE),
+             y = min(uvp6$lipidfullness_volume, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$lipidfullness, 
+                                             uvp6$lipidfullness_volume)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("LF % area") + ylab("LF % volume"),
+  
+   ggplot(uvp6, aes(x = lipidfullness, y = LF_carbon_Bourreau)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6$lipidfullness, na.rm = TRUE),
+             y = min(uvp6$LF_carbon_Bourreau, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6$lipidfullness, 
+                                             uvp6$LF_carbon_Bourreau)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("LF % area") + ylab("LF % carbon mass"),
+  
+  labels = "auto"
+)
+
+ggsave("figures/UVP6_LF_basis.png",
+       height = 4, width = 6, units = "in")
+
+```
+
+## LF prediction accuracy
+Compare the annotated and predicted values for lipid fullness calculated three ways.
+```{r, eval=FALSE}
+# NOTE: need to uncomment the exclusion of predicted images when loading the data
+
+uvp6.sub <- uvp6 %>% 
+  filter(type %in% c("annotated","predicted")) %>% 
+  group_by(object_id) %>% 
+  filter(n()>=2) %>% 
+  ungroup() %>% 
+  select(object_id, type, 
+         LFarea = lipidfullness,
+         LFvolume = lipidfullness_volume,
+         LFcarbon = LF_carbon_Bourreau) %>% 
+  mutate(LFarea = LFarea * uvpRes * uvpRes) %>% 
+  pivot_wider(names_from = type,
+              values_from = c(LFarea, LFvolume, LFcarbon))
+
+cowplot::plot_grid(
+  ggplot(uvp6.sub, aes(x = LFarea_annotated, y = LFarea_predicted)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6.sub$LFarea_annotated, na.rm = TRUE),
+             y = min(uvp6.sub$LFarea_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6.sub$LFarea_annotated, 
+                                             uvp6.sub$LFarea_predicted)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("LF Area annotated") + ylab("LF Area predicted"),
+  
+  ggplot(uvp6.sub, aes(x = LFvolume_annotated, y = LFvolume_predicted)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6.sub$LFvolume_annotated, na.rm = TRUE),
+             y = min(uvp6.sub$LFvolume_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6.sub$LFvolume_annotated, 
+                                             uvp6.sub$LFvolume_predicted)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("LF Volume annotated") + ylab("LF Volume predicted"),
+  
+  ggplot(uvp6.sub, aes(x = LFcarbon_annotated, y = LFcarbon_predicted)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", x = max(uvp6.sub$LFcarbon_annotated, na.rm = TRUE),
+             y = min(uvp6.sub$LFcarbon_predicted, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(uvp6.sub$LFcarbon_annotated, 
+                                             uvp6.sub$LFcarbon_predicted)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("LF Carbon annotated") + ylab("LF Carbon predicted"),
+  
+  labels = "auto", nrow = 1
+)
+
+ggsave("figures/UVP6_LF_accuracy.png",
+       height = 4, width = 8, units = "in")
+```
+
+
+# TODO Random forest model of structural carbon and lipid carbon prediction
+When models are developed with n = 6608 images, struct_carbon has 93.23% var explained and wax ester carbon has 89.97% var explained.
+
+```{r}
+library(randomForest)
+library(randomForestExplainer)
+
+# subset data to simply be StructCarbon, WaxEster, + predictors
+uvp6_for_rf <- uvp6 %>% 
+  filter(type != "predicted") %>%
+  filter(type == "annotated") %>% # do the model on the annotated data only
+  filter(!is.na(structural_carbon)) %>% 
+  filter(!is.na(waxester_mass_mgC)) %>% 
+  select(structural_carbon, waxester_mass_mgC,
+         Major:PerimMajor) 
+
+
+# Random forest regression on structural carbon mass
+set.seed(888)
+model.prosome <- randomForest(structural_carbon ~ .,
+                      data = uvp6_for_rf %>% 
+                        select(-c(waxester_mass_mgC)), 
+                      importance = TRUE, proximity = TRUE)
+model.prosome 
+plot(model.prosome)
+
+# Try random forest regression on lipid (wax ester) mass
+set.seed(888)
+model.lipid <- randomForest(waxester_mass_mgC ~ .,
+                      data = uvp6_for_rf %>% 
+                        select(-c(structural_carbon)), 
+                      importance = TRUE, proximity = TRUE)
+model.lipid 
+plot(model.lipid)
+```
+
+
+# --- scripts form UVP lipid morphotraits analysis.Rmd
+##  Random forest model of lipid estimation from morphotraits
+Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 88%) and prosome mass (% var exp = 95%) are not that bad. RF model for lipid fullness based on mass is at %var exp = 96.3%.
+
+But RF model for lipid fullness based on pixels is awful at %var exp = 6% and LF based on mass at 5.5%. Wonder why the latter is performs badly. Both prosome and lipid mass have a nonlinear relationship to lipid fullness. 
+
+
+Running the random forest models without Depth as a predictor does not affect the performance for lipid and prosome mass but it actually makes the lipid fullness RF model weaker with (% var exp = 2.6%) indicating that depth is likely an important predictor of fullness, even if these two variables do not have a clear relationship when doing a correlation. Interestingly, including lipid and prosome mass as predictors for the lipid fullness RF model increases the %var expl to 61% which means that the morpho traits could potentially predict for LF but doesn't in this RF model. This is probably simulated with a neural network instead?
+
+## ordination of the RF results
+```{r}
+dist.mat <- dist(1 - model.lipid$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       Lipid = uvp6_for_rf$waxester_mass_mgC)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y, label = Sample)) +
+  geom_text(aes(color = Lipid)) +
+  scale_color_viridis_c() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("RF Lipid mass")
+
+
+dist.mat <- dist(1 - model.prosome$proximity)
+mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
+
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample = rownames(mds.values),
+                       X = mds.values[,1],
+                       Y = mds.values[,2],
+                       Prosome = uvp6_for_rf$structural_carbon)
+
+ggplot(data = mds.data, 
+       aes(x = X, y = Y, label = Sample)) +
+  geom_text(aes(color = Prosome)) +
+  scale_color_viridis_c() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%")) +
+  
+  ylab(paste("MDS2 - ", mds.var.per[2], "%")) +
+  ggtitle("RF Prosome mass")
 
 
 ```
 
+## TODO -- adapt Predicted vs annoated
+LF from modeled lipid and prosome mass
 
+LF is calculated from area/pixels... not mass, so prosomes might need a separate area to mass conversion.
+```{r}
+predicted_lipid <- predict(model.lipid, 
+                           lipid_morpho_test %>% 
+                        select(-c(prosome_mass, lipid_mass, 
+                                  lipidfullness, , lipidfullness)))
+
+# Create a dataframe with actual and predicted values
+results_lipid <- data.frame(Actual = lipid_morpho_test$lipid_mass, 
+                         Predicted = predicted_lipid,
+                         LF = lipid_morpho_test$lipidfullness.mass)
+
+# Seems like higher lipid fullness underestimates lipid mass while lower fullness overestimates
+ggplot(results_lipid, aes(x = Actual, y = Predicted, color = LF)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated lipid mass",
+       y = "Predicted lipid mass")
+
+
+predicted_prosome <- predict(model.prosome, 
+                           lipid_morpho_test %>% 
+                        select(-c(prosome_mass, prosome_mass, 
+                                  lipidfullness, lipidfullness.mass)))
+
+# Create a dataframe with actual and predicted values
+results_prosome <- data.frame(Actual = lipid_morpho_test$prosome_mass, 
+                         Predicted = predicted_prosome,
+                         LF = lipid_morpho_test$lipidfullness.mass)
+
+# No clear pattern on how LF affects prosome prediction
+ggplot(results_prosome, aes(x = Actual, y = Predicted, color = LF)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated prosome mass",
+       y = "Predicted prosome mass")
+
+
+# Compare LF calculated from predicted values and actual LF
+# Note that LF calulated from mass is not actually the LF from the annotated pixels... why??
+results_LF <- bind_cols(results_lipid %>% 
+                          rename(Actual_lipid = Actual,
+                                 Predicted_lipid = Predicted) %>% 
+                          select(-LF),
+                        results_prosome %>% 
+                          rename(Actual_prosome = Actual,
+                                 Predicted_prosome = Predicted) %>% 
+                          select(-LF)) %>% 
+  mutate(LF_actual = Actual_lipid / Actual_prosome * 100,
+         LF_predicted = Predicted_lipid / Predicted_prosome * 100) %>% 
+  mutate(LF.pixel = lipid_morpho_test$lipidfullness)
+
+ggplot(results_LF, aes(x = LF.pixel, y = LF_predicted, color = LF_actual)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated LF calculated from pixel",
+       y = "Predicted LF calculated")
+
+ggplot(results_LF, aes(x = LF_actual, y = LF_predicted, color = LF_actual)) +
+  geom_point(alpha = 0.7, size = 2) +  # Scatter points
+  scale_color_viridis_c() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
+  labs(title = "RF UVP morphotraits",
+       x = "Annotated LF calculated from mass",
+       y = "Predicted LF calculated")
+
+```
+
+
+## importance of parameters
+Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
+```{r}
+plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
+plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+
+
+plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes")
+plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+```
+
+
+# TODO basic allometric scaling equations, get R2 and compare performance with RF and CNN models
+Models to test:
+1. Prosome mass - lipid mass
+2. Area/Major/Feret/Perim - lipid mass and prosome mass
+
+## The function getRegressionModel2 from lmodel2 allows for reduced major axis regression but here OLS is used.
+```{r}
+# Calculates regression model using the lmodel2() function that allows major axis regressions
+# df is a standardized trait dataframe
+getRegressionModel2 <- function(df, grp = "All", X, Y, 
+                               model = "OLS", base = "10"){
+  trait.sub <- df
+  if (grp != "All") {
+    trait.sub <- trait.sub %>% 
+      filter(str_detect(group, grp)) 
+  }
+  trait.sub <- trait.sub %>% 
+    filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
+    relocate(X, Y)
+  
+  # This calculates both the OLS and RMA
+  if(base == "10") {
+    reg <- lmodel2::lmodel2(log10(get(Y)) ~ log10(get(X)), data = trait.sub)
+  } else if (base == "e") {
+    reg <- lmodel2::lmodel2(log(get(Y)) ~ log(get(X)), data = trait.sub)
+  } else {
+    stop("Error: Please select either base 10 or e.")
+  }
+
+  if (model == "OLS"){
+    ii <- 1
+  } else if (model =="RMA") {
+    ii <- 3
+  } else {
+    stop("Error: Please select either OLS or RMA regression model.")
+  }
+  
+  # return(reg)
+  
+  reg.results.size <- data.frame(grp = grp, X = X,  Y = Y, 
+                                 a = reg$regression.results$Intercept[ii], 
+                                 b = reg$regression.results$Slope[ii], 
+                                 a.ci.2.5 = reg$confidence.intervals$`2.5%-Intercept`[ii],
+                                 a.ci.97.5 = reg$confidence.intervals$`97.5%-Intercept`[ii],
+                                 b.ci.2.5 = reg$confidence.intervals$`2.5%-Slope`[ii],
+                                 b.ci.97.5 = reg$confidence.intervals$`97.5%-Slope`[ii],
+                                 n = nrow(trait.sub), 
+                                 R2 = reg$rsquare,
+                                 # RSE = reg$sigma,
+                                 pval = reg$P.param, 
+                                 model = model, base = as.character(base),
+                                 minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
+}
+
+# OLS regression model function
+
+getRegressionModel <- function(df, X, Y, base = "10") {
+  trait.sub <- df %>% 
+    filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
+    relocate(X, Y)
+  
+  if (nrow(trait.sub) > 3) {
+    # Calculate OLS
+    if(base == "10") {
+      reg <- lm(log10(get(Y)) ~ log10(get(X)), data = trait.sub)
+    } else if (base == "e") {
+      reg <- lm(log(get(Y)) ~ log(get(X)), data = trait.sub)
+    } else if (base == "none") {
+      reg <- lm(get(Y) ~ get(X), data = trait.sub)
+    } else {
+      stop("Error: Please select either base 10, e, or none.")
+    }
+    
+    reg.results <- data.frame(X = X,  Y = Y, 
+                              a = reg$coefficients[1],
+                              b = reg$coefficients[2],
+                              n = nrow(trait.sub),
+                              R2 = summary(reg)$adj.r.squared,
+                              RSE = summary(reg)$sigma,
+                              pval = getpval(summary(reg)$fstatistic), 
+                              model = "OLS", base = as.character(base),
+                              minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
+  } else {
+    reg.results <- data.frame(X = X,  Y = Y, 
+                              a = NA, b = NA, n = nrow(trait.sub),
+                              R2 = NA, RSE = NA, pval = NA, 
+                              model = "OLS", base = as.character(base),
+                              minX = NA, maxX = NA)
+  }
+  
+  return(reg.results %>% 
+           remove_rownames())
+}
+
+getpval <- function(x){ 
+  p <- pf(x[1],x[2],x[3],lower.tail = F) 
+  attributes(p) <- NULL
+  return(p)
+}
+
+```
+
+# --- Meta data exploration ---
 # Exploring vertical profiles
 ## Overall number of images in 100 m depth bins
 ```{r}
@@ -395,7 +990,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
 ```
 
 
-# TODO Plot proportion of images with segmentations relative to total living zoop images and total copepod images
+# Plot proportion of images with segmentations relative to total living zoop images and total copepod images
 ```{r}
 # The uvp6 data from ecotaxa
 load("data/uvp6_deam_living_20250320.RData")
@@ -530,6 +1125,9 @@ ggplot(abundBin3, aes(x = depthBin, y = abundanceMean, fill = taxagroup)) +
   scale_x_reverse() +
   facet_wrap(~Month)
 
+ggsave("figures/UVP6_vertical_abundance_majorgroups.png",
+       height = 5, width = 7, units = "in", bg = "white")
+
 # recount number of copepoda with segmentations per depth bin
 
 # Proportion copepoda (with and without segmentations), crustaceans, others 
@@ -636,6 +1234,20 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 # TODO prepare a data table to make a shiny app
 
 
+# Extra - Kattner and Hagen 2009 WE % Total lipids
+```{r}
+# fatty acids (% total fatty acids)
+CfinArctic <- c(16.9, 12.7, 6.2, 1.5, 5.3, 0.4, 1.8, 1.1, 9.5, 7.7, 1.0, 13.2, 8.0, 0.3, 0.3, 11.6)
+
+sum(CfinArctic)
+
+# fatty acid/alochol composition of wax esters from arctic copepods
+cfinWE <- c(26.3, 9.8, 6.7, 0.9, 5.3, 0.3, 1.2, 1.5, 13.7, 7.8, 0.9, 11.4, 7.0, 0.2, 0.2, 2.2)
+cfinAlc <- c(3.9, 14.6, 3.4, 39.3, 38.8)
+
+sum(cfinWE)
+sum(cfinAlc)
+```
 
 
 

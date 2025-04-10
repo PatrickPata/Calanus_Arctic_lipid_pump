@@ -91,7 +91,7 @@ UVP6 84 um/0.084 mm
 area (mm^2) = pixel_area * res(mm)^2
 
 Convert area to total lipids (mg): 0.197 Area (mm2) ^ 1.38 (Vogedes et al. 2010)
-total lipid (mg) to carbon (mg C) conversion factor: Lambda = 0.81 (Kattner & Graeve 1991); which is actually from this equation C2L <- (36*12) / (36*12 + 2*36 + 2*16)
+total lipid (mg) to carbon (mg C) conversion factor: Lambda = 0.81 (Kattner & Graeve 1991); which is actually from this equation C2L <- (36*12) / (36*12 + 2*36 + 2*16) ... used in SChmid et al. (2018)
 
 Biovolume (mm3) to biomass (mgC)
 From McConville et al. (2016):

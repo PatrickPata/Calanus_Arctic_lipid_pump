@@ -385,11 +385,6 @@ depth_gaps <- uvp6_de_ecopart %>%
 # No gaps so can full join!
 ```
 
-# 
-```{r}
-
-```
-
 
 # -------- Old files
 

@@ -364,8 +364,12 @@ ggsave("figures/UVP6_LF_accuracy.png",
 ```
 
 
-# TODO Random forest model of structural carbon and lipid carbon prediction
+# Random forest model of structural carbon and lipid carbon prediction
 When models are developed with n = 6608 images, struct_carbon has 93.23% var explained and wax ester carbon has 89.97% var explained.
+
+When models are developed with the n = 1806 images with annotations, struct_carbon has 92.61% var explained (RMSR = 0.167)and wax ester carbon has 87.76% var explained (RMSR = 0.253). So it is comparable.
+
+The test for the with no annotation predictions resulted in accuracy of...
 
 ```{r}
 library(randomForest)
@@ -401,17 +405,8 @@ plot(model.lipid)
 ```
 
 
-# --- scripts form UVP lipid morphotraits analysis.Rmd
-##  Random forest model of lipid estimation from morphotraits
-Applying a random forest model using the morphological traits to predict lipid mass (%var exp = 88%) and prosome mass (% var exp = 95%) are not that bad. RF model for lipid fullness based on mass is at %var exp = 96.3%.
-
-But RF model for lipid fullness based on pixels is awful at %var exp = 6% and LF based on mass at 5.5%. Wonder why the latter is performs badly. Both prosome and lipid mass have a nonlinear relationship to lipid fullness. 
-
-
-Running the random forest models without Depth as a predictor does not affect the performance for lipid and prosome mass but it actually makes the lipid fullness RF model weaker with (% var exp = 2.6%) indicating that depth is likely an important predictor of fullness, even if these two variables do not have a clear relationship when doing a correlation. Interestingly, including lipid and prosome mass as predictors for the lipid fullness RF model increases the %var expl to 61% which means that the morpho traits could potentially predict for LF but doesn't in this RF model. This is probably simulated with a neural network instead?
-
 ## ordination of the RF results
-```{r}
+```{r, eval=FALSE}
 dist.mat <- dist(1 - model.lipid$proximity)
 mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
 mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100,1)
@@ -454,152 +449,100 @@ ggplot(data = mds.data,
 
 ```
 
-## TODO -- adapt Predicted vs annoated
-LF from modeled lipid and prosome mass
-
-LF is calculated from area/pixels... not mass, so prosomes might need a separate area to mass conversion.
-```{r}
-predicted_lipid <- predict(model.lipid, 
-                           lipid_morpho_test %>% 
-                        select(-c(prosome_mass, lipid_mass, 
-                                  lipidfullness, , lipidfullness)))
-
-# Create a dataframe with actual and predicted values
-results_lipid <- data.frame(Actual = lipid_morpho_test$lipid_mass, 
-                         Predicted = predicted_lipid,
-                         LF = lipid_morpho_test$lipidfullness.mass)
-
-# Seems like higher lipid fullness underestimates lipid mass while lower fullness overestimates
-ggplot(results_lipid, aes(x = Actual, y = Predicted, color = LF)) +
-  geom_point(alpha = 0.7, size = 2) +  # Scatter points
-  scale_color_viridis_c() +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
-  labs(title = "RF UVP morphotraits",
-       x = "Annotated lipid mass",
-       y = "Predicted lipid mass")
-
-
-predicted_prosome <- predict(model.prosome, 
-                           lipid_morpho_test %>% 
-                        select(-c(prosome_mass, prosome_mass, 
-                                  lipidfullness, lipidfullness.mass)))
-
-# Create a dataframe with actual and predicted values
-results_prosome <- data.frame(Actual = lipid_morpho_test$prosome_mass, 
-                         Predicted = predicted_prosome,
-                         LF = lipid_morpho_test$lipidfullness.mass)
-
-# No clear pattern on how LF affects prosome prediction
-ggplot(results_prosome, aes(x = Actual, y = Predicted, color = LF)) +
-  geom_point(alpha = 0.7, size = 2) +  # Scatter points
-  scale_color_viridis_c() +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
-  labs(title = "RF UVP morphotraits",
-       x = "Annotated prosome mass",
-       y = "Predicted prosome mass")
-
-
-# Compare LF calculated from predicted values and actual LF
-# Note that LF calulated from mass is not actually the LF from the annotated pixels... why??
-results_LF <- bind_cols(results_lipid %>% 
-                          rename(Actual_lipid = Actual,
-                                 Predicted_lipid = Predicted) %>% 
-                          select(-LF),
-                        results_prosome %>% 
-                          rename(Actual_prosome = Actual,
-                                 Predicted_prosome = Predicted) %>% 
-                          select(-LF)) %>% 
-  mutate(LF_actual = Actual_lipid / Actual_prosome * 100,
-         LF_predicted = Predicted_lipid / Predicted_prosome * 100) %>% 
-  mutate(LF.pixel = lipid_morpho_test$lipidfullness)
-
-ggplot(results_LF, aes(x = LF.pixel, y = LF_predicted, color = LF_actual)) +
-  geom_point(alpha = 0.7, size = 2) +  # Scatter points
-  scale_color_viridis_c() +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
-  labs(title = "RF UVP morphotraits",
-       x = "Annotated LF calculated from pixel",
-       y = "Predicted LF calculated")
-
-ggplot(results_LF, aes(x = LF_actual, y = LF_predicted, color = LF_actual)) +
-  geom_point(alpha = 0.7, size = 2) +  # Scatter points
-  scale_color_viridis_c() +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +  # Ideal line
-  labs(title = "RF UVP morphotraits",
-       x = "Annotated LF calculated from mass",
-       y = "Predicted LF calculated")
-
-```
-
-
 ## importance of parameters
 Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
 ```{r}
-plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes")
-plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+cowplot::plot_grid(
+  plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes"),
+  plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
+  labels = "auto")
+
+ggsave("figures/UVP6_rf_structural_importance.png",
+       height = 4, width = 9, units = "in")
 
 
-plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes")
-plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5)
+cowplot::plot_grid(
+  plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes"),
+  plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
+  labels = "auto")
+
+ggsave("figures/UVP6_rf_waxester_importance.png",
+       height = 4, width = 9, units = "in")
 ```
 
 
-# TODO basic allometric scaling equations, get R2 and compare performance with RF and CNN models
-Models to test:
-1. Prosome mass - lipid mass
-2. Area/Major/Feret/Perim - lipid mass and prosome mass
-
-## The function getRegressionModel2 from lmodel2 allows for reduced major axis regression but here OLS is used.
+## Predicted vs annoated
 ```{r}
-# Calculates regression model using the lmodel2() function that allows major axis regressions
-# df is a standardized trait dataframe
-getRegressionModel2 <- function(df, grp = "All", X, Y, 
-                               model = "OLS", base = "10"){
-  trait.sub <- df
-  if (grp != "All") {
-    trait.sub <- trait.sub %>% 
-      filter(str_detect(group, grp)) 
-  }
-  trait.sub <- trait.sub %>% 
-    filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
-    relocate(X, Y)
-  
-  # This calculates both the OLS and RMA
-  if(base == "10") {
-    reg <- lmodel2::lmodel2(log10(get(Y)) ~ log10(get(X)), data = trait.sub)
-  } else if (base == "e") {
-    reg <- lmodel2::lmodel2(log(get(Y)) ~ log(get(X)), data = trait.sub)
-  } else {
-    stop("Error: Please select either base 10 or e.")
-  }
+# Apply the model to the new images with predicted segmentations
+uvp6_for_rf_prediction <- uvp6 %>% 
+  filter(type != "predicted") %>%
+  filter(type != "annotated") %>% # do the model on the annotated data only
+  filter(!is.na(structural_carbon)) %>% 
+  filter(!is.na(waxester_mass_mgC)) %>% 
+  select(type, 
+         structural_carbon_seg = structural_carbon, 
+         waxester_mass_mgC_seg = waxester_mass_mgC,
+         Major:PerimMajor)
 
-  if (model == "OLS"){
-    ii <- 1
-  } else if (model =="RMA") {
-    ii <- 3
-  } else {
-    stop("Error: Please select either OLS or RMA regression model.")
-  }
-  
-  # return(reg)
-  
-  reg.results.size <- data.frame(grp = grp, X = X,  Y = Y, 
-                                 a = reg$regression.results$Intercept[ii], 
-                                 b = reg$regression.results$Slope[ii], 
-                                 a.ci.2.5 = reg$confidence.intervals$`2.5%-Intercept`[ii],
-                                 a.ci.97.5 = reg$confidence.intervals$`97.5%-Intercept`[ii],
-                                 b.ci.2.5 = reg$confidence.intervals$`2.5%-Slope`[ii],
-                                 b.ci.97.5 = reg$confidence.intervals$`97.5%-Slope`[ii],
-                                 n = nrow(trait.sub), 
-                                 R2 = reg$rsquare,
-                                 # RSE = reg$sigma,
-                                 pval = reg$P.param, 
-                                 model = model, base = as.character(base),
-                                 minX = min(trait.sub[,1]), maxX = max(trait.sub[,1]))
-}
+rf_pred_prosome <- predict(model.prosome,
+                           uvp6_for_rf_prediction %>% 
+                             select(-c(type, structural_carbon_seg,
+                                       waxester_mass_mgC_seg)))
 
+
+rf_pred_lipid <- predict(model.lipid,
+                           uvp6_for_rf_prediction %>% 
+                             select(-c(type, structural_carbon_seg,
+                                       waxester_mass_mgC_seg)))
+
+# Create a dataframe of the segmentation_predicted and rf_predicted
+results_rf_seg <- uvp6_for_rf_prediction %>% 
+  select(type, structural_carbon_seg, waxester_mass_mgC_seg) 
+results_rf_seg$structural_carbon_rf <- rf_pred_prosome
+results_rf_seg$waxester_mass_mgC_rf <- rf_pred_lipid
+
+
+# Plot comparison
+cowplot::plot_grid(
+  ggplot(results_rf_seg, aes(x = structural_carbon_seg, 
+                             y = structural_carbon_rf)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", 
+             x = max(results_rf_seg$structural_carbon_seg, na.rm = TRUE),
+             y = min(results_rf_seg$structural_carbon_rf, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(results_rf_seg$structural_carbon_seg,             results_rf_seg$structural_carbon_rf)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Structural carbon - segmentation") + 
+    ylab("Structural carbon - random forest"),
+  
+   ggplot(results_rf_seg, aes(x = waxester_mass_mgC_seg, 
+                              y = waxester_mass_mgC_rf)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", 
+             x = max(results_rf_seg$waxester_mass_mgC_seg, na.rm = TRUE),
+             y = min(results_rf_seg$waxester_mass_mgC_rf, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(results_rf_seg$waxester_mass_mgC_seg,
+                                             results_rf_seg$waxester_mass_mgC_rf)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Wax ester - segmentation") + 
+    ylab("Wax ester - random forest"),
+  
+  labels = "auto"
+)
+
+ggsave("figures/UVP6_comparison_predictions_seg_rf.png",
+       height = 4, width = 6, units = "in")
+
+```
+
+
+## Basic allometric scaling equations, get R2 and compare performance with RF and CNN models
+```{r, eval=FALSE}
 # OLS regression model function
-
 getRegressionModel <- function(df, X, Y, base = "10") {
   trait.sub <- df %>% 
     filter(!is.na(get(X)) & !is.na(get(Y))) %>% 
@@ -644,7 +587,43 @@ getpval <- function(x){
   return(p)
 }
 
+
+allom_sub <- uvp6_for_rf %>% 
+  select(structural_carbon, waxester_mass_mgC, Area, Major, Perim, Feret)
+
+# prepare data frame of models to test
+reg.models <- data.frame( modelNum = c(1:9),
+                          X = c("structural_carbon", 
+                                "Area", "Major", 
+                                "Perim", "Feret",
+                                "Area", "Major", 
+                                "Perim", "Feret"),
+                          Y = c("waxester_mass_mgC", 
+                                "waxester_mass_mgC", "waxester_mass_mgC", 
+                                "waxester_mass_mgC", "waxester_mass_mgC",
+                                "structural_carbon", "structural_carbon",
+                                "structural_carbon", "structural_carbon") ) %>% 
+  mutate(model = "OLS", 
+         base = "none")
+
+# survey linear regression models
+reg.results <- data.frame()
+for (i in c(1:nrow(reg.models))){
+  reg.results <- bind_rows(reg.results, 
+                           getRegressionModel(allom_sub, 
+                                              reg.models$X[i], reg.models$Y[i],
+                                              base = reg.models$base[i]))
+}
+
 ```
+
+
+# TODO apply random forest models to all other calanoida/copepoda images within the size range of the annotated images?
+```{r}
+
+```
+
+
 
 # --- Meta data exploration ---
 # Exploring vertical profiles

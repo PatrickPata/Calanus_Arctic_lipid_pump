@@ -451,7 +451,7 @@ ggplot(data = mds.data,
 
 ## importance of parameters
 Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
-```{r}
+```{r, eval=FALSE}
 cowplot::plot_grid(
   plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes"),
   plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
@@ -618,10 +618,97 @@ for (i in c(1:nrow(reg.models))){
 ```
 
 
-# TODO apply random forest models to all other calanoida/copepoda images within the size range of the annotated images?
-```{r}
+# Apply random forest models to all other calanoida/copepoda images within the size range of the annotated images
 
+There are 25,878 total zooplankton images, 6,625 images are copepods with segmentations (26%). There are 14,029 are copepods without segmentations (54%) which include 91,69 are copepods without segmentations but within the size range of the annotated data (35%). Thus, 20% of images are smaller copepods based on major axis length and are excluded from any lipid mass prediction. There were no copepods larger than what was manually segmented. Majority of copepods with no segmentations and within the size range were classified generally as "Copepoda" (95%) while there were 241 images of Calanus (the ones excluded by the poor segmentations) and 115 for Metridia (both totalling 4%). Depending on how confident we are with extrapolating the biomass estimation using a random forest model, we can have carbon values for 60% of all the images, which likely translates to a larger percentage if based on biomass.
+```{r}
+# The uvp6 data from ecotaxa
+load("data/uvp6_deam_living_20250320.RData")
+
+# Merge the 2021 an 2023 data 
+uvp6_ecotaxa <- bind_rows(uvp6_de, uvp6_am) 
+rm(uvp6_de, uvp6_am)
+
+
+# Of the copepods with no segmentations, how many are within the size range of the annotated data
+cope_for_rf <- uvp6_ecotaxa %>%
+  filter(object_id %notin% uvp6$object_id) %>% 
+  filter(taxagroup == "Copepoda") %>% 
+  filter(object_major >= filter(uvp6_annot_table, column == "Major")$min &
+           object_major <= filter(uvp6_annot_table, column == "Major")$max) %>% 
+  # exclude Oncaeidae (62) and Paraeuchata (11)?
+  filter(taxaname %notin% c("Oncaeidae","Paraeuchaeta")) %>% 
+  # select and rename columns
+  select(object_id,
+         Major = object_major, Minor = object_minor, 
+         Perim = object_perim.,
+         Feret = object_feret, Area = object_.area, 
+         Elongation = object_elongation,
+         VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+         Circ = object_circ., Thickr = object_thickr, 
+         MeanGrey = object_mean, MedGrey = object_median,
+         HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
+         SkewGrey = object_skew, Fractal = object_fractal, 
+         PerimFeret = object_perimferet, 
+         PerimMajor = object_perimmajor)
+  
+cope_rf_meta <- uvp6_ecotaxa %>% 
+  filter(object_id %in% cope_for_rf$object_id) %>% 
+    select(object_id, taxagroup, taxaname,
+         lat = object_lat, lon = object_lon, 
+         depth = object_depth_min,
+         date = object_date, time = object_time,
+         sample_id, sample_cruise) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+  mutate(Year = as.factor(Year))
+
+# cope_for_rf %>% 
+#   group_by(taxaname) %>% 
+#   count()
+
+# Estimate carbon content 
+cope_rf <- cope_for_rf
+cope_rf$structural_carbon_rf <- predict(model.prosome,
+                                            cope_for_rf %>% 
+                                              select(-c(object_id)))
+
+cope_rf$waxester_mass_mgC_rf <- predict(model.lipid,
+                                            cope_for_rf %>% 
+                                              select(-c(object_id)))
+cowplot::plot_grid(
+  ggplot(cope_rf, aes(x = Major, y = structural_carbon_rf)) +
+    geom_point(alpha = 0.4) +
+    geom_smooth(),
+  
+  ggplot(cope_rf, aes(x = Major, y = waxester_mass_mgC_rf)) +
+    geom_point(alpha = 0.4) +
+    geom_smooth(),
+  labels = "auto"
+)
+
+ggsave("figures/UVP6_randomforest_for_copepoda_without_seg.png",
+       height = 4, width = 6, units = "in")
+
+# Export random forest predicted carbon values
+save(cope_rf, cope_rf_meta, model.prosome, model.lipid,
+     file = "data/uvp6_randomforest_results_20240411.RData")
 ```
+
+
+# Clean workspace
+```{r}
+rm(model.prosome, model.lipid,
+   uvp6_for_rf, cope_for_rf,
+   uvp6_for_rf_prediction, rf_pred_prosome, rf_pred_lipid, results_rf_seg,
+   uvp6_ecotaxa, taxamatch)
+
+gc()
+```
+
+
 
 
 
@@ -976,7 +1063,7 @@ load("data/uvp6_deam_living_20250320.RData")
 
 # Merge the 2021 an 2023 data 
 uvp6_ecotaxa <- bind_rows(uvp6_de, uvp6_am) 
-rm(uvp6_de, uvp6_am, uvp6_ecopart)
+rm(uvp6_de, uvp6_am)
 
 # Metadata of samples
 meta_uvp6 <- uvp6_ecotaxa %>% 
@@ -1001,6 +1088,9 @@ abund <- uvp6_ecotaxa %>%
   # separate copepods to with or without segmentations
   mutate(taxagroup = if_else(object_id %in% uvp6$object_id,
                               "Copepoda_segmented", taxagroup)) %>% 
+  # identify specific copepods with no segmentation
+  mutate(taxagroup = if_else(taxagroup == "Copepoda",
+                             taxaname, taxagroup)) %>% 
   rename(lon = object_lon, lat = object_lat, 
          date = object_date, depth = object_depth_min,
          volume_m3 = Sampled_volume_m3) %>% 
@@ -1018,7 +1108,7 @@ abund <- uvp6_ecotaxa %>%
 
 # To get abundance at other bin sizes, need to full join ?the volume data in uvp6_volumes so it records the bins with zero abundance. Easier if the ecopart data is pre binned
 binsize <-  100
-uvp6_ecopartBin <- uvp6_volumes %>% 
+uvp6_ecopartBin <- uvp6_ecopart %>% 
   mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
   group_by(sample_id, depthBin) %>% 
   summarise(volume_m3 = sum(Sampled_volume_m3),
@@ -1100,7 +1190,7 @@ abundBin3 <- abundBin2 %>%
 ggplot(abundBin3, aes(x = depthBin, y = abundanceMean, fill = taxagroup)) +
   geom_bar(stat = "identity") + #position = "fill"
   coord_flip() + 
-  scale_fill_manual(values = paletteer::paletteer_d("ggsci::default_ucscgb", n = 19)) +
+  scale_fill_manual(values = paletteer::paletteer_d("ggsci::default_ucscgb", n = 21)) +
   scale_x_reverse() +
   facet_wrap(~Month)
 
@@ -1111,7 +1201,7 @@ ggsave("figures/UVP6_vertical_abundance_majorgroups.png",
 
 # Proportion copepoda (with and without segmentations), crustaceans, others 
 abundBin4 <- abundBin2 %>% 
-  mutate(taxagroup2 = if_else(taxagroup %in% c("Copepoda", "Copepoda_segmented"),
+  mutate(taxagroup2 = if_else(taxagroup %in% c("Copepoda", "Copepoda_segmented", "Calanus", "Metridia", "Oncaeidae", "Paraeuchaeta"),
                               taxagroup, "Other Mesozoop")) %>% 
   group_by(taxagroup2, sample_id, Year, Month, depthBin, binsize) %>% 
   summarise(abundanceBin = sum(abundanceBin),
@@ -1123,10 +1213,12 @@ abundBin4 <- abundBin2 %>%
             .groups = "drop") %>% 
   mutate(taxagroup2 = factor(taxagroup2,
                              levels = c("Other Mesozoop","Copepoda",
+                                        "Calanus", "Metridia", 
+                                        "Oncaeidae", "Paraeuchaeta",
                                         "Copepoda_segmented")))
 
-# clrs <- paletteer_d("colorBlindness::paletteMartin", n = 19)
-clrs <- c("hotpink","gold2","black")
+# clrs <- paletteer::paletteer_d("colorBlindness::paletteMartin", n = 7)
+clrs <- c("black","hotpink","blue2","plum1","purple4","tomato","gold1")
 
 cowplot::plot_grid(
   ggplot(abundBin4, aes(x = depthBin, y = abundanceMean, fill = taxagroup2)) +
@@ -1150,8 +1242,14 @@ cowplot::plot_grid(
 )
 
 
-ggsave("figures/UVP6_vertical_abundance.png",
+ggsave("figures/UVP6_vertical_abundance_v2.png",
        height = 5, width = 7, units = "in", bg = "white")
+
+
+  # separate copepods to with or without segmentations
+  mutate(taxagroup = if_else(object_id %in% uvp6$object_id,
+                              "Copepoda_segmented", taxagroup)) %>% 
+
 
 # TODO try biovolume but need to verify how these are calculated first
 ```

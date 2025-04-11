@@ -1,0 +1,120 @@
+---
+title: "Calculating carbon export"
+author: "Patrick Pata"
+date: "2025-04-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+library(ggOceanMaps)
+
+load("data/UVP6_combined_carbon_predictions_20250411.RData")
+
+
+theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
+```
+
+# Work on the 15 casts that reach sequestration depth for now
+```{r}
+# Establish the depth bins
+binsize <-  100
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
+cope_bin_deep <- cope_carbon %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(cope_carbon_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  # Only select casts that go beyond 1000 m
+  group_by(sample_id) %>% 
+  mutate(maxdepth = max(depthBin)) %>% 
+  ungroup() %>% 
+  filter(maxdepth >= 1000) %>% 
+  
+  select(-c(Depth_5m, Sampled_volume_L, Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(sample_id, depthBin, depthRange,
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels()
+
+
+cowplot::plot_grid(
+  ggplot(cope_bin_deep, aes(y = abundance_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE) +
+    geom_point(aes(color = lat), size = 2, alpha = 0.7) +
+    coord_flip() +
+    labs(x = "", y = "Abundance (indiv/m3)") +
+    theme(legend.position = "right") +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = total_carbon_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE) +
+    geom_point(aes(color = lat), size = 2, alpha = 0.7) +
+    coord_flip() +
+    labs(x = "", y = "Total carbon (mg C/m3)") +
+    theme(legend.position = "right") +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = waxester_carbon_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE) +
+    geom_point(aes(color = lat), size = 2, alpha = 0.7) +
+    coord_flip() +
+    labs(x = "", y = "Wax ester carbon (mg C/m3)") +
+    theme(legend.position = "bottom") +
+    scale_x_discrete(limits = rev) +
+    scale_y_log10()+
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = lf_carbon_mean,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE) +
+    geom_hline(yintercept = 50, color = "pink") +
+    geom_point(aes(color = lat), size = 2, alpha = 0.7) +
+    coord_flip() +
+    labs(x = "", y = "Average lipid fullness (%total C)") +
+    theme(legend.position = "bottom") +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  labels = "auto"
+)
+
+```
+

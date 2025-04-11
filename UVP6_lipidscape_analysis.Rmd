@@ -404,8 +404,8 @@ model.lipid
 plot(model.lipid)
 ```
 
-
-## ordination of the RF results
+## Evaluate RF models
+### ordination of the RF results
 ```{r, eval=FALSE}
 dist.mat <- dist(1 - model.lipid$proximity)
 mds.stuff <- cmdscale(dist.mat, eig = TRUE, x.ret = TRUE)
@@ -449,7 +449,7 @@ ggplot(data = mds.data,
 
 ```
 
-## importance of parameters
+### importance of parameters
 Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
 ```{r, eval=FALSE}
 cowplot::plot_grid(
@@ -471,8 +471,8 @@ ggsave("figures/UVP6_rf_waxester_importance.png",
 ```
 
 
-## Predicted vs annoated
-```{r}
+### Predicted vs annoated
+```{r, eval=FALSE}
 # Apply the model to the new images with predicted segmentations
 uvp6_for_rf_prediction <- uvp6 %>% 
   filter(type != "predicted") %>%
@@ -618,7 +618,8 @@ for (i in c(1:nrow(reg.models))){
 ```
 
 
-# Apply random forest models to all other calanoida/copepoda images within the size range of the annotated images
+
+## Apply random forest models to all other calanoida/copepoda images within the size range of the annotated images
 
 There are 25,878 total zooplankton images, 6,625 images are copepods with segmentations (26%). There are 14,029 are copepods without segmentations (54%) which include 91,69 are copepods without segmentations but within the size range of the annotated data (35%). Thus, 20% of images are smaller copepods based on major axis length and are excluded from any lipid mass prediction. There were no copepods larger than what was manually segmented. Majority of copepods with no segmentations and within the size range were classified generally as "Copepoda" (95%) while there were 241 images of Calanus (the ones excluded by the poor segmentations) and 115 for Metridia (both totalling 4%). Depending on how confident we are with extrapolating the biomass estimation using a random forest model, we can have carbon values for 60% of all the images, which likely translates to a larger percentage if based on biomass.
 ```{r}
@@ -671,19 +672,24 @@ cope_rf_meta <- uvp6_ecotaxa %>%
 
 # Estimate carbon content 
 cope_rf <- cope_for_rf
-cope_rf$structural_carbon_rf <- predict(model.prosome,
+cope_rf$structural_carbon <- predict(model.prosome,
                                             cope_for_rf %>% 
                                               select(-c(object_id)))
 
-cope_rf$waxester_mass_mgC_rf <- predict(model.lipid,
+cope_rf$waxester_carbon <- predict(model.lipid,
                                             cope_for_rf %>% 
                                               select(-c(object_id)))
+cope_rf <- cope_rf %>% 
+  mutate(total_carbon = structural_carbon + waxester_carbon) %>% 
+  mutate(lf_carbon = waxester_carbon / total_carbon * 100)
+
+
 cowplot::plot_grid(
-  ggplot(cope_rf, aes(x = Major, y = structural_carbon_rf)) +
+  ggplot(cope_rf, aes(x = Major, y = structural_carbon)) +
     geom_point(alpha = 0.4) +
     geom_smooth(),
   
-  ggplot(cope_rf, aes(x = Major, y = waxester_mass_mgC_rf)) +
+  ggplot(cope_rf, aes(x = Major, y = waxester_carbon)) +
     geom_point(alpha = 0.4) +
     geom_smooth(),
   labels = "auto"
@@ -698,7 +704,7 @@ save(cope_rf, cope_rf_meta, model.prosome, model.lipid,
 ```
 
 
-# Clean workspace
+# Clean workspace, aggregate and organize carbon data
 ```{r}
 rm(model.prosome, model.lipid,
    uvp6_for_rf, cope_for_rf,
@@ -706,9 +712,180 @@ rm(model.prosome, model.lipid,
    uvp6_ecotaxa, taxamatch)
 
 gc()
+
+# Rename columns and combine
+cope_carbon <- uvp6 %>% 
+  select(object_id, source = type,
+         structural_carbon,
+         waxester_carbon = waxester_mass_mgC,
+         total_carbon = prosome_mgC_Bourreau,
+         lf_carbon = LF_carbon_Bourreau) %>% 
+  bind_rows(cope_rf %>% 
+              mutate(source = "random forest") %>% 
+              select(object_id, source,
+                     structural_carbon, waxester_carbon,
+                     total_carbon, lf_carbon))
+
+cope_rf_meta <- cope_rf_meta %>% 
+  # select(-c(taxagroup, taxaname)) %>% 
+  mutate(Year = as.numeric(Year)) %>% 
+  mutate(Month2 = if_else(Month == 8, "August", "")) %>% 
+  mutate(Month2 = if_else(Month == 9, "September", Month2)) %>% 
+  mutate(Month2 = if_else(Month == 10, "October", Month2)) %>% 
+  select(-Month) %>% rename(Month = Month2) %>% 
+  mutate(Month = factor(Month, levels = c("August","September","October"))) 
+
+cope_carbon_meta <- cope_rf_meta %>% 
+  bind_rows(uvp6 %>% 
+              select(colnames(cope_rf_meta))) %>% 
+  # Add the volume measurements for the random forest data
+  
+  mutate(Depth_5m = floor(depth / 5)*5+2.5) %>% 
+  left_join(uvp6_ecopart,
+            by = join_by(sample_id, Depth_5m))
+
+save(cope_carbon, cope_carbon_meta, uvp6_ecopart, uvp6_annot_table,
+     file = "data/UVP6_combined_carbon_predictions_20250411.RData")
+
+rm(uvp6, uvp6_meta, cope_rf_meta, cope_rf)
+
+
+gc()
 ```
 
+# Visualize lipid scape
 
+## Vertical distributions
+```{r}
+# Establish the depth bins
+binsize <-  100
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
+# Calculate abundance, total carbon biomass per depth bin (average across 130 samples)
+cope_bin <- cope_carbon %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(cope_carbon_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Depth_5m, Sampled_volume_L, Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(depthBin, depthRange,
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels()
+
+
+# Overall vertical distribution
+cowplot::plot_grid(
+ggplot(cope_bin, aes(y = abundance_m3,
+                        x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev),
+
+ggplot(cope_bin, aes(y = total_carbon_m3,
+                        x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Total carbon (mg C/m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev),
+
+ggplot(cope_bin, aes(y = waxester_carbon_m3,
+                        x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Wax ester carbon (mg C/m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev),
+
+ggplot(cope_bin, aes(y = lf_carbon_mean,
+                        x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Average lipid fullness (%total C)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev),
+nrow = 2, labels = "auto"
+)
+
+
+ggsave("figures/UVP6_overall_vertical_dist.png",
+       height = 7, width = 10, units = "in")
+
+# Monthly vertical distributions
+ggplot(cope_bin, aes(y = total_carbon_m3,
+                        x = depthRange)) +
+  geom_boxplot(outliers = FALSE) +
+  coord_flip() +
+  labs(x = "", y = "Total carbon (mg C/m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~Month, scales = "free_x")
+
+
+ggsave("figures/UVP6_vertical_month_biomass.png",
+       height = 4, width = 10, units = "in")
+
+
+ggplot(cope_bin, aes(y = waxester_carbon_m3,
+                        x = depthRange)) +
+  geom_boxplot(outliers = FALSE) +
+  coord_flip() +
+  labs(x = "", y = "Wax ester carbon (mg C/m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~Month, scales = "free_x")
+
+ggsave("figures/UVP6_vertical_month_waxester.png",
+       height = 4, width = 10, units = "in")
+
+
+ggplot(cope_bin, aes(y = lf_carbon_mean,
+                        x = depthRange)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_hline(yintercept = 50, color = "pink") +
+  coord_flip() +
+  labs(x = "", y = "Average lipid fullness (%total C)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~Month)
+
+ggsave("figures/UVP6_vertical_month_lipidfullness.png",
+       height = 4, width = 10, units = "in")
+```
+
+## Horizontal distributions
+```{r}
+
+
+```
 
 
 

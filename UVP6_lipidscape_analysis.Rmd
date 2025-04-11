@@ -706,6 +706,8 @@ save(cope_rf, cope_rf_meta, model.prosome, model.lipid,
 
 # Clean workspace, aggregate and organize carbon data
 ```{r}
+# load("data/uvp6_randomforest_results_20240411.RData")
+
 rm(model.prosome, model.lipid,
    uvp6_for_rf, cope_for_rf,
    uvp6_for_rf_prediction, rf_pred_prosome, rf_pred_lipid, results_rf_seg,
@@ -727,8 +729,8 @@ cope_carbon <- uvp6 %>%
                      total_carbon, lf_carbon))
 
 cope_rf_meta <- cope_rf_meta %>% 
-  # select(-c(taxagroup, taxaname)) %>% 
-  mutate(Year = as.numeric(Year)) %>% 
+  select(-c(taxagroup, taxaname)) %>%
+  mutate(Year = as.numeric(as.character(Year))) %>% 
   mutate(Month2 = if_else(Month == 8, "August", "")) %>% 
   mutate(Month2 = if_else(Month == 9, "September", Month2)) %>% 
   mutate(Month2 = if_else(Month == 10, "October", Month2)) %>% 
@@ -749,7 +751,6 @@ save(cope_carbon, cope_carbon_meta, uvp6_ecopart, uvp6_annot_table,
 
 rm(uvp6, uvp6_meta, cope_rf_meta, cope_rf)
 
-
 gc()
 ```
 
@@ -757,6 +758,8 @@ gc()
 
 ## Vertical distributions
 ```{r}
+# load("data/UVP6_combined_carbon_predictions_20250411.RData")
+
 # Establish the depth bins
 binsize <-  100
 uvp6_ecopartBin <- uvp6_ecopart %>% 
@@ -881,12 +884,168 @@ ggsave("figures/UVP6_vertical_month_lipidfullness.png",
        height = 4, width = 10, units = "in")
 ```
 
-## Horizontal distributions
-```{r}
 
+## TODO vertical distributions of the casts with deep tows
+```{r}
+# Select the casts
+
+# Color by latitude maybe
 
 ```
 
+
+
+## Horizontal distributions
+```{r}
+library(ggOceanMaps) 
+
+df0 <- cope_bin %>% 
+  filter(depthBin == 0) %>% 
+  mutate(Year = factor(Year))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = total_carbon_m3),
+             size = 2, alpha = 0.7) +
+  scale_fill_viridis_c(name = "Total carbon (mg C/m3)") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "bottom") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+cowplot::plot_grid(
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = waxester_carbon_m3),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Wax ester carbon (mg C/m3)") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = lf_carbon_mean),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Lipid fullness") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  labels = "auto"
+)
+
+
+ggsave("figures/UVP6_horizontal_0_100m.png",
+       height = 6, width = 10, units = "in", bg = "white")
+```
+
+## Total beyond 500m-1000m and 1000 m++ values
+```{r}
+# Establish the depth bins
+binsize <-  500
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
+# Calculate abundance, total carbon biomass per depth bin (average across 130 samples)
+cope_bin2 <- cope_carbon %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(cope_carbon_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Sampled_volume_L, Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  
+  # TODO: Modify depths to visualize: 
+  # Exclude the surface 100m
+  filter(Depth_5m >= 100) %>% 
+  # Consider 1000 m - 2000 m
+  mutate(depthRange = if_else(depthRange == "0m - 500m",
+                              "100m - 500m", depthRange)) %>% 
+  mutate(depthRange = if_else(depthRange == "1000m - 1500m",
+                              "1000m - 2000m", depthRange)) %>% 
+  mutate(depthRange = if_else(depthRange == "1500m - 2000m",
+                              "1000m - 2000m", depthRange)) %>% 
+  mutate(depthBin = if_else(depthBin == 1500, 1000, depthBin)) %>% 
+  
+  select(-Depth_5m) %>% 
+    
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(depthBin, depthRange,
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels()
+
+
+# 100 m - 500 m, 500 m - 1000 m, 1000 m - 1900 m
+df0 <- cope_bin2 %>% 
+  filter(depthBin == 1000) %>% 
+  mutate(Year = factor(Year))
+
+cowplot::plot_grid(
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = waxester_carbon_m3),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Wax ester carbon (mg C/m3)") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = lf_carbon_mean),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Lipid fullness") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  labels = "auto"
+)
+
+ggsave("figures/UVP6_horizontal_1000_1900m.png",
+       height = 6, width = 10, units = "in", bg = "white")
+```
 
 
 # --- Meta data exploration ---

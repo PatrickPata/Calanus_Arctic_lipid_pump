@@ -885,7 +885,7 @@ ggsave("figures/UVP6_vertical_month_lipidfullness.png",
 ```
 
 
-## TODO vertical distributions of the casts with deep tows
+## Deep cast vertical distributions
 ```{r}
 # Select the casts
 cope_bin_deep <- cope_carbon %>% 

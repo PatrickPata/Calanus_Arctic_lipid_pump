@@ -78,7 +78,7 @@ cowplot::plot_grid(
     geom_point(aes(color = lat), size = 2, alpha = 0.7) +
     coord_flip() +
     labs(x = "", y = "Abundance (indiv/m3)") +
-    theme(legend.position = "right") +
+    theme(legend.position = "none") +
     scale_x_discrete(limits = rev) +
     scale_color_viridis_c(),
   
@@ -88,7 +88,7 @@ cowplot::plot_grid(
     geom_point(aes(color = lat), size = 2, alpha = 0.7) +
     coord_flip() +
     labs(x = "", y = "Total carbon (mg C/m3)") +
-    theme(legend.position = "right") +
+    theme(legend.position = "none") +
     scale_x_discrete(limits = rev) +
     scale_color_viridis_c(),
   
@@ -98,7 +98,7 @@ cowplot::plot_grid(
     geom_point(aes(color = lat), size = 2, alpha = 0.7) +
     coord_flip() +
     labs(x = "", y = "Wax ester carbon (mg C/m3)") +
-    theme(legend.position = "bottom") +
+    theme(legend.position = "none") +
     scale_x_discrete(limits = rev) +
     scale_y_log10()+
     scale_color_viridis_c(),
@@ -110,11 +110,74 @@ cowplot::plot_grid(
     geom_point(aes(color = lat), size = 2, alpha = 0.7) +
     coord_flip() +
     labs(x = "", y = "Average lipid fullness (%total C)") +
-    theme(legend.position = "bottom") +
+    theme(legend.position = "none") +
     scale_x_discrete(limits = rev) +
     scale_color_viridis_c(),
   labels = "auto"
 )
 
+ggsave("figures/UVP6_vertical_15_deep_v2.png",
+       height = 9, width = 10, units = "in")
 ```
+
+# Process of calculating carbon export...
+In Tarling et al. (2022), the diapause duration is when the 80% fraction of lipids is respired. The respiration rate they used was based on Visser et al. (2017)
+```{r}
+# 1. Tarling et al. (2022)
+# Respiration rate based on Visser et al. (2017)
+# resp <- b * (mass^(3/4)) * exp(E * (T- T0)/(k*T*T0))
+# b is the universal scaling constant: 2.3 × 10−7 ugC1/4 s−1 # note that in Jonnasdottir et al. (2019) this value 2.5 but also referencing Visser et al. (2017) which actually uses 2.3
+# E is the activation energy: 0.6 eV
+# k is the Boltzmann constant: eV K-1 [Value not reported in table but is 8.62 10−5 eV K-1]
+# T and T0 are in Kelvin, Assume average 0.5 degC at depth?
+# T0 is absolute zero? That is the case in Tarling and in Jonnasdottir but Visser et al. (2017) which they reference actually reports T0 as 273 K (which is zero degree celsius)... it is also 273.15 K for Schmid et al. (2018)
+# Diapause duration was set as time to respire 80% of lipid reserves according to Saumweber and Durbin (2006).
+
+
+# resp <-  (2.3*10^-7) * (mass^0.75) * exp(0.6 * (273.65--273)/ (273.65*-273))
+# diap_dur <- (w - 0.2w)/resp
+
+# Note that because diapausing depth temperature is around 0 degC, the temperature term is not even used since the value of the exp() ~ 1
+
+carbexp <- cope_carbon %>% # Can be individual level 
+  filter(!is.na(structural_carbon)) %>% 
+  # TODO remove anomalously low structural carbon values
+  filter(structural_carbon > 0.05) %>% 
+  mutate(mass_ugC = structural_carbon * 1000) %>% 
+  # mutate(respirationRate_ugCs = (2.3*10^-7) * (mass_ugC^0.75) * exp(0.6 * (273.65--273)/ (273.65*-273))) %>% 
+  mutate(respirationRate_ugCs_Tarling = (2.3*10^-7) * (mass_ugC^0.75) * exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))) %>% 
+  
+# In Maps et al. (2014), the E = 0.55 ev, Metabolic constant based on Fig 1 is 1.5x10^-7, while allometric exponent used was 0.75 (Although the equation reports 0.78+-0.09)
+  mutate(respirationRate_ugCs_Maps = (1.5*10^-7) * (mass_ugC^0.75) * exp(0.55 * (273.65-273)/ ((8.62*10^-5)*273.65*273))) %>% 
+  
+  mutate(diapauseDuration_day_Tarling = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCs_Tarling* 86400)) %>% 
+  
+  mutate(diapauseDuration_day_Maps = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCs_Maps* 86400))
+  
+
+summary(carbexp %>% select(respirationRate_ugCs_Tarling, respirationRate_ugCs_Maps,
+                           diapauseDuration_day_Tarling,
+                           diapauseDuration_day_Maps))
+
+# Using the Maps et al. (2014) results in longer diapause durations
+
+```
+
+
+## Distribution of values
+```{r}
+ggplot(carbexp, aes(x = respirationRate_ugCs_Maps, fill = source)) +
+  geom_density(alpha = 0.5) +
+  theme(legend.position = "bottom") +
+  xlab("Respiration rate (ug C/s") 
+  # scale_x_log10()
+
+ggplot(carbexp, aes(x = diapauseDuration_day_Maps , fill = source)) +
+  geom_density(alpha = 0.5) +
+  theme(legend.position = "bottom") +
+  xlab("Diapause duration (days)")
+```
+
 

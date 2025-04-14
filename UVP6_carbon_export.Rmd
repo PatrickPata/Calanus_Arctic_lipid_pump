@@ -157,7 +157,13 @@ carbexp <- cope_carbon %>% # Can be individual level
            (0.8*waxester_carbon*1000)/(respirationRate_ugCs_Maps* 86400))
   
 
-summary(carbexp %>% select(respirationRate_ugCs_Tarling, respirationRate_ugCs_Maps,
+# Add depth info and filter samples
+carbexp2 <- carbexp %>% 
+  left_join(cope_carbon_meta %>% 
+              select(object_id, depth, sample_id)) %>% 
+  filter(depth >= 600)
+
+summary(carbexp2 %>% select(respirationRate_ugCs_Tarling, respirationRate_ugCs_Maps,
                            diapauseDuration_day_Tarling,
                            diapauseDuration_day_Maps))
 
@@ -168,16 +174,27 @@ summary(carbexp %>% select(respirationRate_ugCs_Tarling, respirationRate_ugCs_Ma
 
 ## Distribution of values
 ```{r}
-ggplot(carbexp, aes(x = respirationRate_ugCs_Maps, fill = source)) +
+ggplot(carbexp2, aes(x = respirationRate_ugCs_Maps, fill = source)) +
   geom_density(alpha = 0.5) +
   theme(legend.position = "bottom") +
-  xlab("Respiration rate (ug C/s") 
+  xlab("Respiration rate (ug C/s)") 
   # scale_x_log10()
 
-ggplot(carbexp, aes(x = diapauseDuration_day_Maps , fill = source)) +
-  geom_density(alpha = 0.5) +
+
+ggsave("figures/UVP6_respiration_rate_dist.png",
+       height = 4, width = 8, units = "in")
+
+ggplot(carbexp2, aes(x = diapauseDuration_day_Maps , fill = source)) +
+  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.6) +  # Histogram with counts
+  geom_density(aes(y = ..density.. * nrow(carbexp2) * diff(range(carbexp2$diapauseDuration_day_Maps)) / 30), size = 1, alpha = 0.2, color = "white") +
+
+
   theme(legend.position = "bottom") +
   xlab("Diapause duration (days)")
+
+
+ggsave("figures/UVP6_diapause_dur_dist.png",
+       height = 4, width = 8, units = "in")
 ```
 
 

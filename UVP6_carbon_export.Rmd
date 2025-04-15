@@ -349,6 +349,49 @@ summary(AA$perc_flux)
 sd(AA$perc_flux)
 ```
 
+# Vertial distribution of C flux per 100 m depth bins
+```{r}
+binsize  <- 100
+# total carbon flux per cast (not C is converted to grams)
+carbexp_tarling_samples_ver <- carbexp_tarling %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  # TODO can bin by depth 
+  group_by(sample_id, depthBin) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            .groups = "drop") %>% 
+  mutate(depthBin = as.factor(depthBin)) %>% 
+  # calculate the percent of the total biomass that leads to C flux
+  mutate(biomass_perc = tot_c_flux / biomass * 100) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+
+
+cowplot::plot_grid(
+  ggplot(carbexp_tarling_samples_ver,
+         aes(x = depthBin, y = tot_c_flux)) +
+    geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+    coord_flip() +
+    labs(x = "", y = "Total carbon flux (g C m-2 year-1)") +
+    scale_x_discrete(limits = rev),
+  
+  
+  ggplot(carbexp_tarling_samples_ver,
+         aes(x = depthBin, y = biomass_perc)) +
+    geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+    coord_flip() +
+    labs(x = "", y = "Percent of total biomass contributing to C flux") +
+    scale_x_discrete(limits = rev)
+)
+
+
+ggsave("figures/UVP6_cflux_vert_dist.png",
+       height = 6, width = 10, units = "in", bg = "white")
+
+```
 
 
 ## Distribution of values

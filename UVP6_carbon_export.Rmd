@@ -161,40 +161,219 @@ carbexp <- cope_carbon %>% # Can be individual level
 carbexp2 <- carbexp %>% 
   left_join(cope_carbon_meta %>% 
               select(object_id, depth, sample_id)) %>% 
-  filter(depth >= 600)
+  filter(depth >= 600) %>% 
+  mutate(source = factor(source,
+                         levels = c("annotated","visible","not visible",
+                                    "random forest")))
 
 summary(carbexp2 %>% select(respirationRate_ugCs_Tarling, respirationRate_ugCs_Maps,
                            diapauseDuration_day_Tarling,
                            diapauseDuration_day_Maps))
 
+clrs <- c("black","hotpink","blue2","plum1","purple4","tomato","gold1")
+
+
 # Using the Maps et al. (2014) results in longer diapause durations
+cowplot::plot_grid(
+  ggplot(carbexp2 %>% 
+           select(total = total_carbon, waxester = waxester_carbon, structural = structural_carbon) %>% 
+           pivot_longer(cols = c(total, waxester, structural),
+                        names_to = "carbon", values_to = "val") %>% 
+           mutate(carbon = factor(carbon, levels = c("total","structural","waxester"))),
+         aes(x = val, color = carbon, fill = carbon)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    xlab("carbon content (mg C)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "bottom"),
+  
+  ggplot(carbexp2,
+         aes(x = lf_carbon)) +
+    geom_density(alpha = 0.4) +
+    xlab("lipid fullness (% total carbon)") +
+    theme(legend.position = "bottom"),
+  
+  
+  ggplot(carbexp2 %>% 
+           select(Tarling2022 = respirationRate_ugCs_Tarling, Maps2014 = respirationRate_ugCs_Maps) %>% 
+           pivot_longer(cols = c(Tarling2022, Maps2014),
+                        names_to = "basis", values_to = "val"),
+         aes(x = val, color = basis, fill = basis)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    xlab("individual diapause respiration rate (ug C s-1)") +
+    theme(legend.position = "bottom"),
+  
+  
+  ggplot(carbexp2 %>% 
+           select(Tarling2022 = diapauseDuration_day_Tarling, Maps2014 = diapauseDuration_day_Maps) %>% 
+           pivot_longer(cols = c(Tarling2022, Maps2014),
+                        names_to = "basis", values_to = "val"),
+         aes(x = val, color = basis, fill = basis)) +
+    geom_density(alpha = 0.4) +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    xlab("diapause duration (days)") +
+    theme(legend.position = "bottom"),
+  labels = "auto"
+)
+
+
+ggsave("figures/UVP6_trait_dist_600m_indivs.png",
+       height = 7, width = 10, units = "in", bg = "white")
+
+
+
 
 ```
+
+# Tarling et al. (2022) method for carbon export
+1. The total respiration flux is the summation of the product of abundance * diapause duration * respiration rate at each depth layer
+2. Overwintering non-predatory mortality rate (beta) = -0.001 day-1
+3. The total flux of the stored lipid and structural carbon from overwintering mortality is the fraction of the abundance lost to natural mortality multiplied by either the stored lipid or structural lipid carbon mass.
+4. The total C flux is the sum of the total respiration flux + total stored lipid mortality flux + structural carbon mortality flux (ug C m-2 year-1)
+
+The version of this here (need to verify):
+1. At each depth bin, calculate the total diapause respiration rate (ug C m-2) by multiplying the depth of the bin layer (100 m) * total of (individual respiration rate ug C s-1) / volume filtered in the depth layer (m-3) * diapause duration (days)
+2. Calculate proportion of the assemblage subjected to overwintering mortality at each depth bin. Based on total abundance of the depth bin? Or the abundance represented by each individual and then sum all individuals?
+```{r}
+beta <- -0.001 # day-1
+carbexp_tarling <- carbexp %>% 
+  left_join(cope_carbon_meta %>% 
+              select(object_id, Depth_5m, Sampled_volume_m3, sample_id),
+            by = "object_id") %>% 
+  # Calculate abundance fraction represented by the individual
+  mutate(abund = (5*1/Sampled_volume_m3)) %>% 
+  # Calculate the respired carbon concentration of each individual
+  # abundance in m2 * respiration rate in (ug C day-1) * diapause duration (days)
+  mutate(tot_c_resp = abund * (respirationRate_ugCs_Tarling* 86400) * diapauseDuration_day_Tarling ) %>% 
+  # Calculate the fraction of the "abundance" subjected to overwintering non-predatory mortality (indivs m-2)
+  mutate(mort_frac = abund - 
+           (abund * exp(beta * diapauseDuration_day_Tarling))) %>% 
+  # Calculate the structural carbon and lipid carbon loss to natural mortality (ug C m-2)
+  mutate(tot_c_struc_mort = mort_frac * structural_carbon * 1000,
+         tot_c_lipid_mort = mort_frac * waxester_carbon * 1000) %>% 
+  # Calculate the total carbon flux contribution of the individual (ug C m-2 year-1)
+  # TODO note that the diapause duration needs to be correct here!
+  mutate(tot_c_flux = tot_c_resp + tot_c_struc_mort + tot_c_lipid_mort)
+
+# total carbon flux per cast (not C is converted to grams)
+carbexp_tarling_samples <- carbexp_tarling %>% 
+  # TODO can bin by depth 
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            .groups = "drop") %>% 
+  select(-sample_id) %>% 
+  # rename with units
+  rename('abundance\n(indivs m-2)' = abundance,
+         'biomass\n(gC m-2)' = biomass,
+         'total carbon flux\n(gC m-2 yr-1)' = tot_c_flux,
+         'total respiration flux\n(gC m-2 yr-1)' = tot_c_resp,
+         'total mortality flux structural\n(gC m-2 yr-1)' = tot_c_struc_mort,
+         'total mortality flux reserve\n(gC m-2 yr-1)' = tot_c_lipid_mort)
+
+summary(carbexp_tarling_samples)
+
+ggplot(carbexp_tarling_samples %>% 
+         pivot_longer(cols = everything(), 
+                     names_to = "param", values_to = "value"),
+       aes(x = value)) +
+  geom_histogram() +
+  ylab("N samples") +
+  facet_wrap(~param, scales = "free") +
+  theme(strip.text.x = element_text(size = 12))
+# TODO add units (these are indiv/gC m-2 and rates are gC m-2 year-1)
+
+
+ggsave("figures/UVP6_cflux_terms.png",
+       height = 6, width = 10, units = "in", bg = "white")
+
+```
+
+## Spatial distribution of total C flux
+```{r}
+library(ggOceanMaps)
+
+df0 <- carbexp_tarling_samples %>% 
+  left_join(distinct(cope_carbon_meta,
+                     sample_id, lon, lat, Year)) %>% 
+  mutate(Year = as.factor(Year))
+
+cowplot::plot_grid(
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = biomass),
+             size = 2, alpha = 0.7) +
+  scale_fill_viridis_c(name = "Total biomass (g C m-2)") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "bottom") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = tot_c_flux),
+             size = 2, alpha = 0.7) +
+  scale_fill_viridis_c(name = "Total carbon flux (g C m-2 year-1)") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "bottom") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+
+labels = "auto"
+)
+
+
+ggsave("figures/UVP6_cflux_spatial_temp.png",
+       height = 6, width = 10, units = "in", bg = "white")
+
+# Fraction of biomass that results in total carbon flux
+AA <- carbexp_tarling_samples %>% 
+  mutate(perc_flux = tot_c_flux / biomass * 100 )
+summary(AA$perc_flux)
+sd(AA$perc_flux)
+```
+
 
 
 ## Distribution of values
 ```{r}
-ggplot(carbexp2, aes(x = respirationRate_ugCs_Maps, fill = source)) +
-  geom_density(alpha = 0.5) +
-  theme(legend.position = "bottom") +
-  xlab("Respiration rate (ug C/s)") 
+# TODO include body size and lipid mass or lipid fullness
+
+cowplot::plot_grid(
+  ggplot(carbexp2, aes(x = respirationRate_ugCs_Maps, fill = source)) +
+    geom_density(alpha = 0.4) +
+    theme(legend.position = "bottom") +
+    xlab("Respiration rate (ug C/s)"),
   # scale_x_log10()
-
-
-ggsave("figures/UVP6_respiration_rate_dist.png",
-       height = 4, width = 8, units = "in")
-
-ggplot(carbexp2, aes(x = diapauseDuration_day_Maps , fill = source)) +
-  geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.6) +  # Histogram with counts
-  geom_density(aes(y = ..density.. * nrow(carbexp2) * diff(range(carbexp2$diapauseDuration_day_Maps)) / 30), size = 1, alpha = 0.2, color = "white") +
-
-
-  theme(legend.position = "bottom") +
-  xlab("Diapause duration (days)")
-
-
-ggsave("figures/UVP6_diapause_dur_dist.png",
-       height = 4, width = 8, units = "in")
+  
+  
+  ggplot(carbexp2, aes(x = diapauseDuration_day_Maps , fill = source)) +
+    geom_density(alpha = 0.4) +
+    # geom_histogram(aes(y = ..count..), bins = 30, position = "identity", alpha = 0.6) +  # Histogram with counts
+    # geom_density(aes(y = ..density.. * nrow(carbexp2) * diff(range(carbexp2$diapauseDuration_day_Maps)) / 30), size = 1, alpha = 0.6, color = "white") +
+    theme(legend.position = "bottom") +
+    xlab("Potential diapause duration (days)"),
+  labels = "auto"
+)
+# 
+# ggsave("figures/UVP6_respiration,diapause_dur_dist.png",
+#        height = 4, width = 10, units = "in")
 ```
 
 

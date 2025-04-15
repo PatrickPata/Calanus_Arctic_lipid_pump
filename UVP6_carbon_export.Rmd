@@ -364,15 +364,17 @@ carbexp_tarling_samples_ver <- carbexp_tarling %>%
             tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
             tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
             .groups = "drop") %>% 
-  mutate(depthBin = as.factor(depthBin)) %>% 
   # calculate the percent of the total biomass that leads to C flux
   mutate(biomass_perc = tot_c_flux / biomass * 100) %>% 
   mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+carbexp_tarling_samples_ver <- carbexp_tarling_samples_ver %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(carbexp_tarling_samples_ver$depthRange)))
 
 
 cowplot::plot_grid(
   ggplot(carbexp_tarling_samples_ver,
-         aes(x = depthBin, y = tot_c_flux)) +
+         aes(x = depthRange, y = tot_c_flux)) +
     geom_boxplot(outlier.shape = 4, outlier.size = 1) +
     coord_flip() +
     labs(x = "", y = "Total carbon flux (g C m-2 year-1)") +
@@ -380,16 +382,17 @@ cowplot::plot_grid(
   
   
   ggplot(carbexp_tarling_samples_ver,
-         aes(x = depthBin, y = biomass_perc)) +
+         aes(x = depthRange, y = biomass_perc)) +
     geom_boxplot(outlier.shape = 4, outlier.size = 1) +
     coord_flip() +
     labs(x = "", y = "Percent of total biomass contributing to C flux") +
-    scale_x_discrete(limits = rev)
+    scale_x_discrete(limits = rev),
+  labels = "auto"
 )
 
 
 ggsave("figures/UVP6_cflux_vert_dist.png",
-       height = 6, width = 10, units = "in", bg = "white")
+       height = 5, width = 10, units = "in", bg = "white")
 
 ```
 

@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(lubridate)
+library(cowplot)
 # library(paletteer)
 
 # This is the data with the annotated and predicted values (with annotation, visible lipid sac, no visible lipid sac). So make sure to curate first and that an object_id is only considered once. This file also contains a table of the annotated data, and the original list of UVP6 metadata with morphological descriptors (including the images excluded because outside the size range).
@@ -698,9 +699,176 @@ cowplot::plot_grid(
 ggsave("figures/UVP6_randomforest_for_copepoda_without_seg.png",
        height = 4, width = 6, units = "in")
 
-# Export random forest predicted carbon values
-save(cope_rf, cope_rf_meta, model.prosome, model.lipid,
-     file = "data/uvp6_randomforest_results_20240411.RData")
+# # Export random forest predicted carbon values
+# save(cope_rf, cope_rf_meta, model.prosome, model.lipid,
+#      file = "data/uvp6_randomforest_results_20240411.RData")
+```
+
+
+# Visualize trait distribution
+(1) Prosome length/major axis*seg, (2) carbon biomass, (3) wax ester carbon, (4) lipid fullness %C, (5) Respiration rate diapause, (6) diapause duration
+```{r}
+# Organize individual level traits
+indiv_traits <- uvp6 %>% 
+  mutate(prosome_length_mm = prosomeMajor * uvpRes) %>% # based on segmentation
+  select(object_id, source = type,
+         prosome_length_mm,
+         prosome_biovolume_mm3,
+         lipidfullness_volume,
+         structural_carbon,
+         waxester_carbon = waxester_mass_mgC,
+         total_carbon = prosome_mgC_Bourreau,
+         lf_carbon = LF_carbon_Bourreau) %>% 
+  bind_rows(cope_rf %>% 
+              mutate(source = "random forest") %>% 
+              mutate(prosome_length_mm = Major * uvpRes) %>% # based on ecotaxa
+               mutate(prosome_biovolume_mm3 = 4/3 * pi * (Major/2 * uvpRes) * ((Minor/2 * uvpRes)^2)) %>%  # based on ecotaxa
+              select(object_id, source,
+                     prosome_length_mm,
+                     prosome_biovolume_mm3,
+                     # note no lipid fullness volume value
+                     structural_carbon, waxester_carbon,
+                     total_carbon, lf_carbon)) %>% # Can be individual level 
+  filter(!is.na(structural_carbon)) %>% 
+  # TODO remove anomalously low structural carbon values
+  filter(structural_carbon > 0.05) %>% 
+  mutate(mass_ugC = structural_carbon * 1000) %>% 
+  mutate(respirationRate_ugCday = (2.3*10^-7) * (mass_ugC^0.75) * exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))  * 86400) %>% 
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCday)) %>% 
+  # change the labels of the data source
+  mutate(source = if_else(source == "annotated",
+                          "manual segmentation", source)) %>% 
+  mutate(source = if_else(source == "visible" | source == "not visible" ,
+                          "predicted segmentation", source)) %>% 
+  mutate(source = factor(source, levels = c("manual segmentation",
+                                            "predicted segmentation",
+                                            "random forest")))
+  # mutate(source = if_else(source == "visible",
+  #                         "segmentation vis lipid", source)) %>% 
+  # mutate(source = if_else(source == "not visible",
+  #                         "segmentation not vis lipid", source)) %>% 
+  # mutate(source = factor(source, levels = c("manual segmentation",
+  #                                           "segmentation vis lipid",
+  #                                           "segmentation not vis lipid",
+  #                                           "random forest")))
+
+indiv_traits %>% 
+  group_by(source) %>% 
+  count()
+
+ggplot(indiv_traits,
+       aes(fill = source, color = source))
+
+
+clrs <- c("blue2","hotpink","gold1")
+
+
+mainfig <- cowplot::plot_grid(
+
+  ggplot(indiv_traits,
+       aes(x = prosome_length_mm,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    xlab("Major axis length (mm)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  # ggplot(indiv_traits,
+  #      aes(x = prosome_biovolume_mm3,
+  #        fill = source, color = source)) +
+  #   geom_density(alpha = 0.4) +
+  #   scale_x_log10() +
+  #   xlab("Biovolume (mm3)") +
+  #   scale_fill_manual(values = clrs) + 
+  #   scale_color_manual(values = clrs) +
+  #   theme(legend.position = "none"),
+  
+  ggplot(indiv_traits,
+       aes(x = total_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    xlab("Total carbon weight (mg C)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  ggplot(indiv_traits,
+       aes(x = waxester_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    xlab("Wax ester carbon (mg C)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = lf_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    xlab("Lipid fullness (% total carbon)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  # ggplot(indiv_traits,
+  #      aes(x = lipidfullness_volume,
+  #        fill = source, color = source)) +
+  #   geom_density(alpha = 0.4) +
+  #   xlab("Lipid fullness (% biovolume)") +
+  #   scale_fill_manual(values = clrs) + 
+  #   scale_color_manual(values = clrs) +
+  #   theme(legend.position = "none"),
+  
+  ggplot(indiv_traits,
+       aes(x = respirationRate_ugCday,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10() +
+    xlab("Dormancy respiration rate (ug C day-1)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = diapauseDuration_day,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    xlab("Potential diapause duration (day)") +
+    geom_vline(xintercept = 240, color = "Orange", linetype = "dashed") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+ labels = "auto", ncol = 2
+)
+
+mainfig
+ggsave(file = "figures/UVP6_indiv_trait_dist.png",
+       height = 8, width = 8, dpi = 300, bg = "white")
+  
+# get_legend is still not working properly
+tempfig <- ggplot(indiv_traits,
+       aes(x = diapauseDuration_day, fill = source, color = source))+
+    geom_density(alpha = 0.4) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    theme(legend.position = "bottom")
+tempfig
+# legendfig <- cowplot::get_legend(tempfig)
+# ggplot_build(tempfig)
+
+ggsave(file = "figures/UVP6_indiv_trait_dist_leged.png",
+       height = 4, width = 8, dpi = 300, bg = "white")
+
 ```
 
 

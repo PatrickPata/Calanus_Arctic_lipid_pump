@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(ggOceanMaps)
+library(cowplot)
 
 load("data/UVP6_combined_carbon_predictions_20250411.RData")
 
@@ -349,6 +350,77 @@ ggplot(carbexp_tarling_samples,
 ggsave("figures/UVP6_cflux_components_bydepth.png",
        height = 5, width = 10, units = "in", bg = "white")
 ```
+
+## Relative contribution by data source
+```{r}
+carbexp_tarling_samples2 <- carbexp_tarling %>% 
+  # calculate max tow depth first
+  group_by(sample_id) %>% 
+  mutate(maxdepth = max(Depth_5m) + 2.5) %>% 
+  ungroup() %>% 
+  group_by(sample_id, source, maxdepth) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            .groups = "drop") %>% 
+  
+  arrange(maxdepth) 
+# IDK why this is sorting does not work
+carbexp_tarling_samples2 <- carbexp_tarling_samples2 %>%
+  mutate(sample_id = factor(sample_id,
+                            levels = unique(carbexp_tarling_samples2$sample_id))) %>% 
+  mutate(source = factor(source, levels = rev(c("annotated",
+                                            "visible",
+                                            "not visible",
+                                            "random forest")))) 
+  
+  
+
+ggplot(carbexp_tarling_samples2, 
+       aes(x = sample_id, y = tot_c_flux, fill = source)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(c("blue","black","hotpink","gold1")),
+                    name = "Data source") +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  theme(legend.position = "bottom") +
+  xlab("Stations ordered by bottom depth") +
+  ylab("Total carbon flux (gC m-2 yr-1)") 
+
+ggsave("figures/UVP6_cflux_datasource_bydepth.png",
+       height = 5, width = 10, units = "in", bg = "white")
+
+cowplot::plot_grid(
+ggplot(carbexp_tarling_samples2, 
+       aes(x = sample_id, y = abundance, fill = source)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(c("blue","black","hotpink","gold1")),
+                    name = "Data source") +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  theme(legend.position = "none") +
+  xlab("Stations ordered by bottom depth") +
+  ylab("Abundance (indivs m-2)"),
+
+ggplot(carbexp_tarling_samples2, 
+       aes(x = sample_id, y = biomass, fill = source)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(c("blue","black","hotpink","gold1")),
+                    name = "Data source") +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  theme(legend.position = "bottom") +
+  xlab("Stations ordered by bottom depth") +
+  ylab("Biomass (g C m-2)"),
+labels = "auto", rel_heights = c(1,1.1), ncol = 1
+)
+
+
+ggsave("figures/UVP6_abundance_biomass_datasource_bydepth.png",
+       height = 10, width = 10, units = "in", bg = "white")
+
+```
+
 
 
 ## Spatial distribution of total C flux

@@ -198,13 +198,14 @@ cowplot::plot_grid(
   ggplot(carbexp2 %>% 
            select(Tarling2022 = respirationRate_ugCs_Tarling, Maps2014 = respirationRate_ugCs_Maps) %>% 
            pivot_longer(cols = c(Tarling2022, Maps2014),
-                        names_to = "basis", values_to = "val"),
+                        names_to = "basis", values_to = "val") %>% 
+           mutate(val = val * 86400),
          aes(x = val, color = basis, fill = basis)) +
     geom_density(alpha = 0.4) +
     scale_x_log10() +
     scale_fill_manual(values = clrs) + 
     scale_color_manual(values = clrs) +
-    xlab("individual diapause respiration rate (ug C s-1)") +
+    xlab("individual diapause respiration rate (ug C day-1)") +
     theme(legend.position = "bottom"),
   
   
@@ -239,12 +240,17 @@ ggsave("figures/UVP6_trait_dist_600m_indivs.png",
 The version of this here (need to verify):
 1. At each depth bin, calculate the total diapause respiration rate (ug C m-2) by multiplying the depth of the bin layer (100 m) * total of (individual respiration rate ug C s-1) / volume filtered in the depth layer (m-3) * diapause duration (days)
 2. Calculate proportion of the assemblage subjected to overwintering mortality at each depth bin. Based on total abundance of the depth bin? Or the abundance represented by each individual and then sum all individuals?
+
+Visser et al. (2017) uses the mortality rate of 0.005 d-1 
 ```{r}
 beta <- -0.001 # day-1
 carbexp_tarling <- carbexp %>% 
   left_join(cope_carbon_meta %>% 
               select(object_id, Depth_5m, Sampled_volume_m3, sample_id),
             by = "object_id") %>% 
+  # Cap the diapause duration to 240 days
+  mutate(diapauseDuration_day_Tarling = if_else(diapauseDuration_day_Tarling > 240,
+                                                240, diapauseDuration_day_Tarling)) %>% 
   # Calculate abundance fraction represented by the individual
   mutate(abund = (5*1/Sampled_volume_m3)) %>% 
   # Calculate the respired carbon concentration of each individual
@@ -302,7 +308,16 @@ ggsave("figures/UVP6_cflux_terms.png",
 ```{r}
 library(ggOceanMaps)
 
-df0 <- carbexp_tarling_samples %>% 
+df0 <- carbexp_tarling %>% 
+  # TODO can bin by depth 
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            .groups = "drop") %>% 
   left_join(distinct(cope_carbon_meta,
                      sample_id, lon, lat, Year)) %>% 
   mutate(Year = as.factor(Year))

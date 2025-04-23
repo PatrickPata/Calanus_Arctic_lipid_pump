@@ -23,7 +23,7 @@ theme_set(theme_bw())
 ```
 
 # Work on the 15 casts that reach sequestration depth for now
-```{r}
+```{r, eval=FALSE}
 # Establish the depth bins
 binsize <-  100
 uvp6_ecopartBin <- uvp6_ecopart %>% 
@@ -253,7 +253,7 @@ carbexp_tarling <- carbexp %>%
   mutate(diapauseDuration_day_Tarling = if_else(diapauseDuration_day_Tarling > 240,
                                                 240, diapauseDuration_day_Tarling)) %>% 
   # Calculate abundance fraction represented by the individual
-  mutate(abund = (5*1/Sampled_volume_m3)) %>% 
+  mutate(abund = (5*1/Sampled_volume_m3)) %>%  # 5 is for the 5m depth 
   # Calculate the respired carbon concentration of each individual
   # abundance in m2 * respiration rate in (ug C day-1) * diapause duration (days)
   mutate(tot_c_resp = abund * (respirationRate_ugCs_Tarling* 86400) * diapauseDuration_day_Tarling ) %>% 
@@ -303,6 +303,10 @@ ggplot(carbexp_tarling_samples %>%
 ggsave("figures/UVP6_cflux_terms.png",
        height = 6, width = 10, units = "in", bg = "white")
 
+
+# Export prelim calculations
+# save(carbexp_tarling, xdepth,
+#      file = "data/prelim_cflux_calculations_20240422.RData")
 ```
 
 ### Relative contribution to total carbon flux
@@ -347,8 +351,8 @@ ggplot(carbexp_tarling_samples,
   xlab("Stations ordered by bottom depth") +
   ylab("Total carbon flux (gC m-2 yr-1)") 
 
-ggsave("figures/UVP6_cflux_components_bydepth.png",
-       height = 5, width = 10, units = "in", bg = "white")
+# ggsave("figures/UVP6_cflux_components_bydepth.png",
+#        height = 5, width = 10, units = "in", bg = "white")
 ```
 
 ## Relative contribution by data source

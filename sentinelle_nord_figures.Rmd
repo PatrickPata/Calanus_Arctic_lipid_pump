@@ -1,0 +1,616 @@
+---
+title: "Sentinelle Nord Poster Figures"
+author: "Patrick Pata"
+date: "2025-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+library(lubridate)
+library(cowplot)
+library(ggtext)
+library(ggOceanMaps)
+# library(paletteer)
+
+load("data/UVP6_combined_carbon_predictions_20250422.RData")
+
+load("data/prelim_cflux_calculations_20240422.RData")
+# load("data/to_adjust_ecotaxa_length.RData")
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+`%notin%` <- Negate(`%in%`)
+```
+
+# Individual trait distribution
+```{r}
+indiv_traits <- cope_carbon %>% 
+   # TODO remove anomalously low structural carbon values
+  filter(structural_carbon > 0.05) %>% 
+  # also remove really large prosome
+  filter(major_length_mm <= 13) %>% 
+  mutate(mass_ugC = structural_carbon * 1000) %>% 
+  mutate(respirationRate_ugCday = (2.3*10^-7) * (mass_ugC^0.75) * exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))  * 86400) %>% 
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCday)) %>% 
+  # change the labels of the data source
+  mutate(source = if_else(source == "annotated",
+                          "manual segmentation", source)) %>% 
+  mutate(source = if_else(source == "random forest",
+                          "predicted random forest", source)) %>% 
+  mutate(source = if_else(source == "visible" | source == "not visible" ,
+                          "predicted segmentation", source)) %>% 
+  mutate(source = factor(source, levels = c("manual segmentation",
+                                            "predicted segmentation",
+                                            "predicted random forest")))
+rm(cope_carbon)
+
+clrs <- c("blue2","hotpink","gold1")
+
+mainfig <- 
+cowplot::plot_grid(
+
+  ggplot(indiv_traits,
+       aes(x = major_length_mm,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10(breaks = c(2:10)) +
+    xlab("Major axis length (mm)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = total_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+    xlab("Total carbon weight (mg C)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  ggplot(indiv_traits,
+       aes(x = waxester_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+    xlab("Wax ester carbon (mg C)") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = lf_carbon,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    xlab("Lipid fullness (% total carbon)") +
+    scale_x_continuous(breaks = c(30,40,50,60,70,80)) +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = respirationRate_ugCday,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    scale_x_log10(breaks = c(0.5,1,2,3,5,8,10)) +
+    # xlab(expression("Diapause respiration rate (" * mu * "g C day"^-1 * ")")) +
+    xlab("Diapause respiration rate (\u03bcg C day⁻¹)")+
+    # xlab(expression("Diapause respiration rate (ug C day-1)")) +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none",
+          axis.title.x = element_markdown()),
+  
+  
+  ggplot(indiv_traits,
+       aes(x = diapauseDuration_day,
+         fill = source, color = source)) +
+    geom_density(alpha = 0.4) +
+    xlab("Potential diapause duration (day)") +
+    geom_vline(xintercept = 240, color = "Orange", linetype = "dashed") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none"),
+  
+ labels = "auto", ncol = 2
+)
+
+
+mainfig
+ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist.png",
+       height = 5.5, width = 10, dpi = 300, bg = "white")
+  
+
+# get_legend is still not working properly
+ggplot(indiv_traits,
+       aes(x = major_length_mm, fill = source, color = source))+
+    geom_density(alpha = 0.4) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    scale_x_log10(breaks = c(2:10)) +
+  # scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
+  #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
+    theme(legend.position = "bottom")
+
+
+ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
+       height = 4, width = 10, dpi = 300, bg = "white")
+```
+
+# Vertical distributions
+## Community composition
+Total mesozoop abundance
+```{r}
+# load("data/UVP6_mesozoop_abundance.RData")
+
+# Proportion copepoda (with and without segmentations), crustaceans, others 
+abundBin2 <- abundBin2 %>% 
+  mutate(taxagroup2 = if_else(taxagroup %in% c("Copepoda", "Copepoda_segmented", "Calanus", "Metridia", "Oncaeidae", "Paraeuchaeta"),
+                              taxagroup, "Other Mesozoop")) %>% 
+  mutate(taxagroup2 = if_else(taxagroup2 == "Copepoda_segmented",
+                              "Segmented copepods", taxagroup2)) %>% 
+  mutate(taxagroup2 = if_else(taxagroup2 == "Other Mesozoop",
+                              "Other Mesozooplankton", taxagroup2)) 
+  
+# Find max depth per sample
+maxdepth_df <- abundBin2 %>%
+  group_by(sample_id) %>%
+  summarise(maxdepth = max(depthBin), .groups = "drop")
+
+# Create full grid of sample_id, taxagroup2, and depthBin up to maxdepth
+all_combos <- abundBin2 %>%
+  select(sample_id, taxagroup2) %>%
+  distinct() %>%
+  left_join(maxdepth_df, by = "sample_id") %>%
+  rowwise() %>%
+  mutate(depthBin_list = list(seq(0,maxdepth,100))) %>%
+  unnest(cols = c(depthBin_list)) %>%
+  rename(depthBin = depthBin_list) %>% 
+  mutate(binsize = 100)
+
+# Join with original data and fill in missing values
+abundBin_ave <- all_combos %>%
+  left_join(abundBin2 %>% 
+              group_by(taxagroup2, sample_id, depthBin, binsize) %>%
+              summarise(abundanceBin = sum(abundanceBin), .groups = "drop"),
+            by = c("sample_id", "taxagroup2", "depthBin", "binsize")) %>%
+  mutate(abundanceBin = replace_na(abundanceBin, 0)) %>%
+  group_by(taxagroup2, depthBin, binsize) %>%
+  summarise(abundanceMean = mean(abundanceBin),
+            abundanceSD = sd(abundanceBin),
+            nsamples = n(),
+            .groups = "drop") %>% 
+
+
+  # 
+  # # sum per sample
+  # group_by(sample_id) %>% 
+  # mutate(maxdepth = max(depthBin)) %>% 
+  # ungroup() %>% 
+  # group_by(taxagroup2, sample_id, maxdepth, depthBin, binsize) %>% 
+  # summarise(abundanceBin = sum(abundanceBin),
+  #           .groups = "drop") %>% 
+  # # average
+  # # TODO fill in blanks?
+  # group_by(taxagroup2,  depthBin, binsize) %>% 
+  # summarise(abundanceMean = mean(abundanceBin),
+  #           abundnaceSD = sd(abundanceBin),
+  #           nsamples = n(),
+  #           .groups = "drop") %>% 
+  mutate(taxagroup2 = factor(taxagroup2,
+                             levels = c("Other Mesozooplankton","Copepoda",
+                                        "Oncaeidae", "Paraeuchaeta",
+                                        "Metridia","Calanus",
+                                        "Segmented copepods"))) %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+abundBin_ave <- abundBin_ave %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(abundBin_ave$depthRange)))
+
+
+clrs <- c("black","hotpink","purple4","plum1","tomato","blue2","gold1")
+
+
+ggplot(abundBin_ave, aes(x = depthRange, y = abundanceMean, fill = taxagroup2)) +
+  geom_bar(stat = "identity") + #position = "fill"
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(expand = c(0, 0.5), limits = c(0, NA)) +
+  labs(x = "", y = expression("Mean mesozooplankton abundance (indivs m"^-3*")")) +
+  scale_fill_manual(values = clrs, name = "Zooplankton groups",
+                    guide = guide_legend(reverse = TRUE)) +
+  # theme(legend.position = "right")
+   theme(
+    legend.position = c(0.98, 0.03),  # Lower right
+    legend.justification = c("right", "bottom"),
+    legend.background = element_rect(fill = "white", color = "black")
+  )
+
+ggsave("figures/sentinelle/UVP6_vertical_commcomp_corrected.png",
+       height = 5, width = 6, units = "in", bg = "white")
+```
+
+
+## Deep cast vertical distributions
+```{r}
+# Select the casts
+cope_bin_deep <- cope_carbon %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(cope_carbon_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  # TODO Only select casts that go beyond XX m?
+  group_by(sample_id) %>% 
+  mutate(maxdepth = max(depthBin)) %>% 
+  ungroup() %>% 
+  # filter(maxdepth >= 500) %>% 
+  
+  select(-c(Depth_5m, Sampled_volume_L, Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(sample_id, depthBin, 
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels() %>% 
+  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+cope_bin_deep <- cope_bin_deep %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(cope_bin_deep$depthRange)))
+
+
+
+
+cowplot::plot_grid(
+  ggplot(cope_bin_deep, aes(y = waxester_carbon_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
+    coord_flip() +
+    labs(x = "", y = "Wax ester carbon (mg C m⁻³)") +
+    theme(legend.position = "bottom") +
+    scale_x_discrete(limits = rev) +
+    # scale_y_log10()+
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = lf_carbon_mean,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    # geom_hline(yintercept = 50, color = "pink") +
+    # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
+    coord_flip() +
+    labs(x = "", y = "Average lipid fullness (%total C)") +
+    theme(legend.position = "bottom",
+          axis.text.y = element_blank()) +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  rel_widths = c(1.2,1)
+)
+
+ggsave("figures/sentinelle/UVP6_vertical_all.png",
+       height = 5, width = 10, units = "in", bg = "white")
+```
+
+# Lipid pump
+## Horizontal map
+```{r}
+library(grid)
+df0 <- carbexp_tarling %>% 
+  # TODO can bin by depth 
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            maxdepth = max(Depth_5m) + 2.5,
+            .groups = "drop") %>% 
+  left_join(distinct(cope_carbon_meta,
+                     sample_id, lon, lat, Year)) %>% 
+  mutate(Year = as.factor(Year))
+
+cowplot::plot_grid(
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = "black", gla.border.col = NA,
+        land.col = "#eeeac4",
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = biomass),
+             size = 4, alpha = 0.8) +
+  scale_fill_viridis_c(name = "Total biomass\n(g C m-2)",
+                       breaks = c(0,10,20,30),
+                       option = "plasma") +
+  scale_shape_manual(values = c(21, 24), guide = "none") + 
+  theme(axis.title = element_blank(),
+        legend.position = c(0.98, 0.98),  # Moves it to upper left
+        legend.justification = c("right", "top"),  # Anchors corner correctly
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
+        legend.title = element_text(size=16),
+        legend.text = element_text(size=16)
+  ) +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = "black", gla.border.col = NA,
+        land.col = "#eeeac4",
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = tot_c_flux),
+             size = 4, alpha = 0.8) +
+  
+  scale_fill_viridis_c(name = "Total carbon flux\n(g C m-2 year-1)",
+                       breaks = c(0,5,10,15),
+                       option = "plasma") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.98, 0.98),  # Moves it to upper left
+        legend.justification = c("right", "top"),  # Anchors corner correctly
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
+        legend.title = element_text(size=16),
+        legend.text = element_text(size=16)
+  ) +
+  guides(fill = guide_colourbar(title.position="top", 
+                                title.hjust = 0.5))
+)
+
+
+ggsave("figures/sentinelle/UVP6_cflux_spatial_temp.png",
+       height = 6, width = 12, units = "in", bg = "white")
+```
+
+
+## C flux contrib per station distribution
+```{r}
+# Sort stations by bottom depth
+carbexp_tarling_samples <- carbexp_tarling %>% 
+  # calculate max tow depth
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            maxdepth = max(Depth_5m) + 2.5,
+            .groups = "drop") %>% 
+  arrange(maxdepth)
+carbexp_tarling_samples <- carbexp_tarling_samples %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = carbexp_tarling_samples$sample_id)) %>% 
+  rename(respiration = tot_c_resp, mortality_structural = tot_c_struc_mort,
+         mortality_lipid = tot_c_lipid_mort) %>% 
+  pivot_longer(cols = c(respiration, mortality_structural, mortality_lipid),
+               names_to = "component", values_to = "c_flux_val") %>% 
+  mutate(component = if_else(component == "respiration",
+                             "Diapause respiration", component),
+         component = if_else(component == "mortality_structural",
+                             "Structural carbon mortality", component),
+         component = if_else(component == "mortality_lipid",
+                             "Storage lipid mortality", component)) %>% 
+  mutate(component = factor(component, levels = c("Storage lipid mortality",
+                                                  "Structural carbon mortality",
+                                                  "Diapause respiration")))
+
+# list of depths for x axis breaks and labels
+xdepth <- carbexp_tarling_samples %>% 
+  distinct(sample_id, maxdepth) %>%
+  mutate(maxdepth2 = floor(maxdepth/100) *100) %>%  # 50 m bins
+  group_by(maxdepth2) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  filter(maxdepth2 %notin% c(900,1200,1300,1500,1600)) # remove some points
+
+# Total flux mean and sd
+totalflux <- carbexp_tarling_samples %>% 
+  group_by(sample_id) %>% 
+  summarise(c_flux_val = sum(c_flux_val),
+            .groups = "drop")
+totflux <- mean(totalflux$c_flux_val)
+totflux.sd <- sd(totalflux$c_flux_val)
+
+ggplot(carbexp_tarling_samples, 
+       aes(x = sample_id, y = c_flux_val, fill = component)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("blue","black","hotpink"),
+                    name = "C flux component") +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  geom_hline(yintercept = totflux, color = "gold2") +
+  geom_hline(yintercept = c(totflux+totflux.sd, totflux-totflux.sd), 
+             color = "gold1", linetype = "dashed") +
+  # theme(legend.position = "right") +
+   theme(
+     legend.position = c(0.02, 0.98),  # Moves it to upper left
+    legend.justification = c("left", "top"),  # Anchors corner correctly
+    legend.background = element_rect(fill = "white", color = "black")
+  ) +
+  xlab("Stations ordered by bottom depth (m)") +
+  ylab(expression("Total carbon flux (gC m"^-2~"yr"^-1~")"))
+  # ylab("Total carbon flux (gC m-2 yr-1)") 
+
+ggsave("figures/sentinelle/UVP6_cflux_components_bydepth_v2.png",
+       height = 3.3, width = 10, units = "in", bg = "white")
+```
+
+
+
+
+
+## Accounting
+
+Calculate total areal lipid pump
+```{r}
+# Labrador Sea (Tarling et al. 2022)
+area <- 870682 # in km2
+totflux <- 5.72 # in g C m-2 y-1
+
+# Baffin Bay 
+area <- 770000 #(Tang et al. 2024 )
+
+# Average components
+carbexp_tarling_samples %>% 
+  group_by(component) %>% 
+  summarise(mean = mean(c_flux_val), sd = sd(c_flux_val),
+            .groups = "drop")
+
+# Total flux
+totalflux <- carbexp_tarling_samples %>% 
+  group_by(sample_id, biomass) %>% 
+  summarise(c_flux_val = sum(c_flux_val),
+            .groups = "drop")
+totflux <- mean(totalflux$c_flux_val)
+totflux.sd <- sd(totalflux$c_flux_val)
+
+# % Biomass contributed to C flux
+perBiom <- mean((totalflux$c_flux_val / totalflux$biomass * 100))
+perBiom.sd <- sd((totalflux$c_flux_val / totalflux$biomass * 100))
+
+# Mt C y-1 (Megatonne 10-9 kg)
+MtC_flux <-(area*1000*1000*totflux)/1e+12
+
+print(paste0("The total areal flux is ", MtC_flux, " Mt C y-1 for an area of ",
+             area," km2 and lipid pump of ", totflux, " g C m-2 y-1."))
+
+(area*1000*1000*(totflux.sd))/1e+12
+(area*1000*1000*(totflux-totflux.sd))/1e+12
+(area*1000*1000*(totflux+totflux.sd))/1e+12
+
+```
+
+
+# Spatial sampling distribution
+For plotting depth as contours instead:
+basemap(limits = c(0, 60, 68, 80), bathymetry = TRUE, bathy.style = "contour_blues") + 
+  scale_color_hue()
+Can include with LOKI samples if ever
+```{r, eval=FALSE}
+# Get addtional metadata
+# Check location of potential UVP5 data (calanoida images)
+uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
+uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
+uvp5_ge <- bind_rows(uvp5_ge_side, uvp5_ge_top)
+rm(uvp5_ge_side, uvp5_ge_top)
+
+load("data/LOKI201315_metadata.RData")
+load("data/uvp6_lipids_20250410.RData")
+
+
+# metadata of all stations
+meta_stations <- uvp5_ge %>% 
+  distinct(sample_id, lon = object_lon, lat = object_lat,
+           botdep = sample_bottomdepth, date = object_date, 
+           Cruise = "UVP5HD Jun-Jul 2016") %>% 
+  bind_rows(uvp6_meta %>% 
+              group_by(sample_id) %>% 
+              mutate(botdep = max(depth)) %>% 
+              ungroup() %>%
+              mutate(Cruise = if_else(sample_cruise == "amundsen2023",
+                                      "UVP6 Aug-Sep 2023", "UVP6 Oct 2021")) %>% 
+              distinct(sample_id, lon, lat, botdep, date, Cruise) ) %>% 
+  bind_rows(meta2013, meta2015) %>% 
+  distinct(sample_id, .keep_all = TRUE) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+  mutate(Year = as.factor(Year)) %>% 
+  mutate(Cruise = factor(Cruise,
+                         levels = c("UVP5HD Jun-Jul 2016",  "UVP6 Oct 2021",
+                                    "UVP6 Aug-Sep 2023", 
+                                    "LOKI Aug-Sep 2013", "LOKI Apr-Oct 2015")))
+
+
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_greys",
+        land.border.col = "black", gla.border.col = NA,
+        data = df) +
+  ggspatial::geom_spatial_point(data = meta_stations, aes(x = lon, y = lat, 
+                                               shape = Cruise, color = Cruise),
+             size = 3, alpha = 0.8) +
+  scale_color_manual(values = c("hotpink","blue","red3","gold3","purple2"), name = "Cruise") +
+  scale_shape_manual(values = c(4,16,17, 5, 1), name = "Cruise") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12))+ 
+  guides(color  = guide_legend(order = 1),
+         shape  = guide_legend(order = 1),
+         fill = guide_legend(order = 2))
+
+ggsave("figures/sentinelle/station_map_v3.png",
+       height = 8, width = 8, units = "in", bg = "white")
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = TRUE, 
+        data = df,bathy.style = "contour_blues") +
+  scale_color_hue() +
+ ggspatial::geom_spatial_point(data = meta_stations, aes(x = lon, y = lat, 
+                                               shape = Cruise, fill = Cruise),
+             size = 3, alpha = 0.8) +
+  scale_fill_manual(values = c("hotpink","gold1","red3","purple2","purple2"), name = "Cruise") +
+  scale_shape_manual(values = c(21,22,23, 2, 4), name = "Cruise") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12))+ 
+  guides(fill  = guide_legend(order = 1),
+         shape  = guide_legend(order = 1),
+         color = guide_legend(order = 2))
+
+# ggsave("figures/sentinelle/station_map_v3.png",
+#        height = 8, width = 8, units = "in", bg = "white")
+```
+
+
+# ---- EXTRA ----
+LOKI metadata
+```{r, eval=FALSE}
+meta2013 <- read.csv("C:/Users/patri/Downloads/export_12063_20250122_1820/ecotaxa_export_12063_20250122_1820.tsv",
+                 sep = '\t', header = TRUE) %>% 
+  distinct(sample_id, lon = sample_longitude, lat = sample_latitude,
+           botdep = sample_bottom_depth, date = object_date, 
+           Cruise = "LOKI Aug-Sep 2013")
+
+meta2015 <- read.csv("C:/Users/patri/Downloads/export_14622_20250122_1824/ecotaxa_export_14622_20250122_1824.tsv",
+                 sep = '\t', header = TRUE)
+
+
+meta2015 <- meta2015 %>% 
+  distinct(sample_id, lon = sample_longitude, lat = sample_latitude,
+           botdep = sample_bottom_depth, date = object_date, 
+           Cruise = "LOKI Apr-Oct 2015")
+
+save(meta2013, meta2015, file = "data/LOKI201315_metadata.RData")
+```

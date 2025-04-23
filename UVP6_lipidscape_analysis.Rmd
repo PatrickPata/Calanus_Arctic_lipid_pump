@@ -134,17 +134,18 @@ uvp6 <- uvp6 %>%
     LF_carbon_Bourreau = waxester_mass_mgC / prosome_mgC_Bourreau * 100)
 
 
-# For now the bases of values are the following
-uvp6 <- uvp6 %>% 
-  select(object_id:prosomeMajor, type:time, Depth_5m:prosome_area_mm2,
-         prosome_biovolume_mm3,
-         waxester_mass_mg,
-         waxester_mass_mgC,
-         structural_carbon,
-         prosome_mgC_Bourreau,
-         lipidfullness_volume,
-         LF_carbon_Bourreau,
-         annotation:PerimMajor )
+# # For now the bases of values are the following
+# uvp6 <- uvp6 %>% 
+#   select(object_id:prosomeMajor, prosomeMinor,
+#          type:time, Depth_5m:prosome_area_mm2,
+#          prosome_biovolume_mm3,
+#          waxester_mass_mg,
+#          waxester_mass_mgC,
+#          structural_carbon,
+#          prosome_mgC_Bourreau,
+#          lipidfullness_volume,
+#          LF_carbon_Bourreau,
+#          annotation:PerimMajor )
 ```
 
 ## Check differences in prosome carbon and LF
@@ -362,6 +363,76 @@ cowplot::plot_grid(
 
 ggsave("figures/UVP6_LF_accuracy.png",
        height = 4, width = 8, units = "in")
+```
+
+
+### Calculate adjusting Ecotaxa major and minor axis to the segmentation values
+```{r, eval=TRUE}
+ecotaxa_adjust <- uvp6 %>% 
+  filter(type == "annotated") %>% 
+  select(major_segmentation = prosomeMajor, 
+         minor_segmentation = minor_derived, 
+         biovolume_segmentation = prosome_biovolume_mm3,
+         major_ecotaxa = Major, 
+         minor_ecotaxa = Minor) %>% 
+  mutate(major_segmentation = major_segmentation * uvpRes,
+         minor_segmentation = minor_segmentation * uvpRes,
+         major_ecotaxa = major_ecotaxa * uvpRes,
+         minor_ecotaxa = minor_ecotaxa * uvpRes) %>% 
+  mutate(biovolume_ecotaxa = 4/3 * pi * 
+           (major_ecotaxa/2) * ((minor_ecotaxa/2)^2))
+
+# Calculate regression models to apply to EcoTaxa major and minor axis values
+ecotaxa_adjust_major <- lm(major_segmentation ~ major_ecotaxa,
+                           data = ecotaxa_adjust)
+ecotaxa_adjust_minor <- lm(minor_segmentation ~ minor_ecotaxa,
+                           data = ecotaxa_adjust)
+
+# # Export and save the Ecotaxa adjust models
+# save(ecotaxa_adjust_major, ecotaxa_adjust_minor,
+#      file = "data/to_adjust_ecotaxa_length.RData")
+
+
+# cowplot::plot_grid(
+#   ggplot(ecotaxa_adjust, aes(x = major_ecotaxa, y = major_segmentation)) +
+#     geom_abline() +
+#     geom_point(alpha = 0.5) +
+#     geom_smooth(method = "lm") +
+#     annotate("text", 
+#              x = max(ecotaxa_adjust$major_ecotaxa, na.rm = TRUE),
+#              y = min(ecotaxa_adjust$major_segmentation, na.rm = TRUE),
+#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$major_segmentation, 
+#                                              ecotaxa_adjust$major_ecotaxa)),
+#              hjust = 1, vjust = 0, size = 5) +
+#     xlab("Major axis Ecotaxa (mm)") +
+#     ylab("Major axis segmentation (mm)"),
+#   
+#   ggplot(ecotaxa_adjust, aes(x = minor_ecotaxa, y = minor_segmentation)) +
+#     geom_abline() +
+#     geom_point(alpha = 0.5) +
+#     geom_smooth(method = "lm") +
+#     annotate("text", 
+#              x = max(ecotaxa_adjust$minor_ecotaxa, na.rm = TRUE),
+#              y = min(ecotaxa_adjust$minor_segmentation, na.rm = TRUE),
+#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$minor_segmentation, 
+#                                              ecotaxa_adjust$minor_ecotaxa)),
+#              hjust = 1, vjust = 0, size = 5) +
+#     xlab("Minor axis Ecotaxa (mm)") +
+#     ylab("Minor axis segmentation (mm)"),
+#   
+#   ggplot(ecotaxa_adjust, aes(x = biovolume_ecotaxa, y = biovolume_segmentation)) +
+#     geom_abline() +
+#     geom_point(alpha = 0.5) +
+#     geom_smooth(method = "lm") +
+#     annotate("text", 
+#              x = max(ecotaxa_adjust$biovolume_ecotaxa, na.rm = TRUE),
+#              y = min(ecotaxa_adjust$biovolume_segmentation, na.rm = TRUE),
+#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$biovolume_segmentation, 
+#                                              ecotaxa_adjust$biovolume_ecotaxa)),
+#              hjust = 1, vjust = 0, size = 5) +
+#     xlab("Biovolume axis Ecotaxa (mm)") +
+#     ylab("Biovolume axis segmentation (mm)")
+# )
 ```
 
 
@@ -708,9 +779,27 @@ ggsave("figures/UVP6_randomforest_for_copepoda_without_seg.png",
 # Visualize trait distribution
 (1) Prosome length/major axis*seg, (2) carbon biomass, (3) wax ester carbon, (4) lipid fullness %C, (5) Respiration rate diapause, (6) diapause duration
 ```{r}
+# Add the axis and volume in mm
+cope_rf <- cope_rf %>% 
+  mutate(source = "random forest") %>% 
+  mutate(prosome_length_mm = Major * uvpRes) %>% # based on ecotaxa
+  mutate(minor_length_mm = Minor * uvpRes) %>% 
+  
+  # adjust the major axis from ecotaxa
+  mutate(prosome_length_mm = ecotaxa_adjust_major$coefficients[1] +
+           ecotaxa_adjust_major$coefficients[2] *
+           prosome_length_mm) %>% 
+  mutate(minor_length_mm = ecotaxa_adjust_minor$coefficients[1] +
+           ecotaxa_adjust_minor$coefficients[2] *
+           minor_length_mm) %>% 
+  
+  mutate(prosome_biovolume_mm3 = 4/3 * pi * (prosome_length_mm/2) * 
+           ((minor_length_mm/2)^2))
+
 # Organize individual level traits
 indiv_traits <- uvp6 %>% 
   mutate(prosome_length_mm = prosomeMajor * uvpRes) %>% # based on segmentation
+  
   select(object_id, source = type,
          prosome_length_mm,
          prosome_biovolume_mm3,
@@ -719,10 +808,7 @@ indiv_traits <- uvp6 %>%
          waxester_carbon = waxester_mass_mgC,
          total_carbon = prosome_mgC_Bourreau,
          lf_carbon = LF_carbon_Bourreau) %>% 
-  bind_rows(cope_rf %>% 
-              mutate(source = "random forest") %>% 
-              mutate(prosome_length_mm = Major * uvpRes) %>% # based on ecotaxa
-               mutate(prosome_biovolume_mm3 = 4/3 * pi * (Major/2 * uvpRes) * ((Minor/2 * uvpRes)^2)) %>%  # based on ecotaxa
+  bind_rows(cope_rf %>%  # based on ecotaxa
               select(object_id, source,
                      prosome_length_mm,
                      prosome_biovolume_mm3,
@@ -852,21 +938,23 @@ mainfig <- cowplot::plot_grid(
 )
 
 mainfig
-ggsave(file = "figures/UVP6_indiv_trait_dist.png",
+ggsave(file = "figures/UVP6_indiv_trait_dist_v2.png",
        height = 8, width = 8, dpi = 300, bg = "white")
   
 # get_legend is still not working properly
 tempfig <- ggplot(indiv_traits,
-       aes(x = diapauseDuration_day, fill = source, color = source))+
+       aes(x = prosome_length_mm, fill = source, color = source))+
     geom_density(alpha = 0.4) +
     scale_fill_manual(values = clrs, name = "Data source") +
     scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
+    geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
     theme(legend.position = "bottom")
 tempfig
 # legendfig <- cowplot::get_legend(tempfig)
 # ggplot_build(tempfig)
 
-ggsave(file = "figures/UVP6_indiv_trait_dist_leged.png",
+ggsave(file = "figures/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
        height = 4, width = 8, dpi = 300, bg = "white")
 
 ```
@@ -885,14 +973,23 @@ gc()
 
 # Rename columns and combine
 cope_carbon <- uvp6 %>% 
+  mutate(major_length_mm = prosomeMajor * uvpRes,
+         minor_length_mm = minor_derived * uvpRes) %>% 
   select(object_id, source = type,
+         major_length_mm,
+         minor_length_mm,
+         prosome_biovolume_mm3,
          structural_carbon,
          waxester_carbon = waxester_mass_mgC,
          total_carbon = prosome_mgC_Bourreau,
          lf_carbon = LF_carbon_Bourreau) %>% 
   bind_rows(cope_rf %>% 
               mutate(source = "random forest") %>% 
+              mutate(major_length_mm = prosome_length_mm) %>% 
               select(object_id, source,
+                     major_length_mm,
+                     minor_length_mm,
+                     prosome_biovolume_mm3,
                      structural_carbon, waxester_carbon,
                      total_carbon, lf_carbon))
 
@@ -915,7 +1012,7 @@ cope_carbon_meta <- cope_rf_meta %>%
             by = join_by(sample_id, Depth_5m))
 
 save(cope_carbon, cope_carbon_meta, uvp6_ecopart, uvp6_annot_table,
-     file = "data/UVP6_combined_carbon_predictions_20250411.RData")
+     file = "data/UVP6_combined_carbon_predictions_20250422.RData")
 
 rm(uvp6, uvp6_meta, cope_rf_meta, cope_rf)
 
@@ -1066,7 +1163,7 @@ cope_bin_deep <- cope_carbon %>%
   group_by(sample_id) %>% 
   mutate(maxdepth = max(depthBin)) %>% 
   ungroup() %>% 
-  filter(maxdepth >= 1000) %>% 
+  filter(maxdepth >= 500) %>% 
   
   select(-c(Depth_5m, Sampled_volume_L, Sampled_volume_m3)) %>% 
   left_join(uvp6_ecopartBin,
@@ -1127,7 +1224,10 @@ cowplot::plot_grid(
   labels = "auto"
 )
 
-ggsave("figures/UVP6_vertical_15_deep.png",
+# ggsave("figures/UVP6_vertical_15_deep.png",
+#        height = 5, width = 10, units = "in")
+
+ggsave("figures/UVP6_vertical_500m_deep.png",
        height = 5, width = 10, units = "in")
 ```
 
@@ -1689,7 +1789,7 @@ uvp6_ecopartBin <- uvp6_ecopart %>%
             nbins = n(), .groups = "drop") %>% 
   mutate(binsize = binsize)
 
-# integrated to 50 m depth bins [must sum individuals and divide by volume BUT including zero abundances], not just average
+# integrated to 100 m depth bins [must sum individuals and divide by volume BUT including zero abundances], not just average
 
 abundBin <- abund %>% 
   mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
@@ -1785,11 +1885,13 @@ abundBin4 <- abundBin2 %>%
             abundnaceSD = sd(abundanceBin),
             nsamples = n(),
             .groups = "drop") %>% 
+  mutate(taxagroup2 = if_else(taxagroup2 == "Copepoda_segmented",
+                              "Segmented copepods", taxagroup2)) %>% 
   mutate(taxagroup2 = factor(taxagroup2,
                              levels = c("Other Mesozoop","Copepoda",
                                         "Calanus", "Metridia", 
                                         "Oncaeidae", "Paraeuchaeta",
-                                        "Copepoda_segmented")))
+                                        "Segmented copepods")))
 
 # clrs <- paletteer::paletteer_d("colorBlindness::paletteMartin", n = 7)
 clrs <- c("black","hotpink","blue2","plum1","purple4","tomato","gold1")
@@ -1820,11 +1922,13 @@ ggsave("figures/UVP6_vertical_abundance_v2.png",
        height = 5, width = 7, units = "in", bg = "white")
 
 
-  # separate copepods to with or without segmentations
-  mutate(taxagroup = if_else(object_id %in% uvp6$object_id,
-                              "Copepoda_segmented", taxagroup)) %>% 
 
 
+# Save abundance data
+save(abund, abundBin, abundBin2,
+     file = "data/UVP6_mesozoop_abundance.RData")
+    
+    
 # TODO try biovolume but need to verify how these are calculated first
 ```
 

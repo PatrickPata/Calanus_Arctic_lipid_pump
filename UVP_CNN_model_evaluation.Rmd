@@ -1314,6 +1314,7 @@ uvp6_all %>%
 min_major <- filter(uvp6_sub_table, column == "Major")$min
 max_major <- filter(uvp6_sub_table, column == "Major")$max
 
+
 cnn_outfol <- "C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp2/"
 
 uvp6_meta.new.extrap <- uvp6_meta.new  %>% 
@@ -1338,6 +1339,11 @@ open_images <- function(filenames) {
   }
 }
 open_images(uvp6_meta.new.extrap$filename[1:4])
+
+imgs_toopen <- indiv_traits %>% 
+  filter(prosome_length_mm > 10) %>% 
+  mutate(filename = paste0(cnn_outfol, object_id, "_overlapRGB.png"))
+open_images(imgs_toopen$filename[1:4])
 ```
 
 

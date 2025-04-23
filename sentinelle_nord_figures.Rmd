@@ -429,7 +429,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                                fill = lipidcarbon),
              size = 4, alpha = 0.8) +
   
-  scale_fill_viridis_c(name = "Total wax ester carbon\n(g C m-2)",
+  scale_fill_viridis_c(name = "Total lipids\n(g C m-2)",
                        # breaks = c(0,5,10,15),
                        option = "plasma") +
   scale_shape_manual(values = c(21, 24), guide = "none") +
@@ -460,6 +460,7 @@ carbexp_tarling_samples <- carbexp_tarling %>%
   summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
             abundance = sum(abund),
             biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            lipidcarbon = sum(abund * waxester_carbon)  / 1000, # from mg C
             tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
             tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
             tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
@@ -547,7 +548,7 @@ carbexp_tarling_samples %>%
 
 # Total flux
 totalflux <- carbexp_tarling_samples %>% 
-  group_by(sample_id, biomass) %>% 
+  group_by(sample_id, biomass, lipidcarbon) %>% 
   summarise(c_flux_val = sum(c_flux_val),
             .groups = "drop")
 totflux <- mean(totalflux$c_flux_val)
@@ -556,6 +557,18 @@ totflux.sd <- sd(totalflux$c_flux_val)
 # % Biomass contributed to C flux
 perBiom <- mean((totalflux$c_flux_val / totalflux$biomass * 100))
 perBiom.sd <- sd((totalflux$c_flux_val / totalflux$biomass * 100))
+
+
+# % Lipid Biomass contributed to C flux (only respiration and lipid moratlity)
+totalflux2 <- carbexp_tarling_samples %>% 
+  filter(component %in% c("Diapause respiration","Storage lipid mortality")) %>% 
+  group_by(sample_id, biomass, lipidcarbon) %>% 
+  summarise(c_flux_val = sum(c_flux_val),
+            .groups = "drop")
+
+mean((totalflux2$c_flux_val / totalflux2$lipidcarbon * 100))
+sd((totalflux2$c_flux_val / totalflux2$lipidcarbon * 100))
+
 
 # Mt C y-1 (Megatonne 10-9 kg)
 MtC_flux <-(area*1000*1000*totflux)/1e+12

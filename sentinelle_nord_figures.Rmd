@@ -123,7 +123,7 @@ cowplot::plot_grid(
     scale_color_manual(values = clrs) +
     theme(legend.position = "none"),
   
- labels = "auto", ncol = 2
+  ncol = 2
 )
 
 
@@ -132,27 +132,27 @@ ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist.png",
        height = 5.5, width = 10, dpi = 300, bg = "white")
   
 
-# get_legend is still not working properly
-ggplot(indiv_traits,
-       aes(x = major_length_mm, fill = source, color = source))+
-    geom_density(alpha = 0.4) +
-    scale_fill_manual(values = clrs, name = "Data source") +
-    scale_color_manual(values = clrs, name = "Data source") +
-    scale_x_log10(breaks = c(2:10)) +
-  # scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
-  #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
-    theme(legend.position = "bottom")
-
-
-ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
-       height = 4, width = 10, dpi = 300, bg = "white")
+# # get_legend is still not working properly
+# ggplot(indiv_traits,
+#        aes(x = major_length_mm, fill = source, color = source))+
+#     geom_density(alpha = 0.4) +
+#     scale_fill_manual(values = clrs, name = "Data source") +
+#     scale_color_manual(values = clrs, name = "Data source") +
+#     scale_x_log10(breaks = c(2:10)) +
+#   # scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
+#   #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
+#     theme(legend.position = "bottom")
+# 
+# 
+# ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
+#        height = 4, width = 10, dpi = 300, bg = "white")
 ```
 
 # Vertical distributions
 ## Community composition
 Total mesozoop abundance
 ```{r}
-# load("data/UVP6_mesozoop_abundance.RData")
+load("data/UVP6_mesozoop_abundance.RData")
 
 # Proportion copepoda (with and without segmentations), crustaceans, others 
 abundBin2 <- abundBin2 %>% 
@@ -237,8 +237,8 @@ ggplot(abundBin_ave, aes(x = depthRange, y = abundanceMean, fill = taxagroup2)) 
     legend.background = element_rect(fill = "white", color = "black")
   )
 
-ggsave("figures/sentinelle/UVP6_vertical_commcomp_corrected.png",
-       height = 5, width = 6, units = "in", bg = "white")
+# ggsave("figures/sentinelle/UVP6_vertical_commcomp_corrected.png",
+#        height = 5, width = 6, units = "in", bg = "white")
 ```
 
 
@@ -450,6 +450,73 @@ ggsave("figures/sentinelle/UVP6_abundance_lipidmass_temp.png",
        height = 6, width = 12, units = "in", bg = "white")
 ```
 
+# Alternative Lipid mass and C flux
+```{r}
+cowplot::plot_grid(
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = "black", gla.border.col = NA,
+        land.col = "#eeeac4",
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = lipidcarbon),
+             size = 4, alpha = 0.8) +
+  
+  scale_fill_viridis_c(name = "Total lipids\n(g C m-2)",
+                       # breaks = c(0,5,10,15),
+                       option = "plasma") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.98, 0.98),  # Moves it to upper left
+        legend.justification = c("right", "top"),  # Anchors corner correctly
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
+        legend.title = element_text(size=16),
+        legend.text = element_text(size=16)
+  ) +
+  guides(fill = guide_colourbar(title.position="top", 
+                                title.hjust = 0.5)),
+
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        land.border.col = "black", gla.border.col = NA,
+        land.col = "#eeeac4",
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                               shape = Year,
+                                               fill = tot_c_flux),
+             size = 4, alpha = 0.8) +
+  
+  scale_fill_viridis_c(name = "Total carbon flux\n(g C m-2 year-1)",
+                       breaks = c(0,5,10,15),
+                       option = "plasma") +
+  scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.98, 0.98),  # Moves it to upper left
+        legend.justification = c("right", "top"),  # Anchors corner correctly
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
+        legend.title = element_text(size=16),
+        legend.text = element_text(size=16)
+  ) +
+  guides(fill = guide_colourbar(title.position="top", 
+                                title.hjust = 0.5))
+)
+
+
+ggsave("figures/sentinelle/UVP6_lipidmass_cflux_temp.png",
+       height = 6, width = 12, units = "in", bg = "white")
+
+
+# Lipid/Cflux vs biomass
+ggplot(df0,aes(x = biomass, y = tot_c_flux, color = lipidcarbon)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_viridis_c(option = "plasma")
+```
+
 
 ## C flux contrib per station distribution
 ```{r}
@@ -620,9 +687,9 @@ meta_stations <- uvp5_ge %>%
          DOY = yday(date)) %>% 
   mutate(Year = as.factor(Year)) %>% 
   mutate(Cruise = factor(Cruise,
-                         levels = c("UVP5HD Jun-Jul 2016",  "UVP6 Oct 2021",
-                                    "UVP6 Aug-Sep 2023", 
-                                    "LOKI Aug-Sep 2013", "LOKI Apr-Oct 2015")))
+                         levels = c("UVP5HD Jun-Jul 2016", 
+                                    "LOKI Aug-Sep 2013", "LOKI Apr-Oct 2015",
+                                    "UVP6 Oct 2021", "UVP6 Aug-Sep 2023")))
 
 
 
@@ -631,35 +698,36 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_greys",
         land.border.col = "black", gla.border.col = NA,
         data = df) +
-  ggspatial::geom_spatial_point(data = meta_stations, aes(x = lon, y = lat, 
-                                               shape = Cruise, color = Cruise),
-             size = 3, alpha = 0.8) +
-  scale_color_manual(values = c("hotpink","blue","red3","gold3","purple2"), name = "Cruise") +
-  scale_shape_manual(values = c(4,16,17, 5, 1), name = "Cruise") +
+  ggspatial::geom_spatial_point(data = meta_stations,
+                                aes(x = lon, y = lat, 
+                                    shape = Cruise, color = Cruise),
+                                size = 3, alpha = 0.8) +
+  scale_color_manual(values = c("hotpink","gold3","purple2","blue","red3"), name = "Cruise") +
+  scale_shape_manual(values = c(4,4,4,16,17), name = "Cruise") +
   theme(axis.title = element_blank(),
         axis.text = element_text(size = 12))+ 
   guides(color  = guide_legend(order = 1),
          shape  = guide_legend(order = 1),
          fill = guide_legend(order = 2))
 
-ggsave("figures/sentinelle/station_map_v3.png",
+ggsave("figures/sentinelle/station_map.png",
        height = 8, width = 8, units = "in", bg = "white")
 
-basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
-        limits = c(-90,-50,65,83), rotate = 10,
-        legends = TRUE, 
-        data = df,bathy.style = "contour_blues") +
-  scale_color_hue() +
- ggspatial::geom_spatial_point(data = meta_stations, aes(x = lon, y = lat, 
-                                               shape = Cruise, fill = Cruise),
-             size = 3, alpha = 0.8) +
-  scale_fill_manual(values = c("hotpink","gold1","red3","purple2","purple2"), name = "Cruise") +
-  scale_shape_manual(values = c(21,22,23, 2, 4), name = "Cruise") +
-  theme(axis.title = element_blank(),
-        axis.text = element_text(size = 12))+ 
-  guides(fill  = guide_legend(order = 1),
-         shape  = guide_legend(order = 1),
-         color = guide_legend(order = 2))
+# basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+#         limits = c(-90,-50,65,83), rotate = 10,
+#         legends = TRUE, 
+#         data = df,bathy.style = "contour_blues") +
+#   scale_color_hue() +
+#  ggspatial::geom_spatial_point(data = meta_stations, aes(x = lon, y = lat, 
+#                                                shape = Cruise, fill = Cruise),
+#              size = 3, alpha = 0.8) +
+#   scale_fill_manual(values = c("hotpink","gold1","red3","purple2","purple2"), name = "Cruise") +
+#   scale_shape_manual(values = c(21,22,23, 2, 4), name = "Cruise") +
+#   theme(axis.title = element_blank(),
+#         axis.text = element_text(size = 12))+ 
+#   guides(fill  = guide_legend(order = 1),
+#          shape  = guide_legend(order = 1),
+#          color = guide_legend(order = 2))
 
 # ggsave("figures/sentinelle/station_map_v3.png",
 #        height = 8, width = 8, units = "in", bg = "white")
@@ -667,7 +735,7 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
 
 
 # ---- EXTRA ----
-LOKI metadata
+## LOKI metadata
 ```{r, eval=FALSE}
 meta2013 <- read.csv("C:/Users/patri/Downloads/export_12063_20250122_1820/ecotaxa_export_12063_20250122_1820.tsv",
                  sep = '\t', header = TRUE) %>% 
@@ -686,3 +754,14 @@ meta2015 <- meta2015 %>%
 
 save(meta2013, meta2015, file = "data/LOKI201315_metadata.RData")
 ```
+
+## Double check abundance
+```{r}
+df <- abund %>% 
+  filter(sample_id == "de_bb2_float")
+
+df2 <- abundBin %>% 
+  filter(sample_id == "de_bb2_float")
+
+```
+

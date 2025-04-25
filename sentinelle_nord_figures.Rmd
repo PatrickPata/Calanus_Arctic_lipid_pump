@@ -49,7 +49,7 @@ indiv_traits <- cope_carbon %>%
   mutate(source = factor(source, levels = c("manual segmentation",
                                             "predicted segmentation",
                                             "predicted random forest")))
-rm(cope_carbon)
+# rm(cope_carbon)
 
 clrs <- c("blue2","hotpink","gold1")
 
@@ -129,23 +129,23 @@ cowplot::plot_grid(
 
 mainfig
 ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist.png",
-       height = 5.5, width = 10, dpi = 300, bg = "white")
+       height = 5.8, width = 8.5, dpi = 300, bg = "white")
   
 
 # # get_legend is still not working properly
-# ggplot(indiv_traits,
-#        aes(x = major_length_mm, fill = source, color = source))+
-#     geom_density(alpha = 0.4) +
-#     scale_fill_manual(values = clrs, name = "Data source") +
-#     scale_color_manual(values = clrs, name = "Data source") +
-#     scale_x_log10(breaks = c(2:10)) +
-#   # scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
-#   #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
-#     theme(legend.position = "bottom")
-# 
-# 
-# ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
-#        height = 4, width = 10, dpi = 300, bg = "white")
+ggplot(indiv_traits,
+       aes(x = major_length_mm, fill = source, color = source))+
+    geom_density(alpha = 0.4) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    scale_x_log10(breaks = c(2:10)) +
+  # scale_x_continuous(breaks = c(1:5,10), limits = c(0,10)) +
+  #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
+    theme(legend.position = "bottom")
+
+
+ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
+       height = 4, width = 8.5, dpi = 300, bg = "white")
 ```
 
 # Vertical distributions
@@ -242,10 +242,22 @@ ggplot(abundBin_ave, aes(x = depthRange, y = abundanceMean, fill = taxagroup2)) 
 ```
 
 
-## Deep cast vertical distributions
+## vertical distributions
 ```{r}
+binsize <-  100
+uvp6_ecopartBin <- uvp6_ecopart %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
 # Select the casts
-cope_bin_deep <- cope_carbon %>% 
+cope_bin_deep <- indiv_traits %>% 
   filter(!is.na(structural_carbon)) %>% 
   left_join(cope_carbon_meta, by = "object_id") %>% 
   # Add the total volume for the depth bin
@@ -278,7 +290,7 @@ cope_bin_deep <- cope_carbon %>%
   select(-c(structural_carbon, waxester_carbon,
             total_carbon)) %>% 
   droplevels() %>% 
-  mutate(depthRange = paste0(depthBin,"m - ",depthBin+binsize,"m"))
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
 cope_bin_deep <- cope_bin_deep %>% 
   mutate(depthRange = factor(depthRange,
                              levels = unique(cope_bin_deep$depthRange)))
@@ -292,8 +304,9 @@ cowplot::plot_grid(
     geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
     # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
     coord_flip() +
-    labs(x = "", y = "Wax ester carbon (mg C m⁻³)") +
-    theme(legend.position = "bottom") +
+    # labs(x = "", y = "Wax ester carbon (mg C m⁻³)") +
+    xlab("") +
+  ylab(expression("Wax ester carbon  (mg C m"^-3~")")) +
     scale_x_discrete(limits = rev) +
     # scale_y_log10()+
     scale_color_viridis_c(),
@@ -305,15 +318,13 @@ cowplot::plot_grid(
     # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
     coord_flip() +
     labs(x = "", y = "Average lipid fullness (%total C)") +
-    theme(legend.position = "bottom",
-          axis.text.y = element_blank()) +
     scale_x_discrete(limits = rev) +
     scale_color_viridis_c(),
-  rel_widths = c(1.2,1)
+  ncol = 1
 )
 
 ggsave("figures/sentinelle/UVP6_vertical_all.png",
-       height = 5, width = 10, units = "in", bg = "white")
+       height = 8, width = 5.8, units = "in", bg = "white")
 ```
 
 # Lipid pump
@@ -387,36 +398,36 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                 title.hjust = 0.5))
 )
 
-
-ggsave("figures/sentinelle/UVP6_cflux_spatial_temp.png",
-       height = 6, width = 12, units = "in", bg = "white")
+# 
+# ggsave("figures/sentinelle/UVP6_cflux_spatial_temp.png",
+#        height = 6, width = 12, units = "in", bg = "white")
 ```
 
 ### Additional: abundance and lipid biomass
 ```{r}
-cowplot::plot_grid(
-basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-90,-50,65,83), rotate = 10,
-        land.border.col = "black", gla.border.col = NA,
-        land.col = "#eeeac4",
-        legends = FALSE) +
-  ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
-                                               shape = Year,
-                                               fill = abundance),
-             size = 4, alpha = 0.8) +
-  scale_fill_viridis_c(name = "Total abundance\n(indivs m-2)",
-                       # breaks = c(0,10,20,30),
-                       option = "plasma") +
-  scale_shape_manual(values = c(21, 24), guide = "none") + 
-  theme(axis.title = element_blank(),
-        legend.position = c(0.98, 0.98),  # Moves it to upper left
-        legend.justification = c("right", "top"),  # Anchors corner correctly
-        legend.background = element_rect(fill = "white", color = "black"),
-        legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
-        legend.title = element_text(size=16),
-        legend.text = element_text(size=16)
-  ) +
-  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+# cowplot::plot_grid(
+# basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+#         limits = c(-90,-50,65,83), rotate = 10,
+#         land.border.col = "black", gla.border.col = NA,
+#         land.col = "#eeeac4",
+#         legends = FALSE) +
+#   ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+#                                                shape = Year,
+#                                                fill = abundance),
+#              size = 4, alpha = 0.8) +
+#   scale_fill_viridis_c(name = "Total abundance\n(indivs m-2)",
+#                        # breaks = c(0,10,20,30),
+#                        option = "plasma") +
+#   scale_shape_manual(values = c(21, 24), guide = "none") + 
+#   theme(axis.title = element_blank(),
+#         legend.position = c(0.98, 0.98),  # Moves it to upper left
+#         legend.justification = c("right", "top"),  # Anchors corner correctly
+#         legend.background = element_rect(fill = "white", color = "black"),
+#         legend.margin = ggplot2::margin(t = 4, r = 4, b = 10, l = 4),
+#         legend.title = element_text(size=16),
+#         legend.text = element_text(size=16)
+#   ) +
+#   guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
 
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
@@ -443,11 +454,26 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   ) +
   guides(fill = guide_colourbar(title.position="top", 
                                 title.hjust = 0.5))
-)
+# )
 
 
-ggsave("figures/sentinelle/UVP6_abundance_lipidmass_temp.png",
-       height = 6, width = 12, units = "in", bg = "white")
+ggsave("figures/sentinelle/UVP6_totallipids_spatial_temp.png",
+       height = 6, width = 6, units = "in", bg = "white")
+# ggsave("figures/sentinelle/UVP6_abundance_lipidmass_temp.png",
+#        height = 6, width = 12, units = "in", bg = "white")
+
+
+# Lipid/Cflux vs biomass
+ggplot(df0,aes(x = biomass, y = lipidcarbon)) +
+  geom_point(size = 2, shape = 21, fill = "hotpink") +
+  xlab("Copepod biomass") + ylab("Total lipids") +
+  scale_color_viridis_c(option = "plasma")  + 
+  theme(aspect.ratio=1)
+
+ggsave("figures/sentinelle/UVP6_lipid_biom_cor.png",
+       height = 3, width = 3, units = "in", bg = "white")
+
+cor(df0$lipidcarbon, df0$biomass)
 ```
 
 # Alternative Lipid mass and C flux
@@ -589,7 +615,7 @@ ggplot(carbexp_tarling_samples,
   # ylab("Total carbon flux (gC m-2 yr-1)") 
 
 ggsave("figures/sentinelle/UVP6_cflux_components_bydepth_v2.png",
-       height = 3.3, width = 10, units = "in", bg = "white")
+       height = 3.3, width = 9, units = "in", bg = "white")
 ```
 
 

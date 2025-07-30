@@ -1,0 +1,130 @@
+---
+title: "New scripts to organize July2025"
+author: "Patrick Pata"
+date: "2025-07-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+`%notin%` <- Negate(`%in%`)
+```
+
+
+# Organize dataframe of 2024 amundsen samples for update site figure
+```{r}
+file1 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_15244_20250729_1739/ecotaxa_export__TSV_15244_20250729_1739.tsv"
+file2 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_14844_20250729_1740/ecotaxa_export__TSV_14844_20250729_1740.tsv"
+file3 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_14853_20250729_1741/ecotaxa_export__TSV_14853_20250729_1741.tsv"
+
+
+f1 <- read_tsv(file1) %>% 
+  filter(img_rank == 100) %>% 
+  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
+           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
+  summarise(n_images = n())
+
+
+f2 <- read_tsv(file2) %>% 
+  filter(img_rank == 100) %>% 
+  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
+           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
+  summarise(n_images = n())
+
+
+f3 <- read_tsv(file3) %>% 
+  filter(img_rank == 100) %>% 
+  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
+           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
+  summarise(n_images = n())
+
+amund2024_stations <- bind_rows(f1, f2, f3) %>% 
+  arrange(-n_images) %>% 
+  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
+           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
+  slice_head(n = 1) %>% 
+  ungroup() %>% 
+  arrange(object_date) %>% 
+  mutate(Cruise = "UVP6 Jul-Oct 2024") %>% 
+  rename(lon = object_lon, lat = object_lat, botdep = sample_bottomdepth) %>% 
+  mutate(Year = year(object_date), Month = month(object_date), 
+         Day = day(object_date))
+```
+
+
+# Plot all stations including analyzed sites
+This updates the chunk in sentinelle_nord_figures.Rmd
+```{r}
+library(ggOceanMaps)
+
+# Get addtional metadata
+# Check location of potential UVP5 data (calanoida images)
+uvp5_ge_side <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1551.tsv", sep = '\t', header = TRUE)
+uvp5_ge_top <- read.table("../../Laval-imaging-analysis/UVP5_greenedge/ecotaxa_export_149_20241018_1553.tsv", sep = '\t', header = TRUE)
+uvp5_ge <- bind_rows(uvp5_ge_side, uvp5_ge_top)
+rm(uvp5_ge_side, uvp5_ge_top)
+
+load("data/LOKI201315_metadata.RData")
+load("data/uvp6_lipids_20250410.RData")
+
+
+# metadata of all stations
+meta_stations <- uvp5_ge %>% 
+  distinct(sample_id, lon = object_lon, lat = object_lat,
+           botdep = sample_bottomdepth, date = object_date, 
+           Cruise = "UVP5HD Jun-Jul 2016") %>% 
+  bind_rows(uvp6_meta %>% 
+              group_by(sample_id) %>% 
+              mutate(botdep = max(depth)) %>% 
+              ungroup() %>%
+              mutate(Cruise = if_else(sample_cruise == "amundsen2023",
+                                      "UVP6 Aug-Sep 2023", "UVP6 Oct 2021")) %>% 
+              distinct(sample_id, lon, lat, botdep, date, Cruise) ) %>% 
+  bind_rows(meta2013, meta2015) %>% 
+  bind_rows(amund2024_stations) %>% 
+  distinct(sample_id, .keep_all = TRUE) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+  mutate(Year = as.factor(Year)) %>% 
+  mutate(Cruise = factor(Cruise,
+                         levels = c("UVP5HD Jun-Jul 2016", 
+                                    "LOKI Aug-Sep 2013", "LOKI Apr-Oct 2015",
+                                    "UVP6 Oct 2021", "UVP6 Aug-Sep 2023",
+                                    "UVP6 Jul-Oct 2024")))
+
+
+
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-50,65,83), rotate = 10,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_greys",
+        land.border.col = "black", gla.border.col = NA,
+        data = df) +
+  ggspatial::geom_spatial_point(data = meta_stations,
+                                aes(x = lon, y = lat, 
+                                    shape = Cruise, color = Cruise),
+                                size = 3, alpha = 0.8) +
+  scale_color_manual(values = c("hotpink","gold3","purple2","blue","red3", "orange"), name = "Cruise") +
+  scale_shape_manual(values = c(4,4,4,16,17, 18), name = "Cruise") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12))+ 
+  guides(color  = guide_legend(order = 1),
+         shape  = guide_legend(order = 1),
+         fill = guide_legend(order = 2))
+```
+
+
+# Extract Level 1 trait data for 
+```{r}
+
+```
+
+

@@ -127,9 +127,9 @@ cowplot::plot_grid(
 )
 
 
-mainfig
-ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist.png",
-       height = 5.8, width = 8.5, dpi = 300, bg = "white")
+# mainfig
+# ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist.png",
+#        height = 5.8, width = 8.5, dpi = 300, bg = "white")
   
 
 # # get_legend is still not working properly
@@ -143,9 +143,9 @@ ggplot(indiv_traits,
   #   geom_vline(xintercept = c(1,2,3,4), color = "grey30", linetype = "dashed") +
     theme(legend.position = "bottom")
 
-
-ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
-       height = 4, width = 8.5, dpi = 300, bg = "white")
+# 
+# ggsave(file = "figures/sentinelle/UVP6_indiv_trait_dist_leged_size_dist_v2.png",
+#        height = 4, width = 8.5, dpi = 300, bg = "white")
 ```
 
 # Vertical distributions

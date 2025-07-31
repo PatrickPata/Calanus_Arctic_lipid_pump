@@ -18,45 +18,211 @@ theme_set(theme_bw() +
 ```
 
 
-# Organize dataframe of 2024 amundsen samples for update site figure
+
+# TODO
+- check for duplicates and select proper file names & select which ones end up in the analysis
+
+after processing station list:
+- curate poor quality segmentation
+- try to make sure that no images are duplicated, maybe based on depth and time stamp
+- note that image count might be too small because images might not have been identified as Calanus
+
+# Data curation 
+
+## Read and curate the image prediction data
 ```{r}
-file1 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_15244_20250729_1739/ecotaxa_export__TSV_15244_20250729_1739.tsv"
-file2 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_14844_20250729_1740/ecotaxa_export__TSV_14844_20250729_1740.tsv"
-file3 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/export__TSV_14853_20250729_1741/ecotaxa_export__TSV_14853_20250729_1741.tsv"
+file_predictions <- "C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_amund2024_test/new_predictions_uvp6_20250730.csv"
+
+amund2024_pred <- read.csv(file_predictions) %>% 
+  filter(prosome_pixels_predicted > 0,
+         lipidpcrop_pixels_predicted > 0,
+         lipidfullness2 > 20) %>% 
+  mutate(object_id = str_remove(filename, ".png")) %>% 
+  relocate(object_id) %>% 
+  select(-c(directory, filename, lipid_pixels_predicted, 
+            lipid_major_predicted, lipid_minor_predicted, lipidfullness1)) %>% 
+  
+  # The classification probability
+  mutate(classprob = if_else(predLipidSac == "cant segment",
+                             prob_0, prob_1)) %>% 
+  select(object_id, prosome = prosome_pixels_predicted,
+         lipid = lipidpcrop_pixels_predicted,
+         lipidfullness = lipidfullness2,
+         prosomeMajor = prosome_major_predicted,
+         prosomeMinor = prosome_minor_predicted,
+         lipidMajor = lipidpcrop_major_predicted,
+         type = predLipidSac,
+         classprob)
+
+
+dups <- amund2024_samples %>% 
+  group_by(object_id) %>% 
+  filter(n()>1)
+```
+
+## Organize dataframe of 2024 amundsen samples for update site figure
+```{r}
+file1 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_15244_20250729_1739.tsv"
+file2 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_14844_20250729_1740.tsv"
+file3 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_14853_20250729_1741.tsv"
 
 
 f1 <- read_tsv(file1) %>% 
-  filter(img_rank == 100) %>% 
-  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
-           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
-  summarise(n_images = n())
-
+  filter(img_rank == 100) 
 
 f2 <- read_tsv(file2) %>% 
   filter(img_rank == 100) %>% 
-  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
-           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
-  summarise(n_images = n())
-
+  mutate(process_time = as.character(process_time))
 
 f3 <- read_tsv(file3) %>% 
-  filter(img_rank == 100) %>% 
-  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
-           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
-  summarise(n_images = n())
+  filter(img_rank == 100) 
 
-amund2024_stations <- bind_rows(f1, f2, f3) %>% 
+amund2024_samples <- bind_rows(f1, f2, f3) %>% 
+  distinct(object_id, .keep_all = TRUE) 
+  # filter(object_id %in% amund2024_pred$object_id) 
+  
+  
+amund2024_stations <- amund2024_samples %>%   
+  group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
+           object_lon, object_lat, object_date) %>% 
+  summarise(n_images = n(), maxdepth = max(object_depth_max)) %>% 
   arrange(-n_images) %>% 
   group_by(sample_id, sample_cruise, sample_ship, sample_stationid, 
-           object_lon, object_lat, object_date, sample_bottomdepth) %>% 
+           object_lon, object_lat, object_date) %>% 
   slice_head(n = 1) %>% 
   ungroup() %>% 
   arrange(object_date) %>% 
   mutate(Cruise = "UVP6 Jul-Oct 2024") %>% 
-  rename(lon = object_lon, lat = object_lat, botdep = sample_bottomdepth) %>% 
+  rename(lon = object_lon, lat = object_lat) %>% 
   mutate(Year = year(object_date), Month = month(object_date), 
-         Day = day(object_date))
+         Day = day(object_date)) %>% 
+  
+  filter(n_images > 10)
+
+
+amund2024_samples_meta <- amund2024_samples %>% 
+  select(object_id, sample_id, sample_cruise, sample_ship, sample_stationid, 
+        lon = object_lon, lat = object_lat, date = object_date,
+        depth = object_depth_max)
 ```
+
+## Volumes from Ecopart
+```{r}
+# Organize the stations for Leg 2 and 5 from Ecopart data
+leg2 <- read.csv("C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecopart_amundsen2024_leg2.csv")
+leg5 <- read.csv("C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecopart_amundsen2024_leg5.csv")
+
+ecopart_volumes <- bind_rows(leg2, leg5) %>% 
+  distinct(Profile, Depth_m, .keep_all = TRUE) %>% 
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+maxdepths <- ecopart_volumes %>% 
+  group_by(sample_id, Project) %>% 
+  summarise(maxdepth = max(Depth_5m),
+            .groups = "drop") 
+
+# add the 5m bin and volume to the metadata
+amund2024_samples_meta <- amund2024_samples_meta %>% 
+  mutate(Depth_5m = floor(depth / 5)*5+2.5) %>% 
+  left_join(ecopart_volumes %>% 
+              select(sample_id, Depth_5m, Sampled_volume_m3),
+            by = join_by(sample_id, Depth_5m))
+```
+
+
+
+## Convert units
+```{r}
+# calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
+uvpRes <- 0.084
+# Conversion factor to get total lipid mg C from total lipid mg used in Schmid et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
+lambda <- (36*12) / (36*12 + 2*36 + 2*16)
+# Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
+vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 Calanus species in (McConville et al. (2016)
+
+# 1L = 0.001 m3
+
+# TODO revise and clean up for later (original scripts found in UVP6_lipiscape_analysis)
+amund2024_pred_2 <- amund2024_pred %>% 
+   mutate(lipid_area_mm2 = lipid * uvpRes * uvpRes,
+         prosome_area_mm2 = prosome * uvpRes * uvpRes) %>% 
+    # Convert pixel area to mm2
+  mutate(lipid_area_mm2 = lipid * uvpRes * uvpRes,
+         prosome_area_mm2 = prosome * uvpRes * uvpRes) %>% 
+  
+  # Calculate minor axis based on prosome/lipid area and major axis
+  mutate(minor_derived = (prosome / (pi * prosomeMajor/2)) * 2) %>% 
+  mutate(minor_lipid_derived = (lipid / (pi * lipidMajor/2)) * 2) %>% 
+  
+  
+  # Calculate biovolume of prosome approximated as spheroid
+  mutate(prosome_biovolume_mm3 = 4/3 * pi * (prosomeMajor/2 * uvpRes) * ((minor_derived/2 * uvpRes)^2)) %>% 
+  
+  # Calculate lipid sac volume based on Tarling et al. (2022) eq1 derived from Miller et al. (1998) note that this is  based on cyclindrical volume approximation.. according to Miller et al. (1998) the oblate spheroid volume approximation is less accurate
+  mutate(lipid_volume_mm3 = 
+           (pi * lipid_area_mm2 ^ 2)/(4 * lipidMajor * uvpRes)) %>% 
+  
+  # # Calculate lipid sac volume based spheroid (results in slightly larger volume)
+  # mutate(lipid_volume_mm3_sph = 
+  #          4/3 * pi * (lipidMajor/2 * uvpRes) * ((minor_lipid_derived/2 * uvpRes)^2))
+
+  
+  # Calculate lipid fullness based on volume
+  mutate(lipidfullness_volume  = (lipid_volume_mm3/prosome_biovolume_mm3 * 100)) %>% 
+  
+  # (Calculate lipid carbon based on area following Vogedes et al. 2010 with coefficients for 3 Arctic Calanus species
+  mutate(totallipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>%  
+  mutate(waxester_mass_mg = 0.167 * (lipid_area_mm2 ^ 1.42)) %>%  
+  
+  # Calculate lipid carbon mass
+  mutate(lipid_mass_mgC = totallipid_mass_mg * lambda) %>%  
+  mutate(waxester_mass_mgC = waxester_mass_mg * lambda) %>%  
+  
+  
+  # TODO CLARIFY Calculate prosome carbon weight (** NOTE: many options ***)
+
+  # Option 1: Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
+  mutate(prosome_volume_Jonasdottir = 
+           0.0292 * (prosomeMajor * uvpRes)^3.6699,
+         prosome_dryweight_Jonasdottir = 
+           0.0106 * (prosomeMajor * uvpRes)^3.64,
+         prosome_mgC_Jonasdottir = 
+           0.623 * prosome_dryweight_Jonasdottir - 0.0143) %>% 
+  
+    # Option 2: Direct biovolume --> carbon mass based on conversion factors in McConville et al. 2016 assuming 1 mm3 = 1 mg wet weight
+  mutate(prosome_mgC_McConville = 
+           prosome_biovolume_mm3 * vol2massC) %>% 
+  
+  
+  # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
+  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
+# ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
+  
+  
+  # Calculate lipid fullness as % carbon
+  mutate(
+    LF_carbon_Jonasdottir = waxester_mass_mgC / prosome_mgC_Jonasdottir * 100,
+    LF_carbon_McConville = waxester_mass_mgC / prosome_mgC_McConville * 100,
+    LF_carbon_Bourreau = waxester_mass_mgC / prosome_mgC_Bourreau * 100)
+
+
+# The final variables to use
+cope_carbon_2024 <- amund2024_pred_2 %>% 
+  mutate(major_length_mm = prosomeMajor * uvpRes,
+         minor_length_mm = minor_derived * uvpRes) %>% 
+  select(object_id, source = type,
+         major_length_mm,
+         minor_length_mm,
+         prosome_biovolume_mm3,
+         structural_carbon,
+         waxester_carbon = waxester_mass_mgC,
+         total_carbon = prosome_mgC_Bourreau,
+         lf_carbon = LF_carbon_Bourreau) 
+```
+
+
 
 
 # Plot all stations including analyzed sites
@@ -111,7 +277,7 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
   ggspatial::geom_spatial_point(data = meta_stations,
                                 aes(x = lon, y = lat, 
                                     shape = Cruise, color = Cruise),
-                                size = 3, alpha = 0.8) +
+                                size = 5, alpha = 0.8) +
   scale_color_manual(values = c("hotpink","gold3","purple2","blue","red3", "orange"), name = "Cruise") +
   scale_shape_manual(values = c(4,4,4,16,17, 18), name = "Cruise") +
   theme(axis.title = element_blank(),
@@ -119,12 +285,386 @@ basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
   guides(color  = guide_legend(order = 1),
          shape  = guide_legend(order = 1),
          fill = guide_legend(order = 2))
+
+
+ggsave("figures/July2025/station_map_bigger.png",
+       height = 8, width = 8, units = "in", bg = "white")
 ```
 
+# Visualize Level 1 trait data for Calanus with trait distributions
+- Only show the the trait distributions for segmentations, not random forest
 
-# Extract Level 1 trait data for 
+## Get trait data for:
+- Body length
+- carbon weight
+- LipidPDW (note not carbon weight so likely higher?)
+- Respiration rate? But have to convert to 0 degC, and from ul O2/h to ugC/day
 ```{r}
+load("data/calanoid_trait_data.RData")
+
+AA <- calanoid.level1.traitdata %>% 
+  # filter(traitName == "bodyLength") %>% 
+  # filter(traitName == "carbonWeight") %>% 
+  # filter(traitName == "lipidPDW") %>% 
+  filter(traitName == "respirationRate_15C") %>% 
+  filter(genus == "Calanus")
+
+calanus.length <- calanoid.level1.traitdata %>% 
+  filter(traitName == "bodyLength") %>%
+  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  filter(lifeStage %in% c("C3","C4","C5","male","female","adult"))
+
+
+calanus.cweight <- calanoid.level1.traitdata %>% 
+  filter(traitName == "carbonWeight") %>%
+  filter(genus == "Calanus") %>% 
+  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
+  mutate(traitValue = as.numeric(traitValue)) 
+
+
+calanus.lipid <- calanoid.level1.traitdata %>% 
+  filter(traitName == "lipidPDW") %>%
+  filter(genus == "Calanus") %>% 
+  # filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
+  mutate(traitValue = as.numeric(traitValue)) 
+```
+
+## Plot distributions
+```{r}
+load("data/UVP6_combined_carbon_predictions_20250422.RData")
+
+# combine the 2021, 2023, and 2023 data now
+indiv_traits <- bind_rows(cope_carbon, cope_carbon_2024) %>% 
+   # TODO remove anomalously low structural carbon values
+  filter(structural_carbon > 0.05) %>% 
+  # also remove really large prosome
+  filter(major_length_mm <= 13) %>% 
+
+  mutate(mass_ugC = structural_carbon * 1000) %>% 
+  mutate(respirationRate_ugCday = (2.3*10^-7) * (mass_ugC^0.75) * exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))  * 86400) %>% 
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCday)) %>% 
+  
+  # change the labels of the data source
+  mutate(source = if_else(source == "annotated",
+                          "manual segmentation", source)) %>% 
+  mutate(source = if_else(source == "random forest",
+                          "predicted random forest", source)) %>% 
+  mutate(source = if_else(source == "visible" | source == "not visible" |
+                            source == "lipid sac" | source == "cant segment",
+                          "predicted segmentation", source)) %>% 
+  mutate(source = factor(source, levels = c("manual segmentation",
+                                            "predicted segmentation",
+                                            "predicted random forest"))) %>% 
+  filter(source != "predicted random forest")
+# rm(cope_carbon)
+
+clrs <- c("hotpink","gold1","blue2")
+
+plot_grid(
+  # body length + wax ester carbon
+  plot_grid(
+    
+    ggplot(data = calanus.length, aes(x = traitValue, y = scientificName)) +
+      geom_boxplot() +
+      geom_point() +
+      scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
+      theme(axis.title = element_blank(),
+            axis.text = element_blank()),
+    
+    ggplot(indiv_traits,
+           aes(x = major_length_mm, fill = source, color = source))+
+      geom_density(alpha = 0.6) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
+      xlab("Major axis length (mm)") +
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+    
+    ggplot(indiv_traits,
+           aes(x = waxester_carbon,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+      xlab("Wax ester carbon (mg C)") +
+      scale_fill_manual(values = clrs) + 
+      scale_color_manual(values = clrs) +
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+    
+    ncol = 1, rel_heights = c(2, 8, 8), align = "v" #, labels = c("a","","d")
+  ),
+  
+  # carbon weight + respiration rate
+  plot_grid(
+    
+    ggplot(data = calanus.cweight, aes(x = traitValue, y = genus)) +
+      geom_boxplot() +
+      geom_point() +
+      scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5), limit = c(0.15, 7.8)) +
+      theme(axis.title = element_blank(),
+            axis.text = element_blank()),
+    
+    ggplot(indiv_traits,
+           aes(x = total_carbon,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5), limit = c(0.15, 7.8)) +
+      xlab("Total carbon weight (mg C)") +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+    
+    
+    ggplot(indiv_traits,
+           aes(x = respirationRate_ugCday,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      scale_x_log10(breaks = c(0.5,1,2,3,5,8,10)) +
+      # xlab(expression("Diapause respiration rate (" * mu * "g C day"^-1 * ")")) +
+      xlab("Diapause respiration rate (\u03bcg C day⁻¹)")+
+      # xlab(expression("Diapause respiration rate (ug C day-1)")) +
+      scale_fill_manual(values = clrs) + 
+      scale_color_manual(values = clrs) +
+      theme(legend.position = "none",
+            axis.title.y = element_blank(),
+            axis.title.x = element_markdown()),
+    
+    
+    ncol = 1, rel_heights = c(2, 8, 8), align = "v" #, labels = c("b","","e")
+  ),
+  
+  # lipid content
+  plot_grid(
+    ggplot(data = calanus.lipid, aes(x = traitValue, y = genus)) +
+      geom_boxplot() +
+      geom_point() +
+      scale_x_continuous(breaks = c(30,40,50,60,70,80), limits = c(25, 80)) +
+      theme(axis.title = element_blank(),
+            axis.text = element_blank()),
+    
+    ggplot(indiv_traits,
+           aes(x = lf_carbon,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      xlab("Lipid fullness (% total carbon)") +
+      scale_x_continuous(breaks = c(30,40,50,60,70,80), limits = c(25, 80)) +
+      scale_fill_manual(values = clrs) + 
+      scale_color_manual(values = clrs) +
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+    
+    
+    ggplot(indiv_traits,
+           aes(x = diapauseDuration_day,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      xlab("Potential diapause duration (day)") +
+      geom_vline(xintercept = 240, color = "blue", size = 1, linetype = "dashed") +
+      scale_fill_manual(values = clrs) + 
+      scale_color_manual(values = clrs) +
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+    
+    
+    ncol = 1, rel_heights = c(2, 8, 8), align = "v" #, labels = c("c","","f")
+  ),
+  
+  nrow = 1)
+
+ggsave("figures/July2025/indiv_trait_distribution2.png",
+       height = 7, width = 14, units = "in", bg = "white")
+
+ggplot(indiv_traits,
+           aes(x = diapauseDuration_day,
+               fill = source, color = source)) +
+      geom_density(alpha = 0.4) +
+      xlab("Potential diapause duration (day)") +
+      geom_vline(xintercept = 240, color = "blue", size = 1, linetype = "dashed") +
+      scale_fill_manual(values = clrs) + 
+      scale_color_manual(values = clrs) +
+      theme(legend.position = "right",
+            axis.title.y = element_blank())
+    
+ggsave("figures/July2025/indiv_trait_distribution_forlabel.png",
+       height = 3, width = 4, units = "in", bg = "white")
 
 ```
+
+
+# Vertical distribution of 2024 data
+```{r}
+# cope_carbon_2024
+binsize <-  100
+uvp6_ecopartBin <- ecopart_volumes %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
+cope_bin_deep <- cope_carbon_2024 %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(amund2024_samples_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  
+
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+    
+  
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(sample_id, depthBin, 
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels() %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+cope_bin_deep <- cope_bin_deep %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(cope_bin_deep$depthRange)))
+
+
+
+
+cowplot::plot_grid(
+  ggplot(cope_bin_deep, aes(y = waxester_carbon_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
+    coord_flip() +
+    # labs(x = "", y = "Wax ester carbon (mg C m⁻³)") +
+    xlab("") +
+  ylab(expression("Wax ester carbon  (mg C m"^-3~")")) +
+    scale_x_discrete(limits = rev) +
+    # scale_y_log10()+
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = lf_carbon_mean,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    # geom_hline(yintercept = 50, color = "pink") +
+    # geom_point(aes(color = lat), size = 2, alpha = 0.6, name = "latitude") +
+    coord_flip() +
+    labs(x = "", y = "Average lipid fullness (%total C)") +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  ncol = 1
+)
+
+```
+
+
+
+## Spatial by bin
+```{r}
+# Calculate abundance, total carbon biomass per depth bin 
+cope_bin2 <- cope_carbon_2024 %>% 
+  filter(!is.na(structural_carbon)) %>% 
+  left_join(amund2024_samples_meta, by = "object_id") %>% 
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  
+  # # TODO: Modify depths to visualize: 
+  # # Exclude the surface 100m
+  # filter(Depth_5m >= 100) %>% 
+  # Consider 1000 m - 2000 m
+  mutate(depthRange = if_else(depthRange == "0m - 500m",
+                              "100m - 500m", depthRange)) %>% 
+  mutate(depthRange = if_else(depthRange == "1000m - 1500m",
+                              "1000m - 2000m", depthRange)) %>% 
+  mutate(depthRange = if_else(depthRange == "1500m - 2000m",
+                              "1000m - 2000m", depthRange)) %>% 
+  mutate(depthBin = if_else(depthBin == 1500, 1000, depthBin)) %>% 
+  
+  select(-Depth_5m) %>% 
+  
+  mutate(Year = year(date),
+         Month = month(date),
+         DOY = yday(date)) %>% 
+    
+  # Calculate the abundance and carbon density per depth bin (/m3)
+  # TODO can bin by data source here too
+  group_by(depthBin, depthRange,
+           lon, lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), #
+            structural_carbon = sum(structural_carbon),
+            waxester_carbon = sum(waxester_carbon),
+            total_carbon = sum(total_carbon),
+            lf_carbon_mean = mean(lf_carbon),
+            lf_carbon_sd = sd(lf_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         structural_carbon_m3 = structural_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
+  select(-c(structural_carbon, waxester_carbon,
+            total_carbon)) %>% 
+  droplevels()
+
+
+# 100 m - 500 m, 500 m - 1000 m, 1000 m - 1900 m
+df0 <- cope_bin2 %>% 
+  filter(depthBin == 100) %>% 
+  mutate(Year = factor(Year))
+
+cowplot::plot_grid(
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = waxester_carbon_m3),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Wax ester carbon (mg C/m3)") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  
+  basemap("ArcticStereographic", bathymetry = FALSE, glaciers = TRUE,
+          limits = c(-90,-50,65,83), rotate = 10,
+          legends = FALSE) +
+    ggspatial::geom_spatial_point(data = df0, aes(x = lon, y = lat, 
+                                                  shape = Year,
+                                                  fill = lf_carbon_mean),
+                                  size = 2, alpha = 0.7) +
+    scale_fill_viridis_c(name = "Lipid fullness") +
+    scale_shape_manual(values = c(21, 24), guide = "none") +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)),
+  labels = "auto"
+)
+
+```
+
 
 

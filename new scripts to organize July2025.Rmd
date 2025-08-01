@@ -357,11 +357,25 @@ indiv_traits <- bind_rows(cope_carbon, cope_carbon_2024) %>%
   mutate(source = factor(source, levels = c("manual segmentation",
                                             "predicted segmentation",
                                             "predicted random forest"))) %>% 
-  filter(source != "predicted random forest")
+  filter(source != "predicted random forest") %>% 
+  mutate(Year = substr(object_id,1,4))
 # rm(cope_carbon)
 
 clrs <- c("hotpink","gold1","blue2")
 
+ ggplot(indiv_traits,
+           aes(x = major_length_mm, fill = Year, color = Year))+
+      geom_density(alpha = 0.6) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
+      xlab("Major axis length (mm)") +
+      theme(legend.position = "bottom",
+            axis.title.y = element_blank())
+```
+
+
+```{r}
 plot_grid(
   # body length + wax ester carbon
   plot_grid(

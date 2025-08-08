@@ -17,6 +17,10 @@ theme_set(theme_bw() +
 `%notin%` <- Negate(`%in%`)
 ```
 
+# For future analysis:
+- sensitivity analysis area plots for total diapause respiration and lipid flux
+- use the segmentation error as the error range for the lipid fluxes?
+- consider plots showing what happens IF UVP6 is indeed underestimating
 
 
 # TODO

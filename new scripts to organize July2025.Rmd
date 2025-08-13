@@ -11,7 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
-
+library(cowplot)
+library(ggtext)
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 `%notin%` <- Negate(`%in%`)
@@ -59,9 +60,9 @@ amund2024_pred <- read.csv(file_predictions) %>%
          classprob)
 
 
-dups <- amund2024_samples %>% 
-  group_by(object_id) %>% 
-  filter(n()>1)
+# dups <- amund2024_samples %>% 
+#   group_by(object_id) %>% 
+#   filter(n()>1)
 ```
 
 ## Organize dataframe of 2024 amundsen samples for update site figure
@@ -549,16 +550,18 @@ cope_bin_deep <- cope_carbon_2024 %>%
            lon, lat, Year, Month, DOY, volume_m3) %>% 
   summarise(abundance = n(), #
             structural_carbon = sum(structural_carbon),
-            waxester_carbon = sum(waxester_carbon),
+            waxester_carbon_total = sum(waxester_carbon),
+            waxester_carbon_mean = mean(waxester_carbon),
+            waxester_carbon_sd = sd(waxester_carbon),
             total_carbon = sum(total_carbon),
             lf_carbon_mean = mean(lf_carbon),
             lf_carbon_sd = sd(lf_carbon),
             .groups = "drop") %>% 
   mutate(abundance_m3 = abundance / volume_m3,
          structural_carbon_m3 = structural_carbon / volume_m3,
-         waxester_carbon_m3 = waxester_carbon / volume_m3,
+         waxester_carbon_m3 = waxester_carbon_total / volume_m3,
          total_carbon_m3 = total_carbon / volume_m3) %>% 
-  select(-c(structural_carbon, waxester_carbon,
+  select(-c(structural_carbon, 
             total_carbon)) %>% 
   droplevels() %>% 
   mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
@@ -594,6 +597,28 @@ cowplot::plot_grid(
   ncol = 1
 )
 
+# Get average lipid carbon content to explore bet hedging idea
+
+cowplot::plot_grid(
+  ggplot(cope_bin_deep, aes(y = abundance_m3,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    coord_flip() +
+    xlab("") +
+  ylab(expression("Abundance  (indiv m"^-3~")")) +
+    scale_x_discrete(limits = rev) +
+    # scale_y_log10()+
+    scale_color_viridis_c(),
+  
+  ggplot(cope_bin_deep, aes(y = waxester_carbon_mean,
+                            x = depthRange)) +
+    geom_boxplot(outliers = FALSE, fill = "gold", alpha = 0.7) +
+    coord_flip() +
+    labs(x = "", y = "Average lipid content (mg C)") +
+    scale_x_discrete(limits = rev) +
+    scale_color_viridis_c(),
+  ncol = 1
+)
 ```
 
 

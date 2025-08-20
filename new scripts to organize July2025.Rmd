@@ -363,7 +363,12 @@ indiv_traits <- bind_rows(cope_carbon, cope_carbon_2024) %>%
                                             "predicted segmentation",
                                             "predicted random forest"))) %>% 
   filter(source != "predicted random forest") %>% 
-  mutate(Year = substr(object_id,1,4))
+  mutate(Year = substr(object_id,1,4)) %>% 
+  # Calculate weight-specific respiration rates
+  mutate(respirationRateWS_ugCmgCday = respirationRate_ugCday / total_carbon,
+         respirationRateWS_ugCmgCDWday = respirationRate_ugCday / 
+           (total_carbon * 0.5)) # TODO change conversion factor of C%DW, structural is about 45% maybe
+  
 # rm(cope_carbon)
 
 clrs <- c("hotpink","gold1","blue2")
@@ -512,6 +517,32 @@ ggsave("figures/July2025/indiv_trait_distribution_forlabel.png",
        height = 3, width = 4, units = "in", bg = "white")
 
 ```
+
+## Additionally check the weight-specific respiration rates
+Separate for mg DW-1 and mg C-1
+```{r}
+plot_grid(
+  ggplot(indiv_traits,
+           aes(x = respirationRateWS_ugCmgCday, fill = source, color = source))+
+      geom_density(alpha = 0.6) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      xlab("WS Diapause respiration rate by mg C")+
+      theme(legend.position = "none",
+            axis.title.y = element_blank()),
+
+ggplot(indiv_traits,
+           aes(x = respirationRateWS_ugCmgCDWday, fill = source, color = source))+
+      geom_density(alpha = 0.6) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      xlab("WS Diapause respiration rate by mg DW")+
+      theme(legend.position = "none",
+            axis.title.y = element_blank())
+)
+
+```
+
 
 
 # Vertical distribution of 2024 data

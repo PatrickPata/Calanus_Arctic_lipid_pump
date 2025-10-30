@@ -140,7 +140,7 @@ amund2024_samples_meta <- amund2024_samples_meta %>%
 ## Convert units
 ```{r}
 # calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
-uvpRes <- 0.084
+uvpRes <- 0.073
 # Conversion factor to get total lipid mg C from total lipid mg used in Schmid et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
 lambda <- (36*12) / (36*12 + 2*36 + 2*16)
 # Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
@@ -272,6 +272,9 @@ meta_stations <- uvp5_ge %>%
                                     "UVP6 Oct 2021", "UVP6 Aug-Sep 2023",
                                     "UVP6 Jul-Oct 2024")))
 
+# Export most recent metadata list 
+# insitu_images_meta <- meta_stations
+# save(insitu_images_meta, file = "data/insitu_images_meta_20250915.RData")
 
 
 basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,

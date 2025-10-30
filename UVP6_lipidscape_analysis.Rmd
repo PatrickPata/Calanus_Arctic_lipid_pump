@@ -63,7 +63,7 @@ rm(uvp6_all, uvp6_volumes)
 Note that the Vogedes equations to get lipid carbon weight (based on 3 Calanus species) results in slightly larger values compared to the Tarling equations which were set for C. finmarchicus.
 ```{r}
 # TODO calculate the biovolume, dry weight, prosome and lipid mass in carbon, and lipid fullness in carbon
-uvpRes <- 0.084
+uvpRes <- 0.073
 # Conversion factor to get total lipid mg C from total lipid mg used in Schmid et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
 lambda <- (36*12) / (36*12 + 2*36 + 2*16)
 # Conversion factor to get prosome biomass (mg C) from biovolume (mm3)

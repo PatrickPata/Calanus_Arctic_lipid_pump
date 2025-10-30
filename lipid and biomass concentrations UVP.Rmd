@@ -87,7 +87,7 @@ uvp6_ecopart_50m <- uvp6_de_ecopart_cope %>%
 Device image resolutions:
 LOKI 23 um/0.023 mm
 UVP5 125 um/ 0.125 mm
-UVP6 84 um/0.084 mm
+UVP6 73 um/0.073 mm
 area (mm^2) = pixel_area * res(mm)^2
 
 Convert area to total lipids (mg): 0.197 Area (mm2) ^ 1.38 (Vogedes et al. 2010)
@@ -122,8 +122,8 @@ vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 species
 
 # Calculate lipid area in mm and biomass in total lipid (mg) and mg C
 uvp6_seg <- uvp6_seg %>% 
-  mutate(lipid_area_mm2 = lipid_pixels_annotated * 0.084 * 0.084,
-         prosome_area_mm2 = prosome_pixels_annotated * 0.084 * 0.084) %>% 
+  mutate(lipid_area_mm2 = lipid_pixels_annotated * 0.073 * 0.073,
+         prosome_area_mm2 = prosome_pixels_annotated * 0.073 * 0.073) %>% 
   mutate(lipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>% 
   mutate(lipid_mass_mgC = lipid_mass_mg * lambda)
 
@@ -159,24 +159,24 @@ ggplot(uvp6_seg, aes(x = Minor, y = prosome_minor_annotated)) +
 # A. Biovolume from 4/3*pi*(Major*Minor*Minor) and biomass from biovolume, not the best approach since LF can be > 100%, i.e. the prosome biomass calculated is smaller
 uvp6_seg <- uvp6_seg %>% 
   # Use major and minor axis from Ecotaxa morphotrait
-  mutate(biovolume_mm3_morphotrait = 4/3 * pi * (Major/2 * 0.084) * ((Minor/2 * 0.084)^2)) %>% 
+  mutate(biovolume_mm3_morphotrait = 4/3 * pi * (Major/2 * 0.073) * ((Minor/2 * 0.073)^2)) %>% 
   mutate(biomass_mgC_biovol_morphotrait = biovolume_mm3_morphotrait * vol2massC) %>% 
   mutate(LF_mgC_biovol_morphotrait = lipid_mass_mgC / biomass_mgC_biovol_morphotrait * 100) %>% 
 # B. Use major and minor axis from segmented prosome. Less likely to have fullness > 100%
-  mutate(biovolume_mm3_annotated = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((prosome_minor_annotated/2 * 0.084)^2)) %>% 
+  mutate(biovolume_mm3_annotated = 4/3 * pi * (prosome_major_annotated/2 * 0.073) * ((prosome_minor_annotated/2 * 0.073)^2)) %>% 
   mutate(biomass_mgC_biovol_annotated = biovolume_mm3_annotated * vol2massC) %>% 
   mutate(LF_mgC_biovol_annotated = lipid_mass_mgC / biomass_mgC_biovol_annotated * 100) %>% 
 # C. Use Lucie's method of calculating the minor axis as area/major then get biovolume
     mutate(minor_derived = (prosome_pixels_annotated / 
             (pi * prosome_major_annotated/2)) * 2) %>% 
   
-  mutate(biovolume_mm3_annotderived = 4/3 * pi * (prosome_major_annotated/2 * 0.084) * ((minor_derived/2 * 0.084)^2)) %>% 
+  mutate(biovolume_mm3_annotderived = 4/3 * pi * (prosome_major_annotated/2 * 0.073) * ((minor_derived/2 * 0.073)^2)) %>% 
   mutate(biomass_mgC_biovol_annotderived = biovolume_mm3_annotderived * vol2massC) %>% 
   mutate(LF_mgC_biovol_annotderived = lipid_mass_mgC / biomass_mgC_biovol_annotderived * 100) %>% 
   
 # D. Use prosome length to volume (mm3) and calculate dry weight and mg C (Jonasdottir et al. 2019 for C. finmarchicus)
-  mutate(prosome_volume_Jonasdottir = 0.0292 * (prosome_major_annotated* 0.084)^3.6699,
-         prosome_dryweight_Jonasdottir = 0.0106 * (prosome_major_annotated* 0.084)^3.64,
+  mutate(prosome_volume_Jonasdottir = 0.0292 * (prosome_major_annotated* 0.073)^3.6699,
+         prosome_dryweight_Jonasdottir = 0.0106 * (prosome_major_annotated* 0.073)^3.64,
          prosome_mgC_Jonasdottir = 0.623 * prosome_dryweight_Jonasdottir - 0.0143)
 
 

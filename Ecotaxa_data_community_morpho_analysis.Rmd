@@ -1,0 +1,186 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+
+load("data/Amund_UVP6_20251031.RData")
+theme_set(theme_bw())
+
+source("../Vilgrain2021/lib/kaiser_guttman.R")
+
+c25 <- c("dodgerblue2", "#E31A1C", "green4","#6A3D9A","black",
+  "#FF7F00", "gold1", "skyblue2", "#FB9A99", "palegreen2",
+  "#CAB2D6", "#FDBF6F", "gray70", "khaki2",
+  "maroon", "orchid1", "deeppink1", "blue1", "steelblue4",
+  "darkturquoise", "green1", "yellow4", "yellow3",
+  "darkorange4", "brown")
+swatch(c25)
+```
+
+
+
+# General community composition
+## Integrated by station
+```{r}
+commun <- Amund_UVP6 %>% 
+  group_by(sample_id, taxagroup) %>% 
+  summarise(nimgs = n(), .groups = "drop") %>% 
+  left_join(Amund_UVP6_meta, by = "sample_id") %>% 
+  arrange(object_date)
+
+ggplot(commun, aes(x = sample_id, y = nimgs, fill = taxagroup)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = c25) 
+
+commun <- Amund_UVP6 %>% 
+  left_join(Amund_UVP6_meta, by = "sample_id") %>% 
+  mutate(YearMonth = paste(Year, Month)) %>% 
+  group_by(YearMonth, taxagroup) %>% 
+  summarise(nimgs = n(), .groups = "drop")
+
+ggplot(commun, aes(x = YearMonth, y = nimgs, fill = taxagroup)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = c25) 
+
+```
+
+## Depth distribution for 2021 and 2023 data
+Update this when Ecopart for 2024 is available...
+These may not be very useful for now because it is based on abundance and not biovolume/biomass
+```{r}
+# cope_carbon_2024
+binsize <-  100
+uvp6_ecopartBin <- Ecopart_UVP6 %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            nbins = n(), .groups = "drop") %>% 
+  mutate(binsize = binsize) %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+uvp6_ecopartBin <- uvp6_ecopartBin %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(uvp6_ecopartBin$depthRange)))
+
+# Total Abundance
+commun_dep_totalAbund <- Amund_UVP6 %>% 
+  filter(sample_cruise %in% c("darkedge", "amundsen2023")) %>% 
+  mutate(Year = year(object_date),
+         Month = month(object_date),
+         DOY = yday(object_date)) %>% 
+  
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  
+  # Calculate total abundance by depth bin
+  group_by(sample_id, depthBin, 
+           object_lon, object_lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), 
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3) %>% 
+  droplevels() %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+commun_dep_totalAbund <- commun_dep_totalAbund %>% 
+  filter(object_lat > 63) %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(commun_dep_totalAbund$depthRange)))
+
+
+ggplot(commun_dep_totalAbund, aes(y = abundance_m3,
+                                  x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~Month)
+
+
+# Average abundance composition
+commun_dep_taxagroups <- Amund_UVP6 %>% 
+  filter(sample_cruise %in% c("darkedge", "amundsen2023")) %>% 
+  mutate(Year = year(object_date),
+         Month = month(object_date),
+         DOY = yday(object_date)) %>% 
+  
+  # Add the total volume for the depth bin
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  select(-c(Sampled_volume_m3)) %>% 
+  left_join(uvp6_ecopartBin,
+            by = join_by(sample_id, depthBin)) %>% 
+  
+  # Calculate total abundance by depth bin
+  group_by(sample_id, depthBin, taxagroup,
+           object_lon, object_lat, Year, Month, DOY, volume_m3) %>% 
+  summarise(abundance = n(), 
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / volume_m3) %>% 
+  droplevels() %>% 
+  mutate(depthRange = paste0(depthBin,"m-",depthBin+binsize,"m"))
+
+commun_dep_taxagroups <- commun_dep_taxagroups %>% 
+  filter(taxagroup == "Copepoda") %>% 
+  filter(object_lat > 63) %>% 
+  mutate(depthRange = factor(depthRange,
+                             levels = unique(commun_dep_taxagroups$depthRange)))
+
+
+ggplot(commun_dep_taxagroups, aes(y = abundance_m3,
+                                  x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  coord_flip() +
+  labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~Month)
+
+```
+
+
+# Morphotrait space
+TODO: need to curate taxa that get included, especially when there are large images for gelatinous taxa
+```{r}
+uvp.morpho <- Amund_UVP6 %>% 
+  filter(taxagroup %in% c("Copepoda","Copepoda-lipidsac")) %>% 
+  select(object_id,
+         Major = object_major, Minor = object_minor, Perim. = object_perim.,
+         Feret = object_feret, Area = object_area, Elongation = object_elongation,
+         Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
+         Circ. = object_circ., Thickr = object_thickr, 
+         Mean.grey = object_mean, Med.grey = object_median,
+         `Hist.grey 75%` = object_histcum3, 
+         Sdev.grey = object_stddev, Skew.grey = object_skew,
+         Fractal = object_fractal, 
+         `Perim./Feret` = object_perimferet,
+         `Perim./Major` = object_perimmajor) %>% 
+  remove_rownames() %>% 
+  column_to_rownames("object_id")
+
+
+pca <- FactoMineR::PCA(as.matrix(scale(uvp.morpho)), graph = FALSE)
+# Note can weigh rows based on concentration
+
+plot(pca, label = "var")
+plot(pca, choix="var", axes = c(1,2))
+plot(pca, choix="var", axes = c(3,4))
+
+summary(pca)
+
+# selection of axis :
+kaiser_guttman(pca)
+
+```
+
+
+# Diversity metrics
+... is it worth exploring?
+```{r}
+
+```
+

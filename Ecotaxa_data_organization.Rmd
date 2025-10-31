@@ -1,0 +1,474 @@
+---
+title: "Inspect entire ecotaxa projects"
+author: "Patrick Pata"
+date: "2025-10-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(suntools)
+library(ggOceanMaps) 
+```
+
+
+
+# Load the Ecotaxa image metadata for 2021, 2023, and 2024
+```{r, eval=FALSE}
+# # Get column names
+# df <- read.table("C:/Sync/UVP6_Data/Amundsen_2024_Leg5/ecotaxa_export__TSV_18084_20251030_1658.tsv",
+#                  sep="\t", header = TRUE, nrows=10)
+
+am_2021_5 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2021_Leg5/ecotaxa_export__TSV_5108_20251030_2015.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+am_2023_2 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2023_Leg2/ecotaxa_export__TSV_10101_20251030_2021.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+
+am_2024_2 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2024_Leg2/ecotaxa_export__TSV_14844_20251030_1706.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+am_2024_3 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2024_Leg3/ecotaxa_export__TSV_14859_20251030_1957.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+am_2024_4 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2024_Leg4/ecotaxa_export__TSV_17498_20251030_1937.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+am_2024_5 <- read_tsv(
+  "C:/Sync/UVP6_Data/Amundsen_2024_Leg5/ecotaxa_export__TSV_18084_20251030_1658.tsv", 
+  col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor))
+
+
+am_2024_5 %>% group_by(object_annotation_category) %>% count() %>% arrange(-n)
+```
+
+# Organize taxa names by hierarchy
+```{r}
+taxamatch <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
+                       am_2024_3, am_2024_4, am_2024_5) %>% 
+  group_by(object_annotation_category, object_annotation_hierarchy) %>% 
+   summarise(nimages = n(), .groups = "drop") %>% 
+  arrange(object_annotation_hierarchy) %>% 
+  mutate(taxagroup = "") %>% 
+  # Separate living and non living to exclude
+  mutate(taxagroup = if_else(grepl("not-living", object_annotation_hierarchy) == TRUE,
+                             "Exclude-nonliving", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("other|oversegmented|temporary", object_annotation_hierarchy) == TRUE,
+                             "Exclude-living", taxagroup)) %>% 
+  # Identify Rhizaria and other major groups
+  mutate(taxagroup = if_else(grepl("Rhizaria", object_annotation_hierarchy) == TRUE,
+                             "Rhizaria", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Mollusca", object_annotation_hierarchy) == TRUE,
+                             "Mollusca", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Echinodermata", object_annotation_hierarchy) == TRUE,
+                             "Echinodermata", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Cnidaria", object_annotation_hierarchy) == TRUE,
+                             "Cnidaria", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Ctenophora", object_annotation_hierarchy) == TRUE,
+                             "Ctenophora", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Chaetognatha", object_annotation_hierarchy) == TRUE,
+                             "Chaetognatha", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Tunicata", object_annotation_hierarchy) == TRUE,
+                             "Tunicata", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Annelida", object_annotation_hierarchy) == TRUE,
+                             "Annelida", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Eumalacostraca", object_annotation_hierarchy) == TRUE,
+                             "Eumalacostraca", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Ostracoda", object_annotation_hierarchy) == TRUE,
+                             "Ostracoda", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Copepoda", object_annotation_hierarchy) == TRUE,
+                             "Copepoda", taxagroup)) %>%
+  # Mark images categorized as with visible lipid sac
+  mutate(taxagroup = if_else(grepl("with visible lipid sac", object_annotation_hierarchy) == TRUE,
+                             "Copepoda-lipidsac", taxagroup)) %>% 
+  # Bulk the rest of crustacea parts and fish as Exclude-living
+  mutate(taxagroup = if_else(taxagroup == "", "Exclude-living", taxagroup))
+
+
+taxamatch %>% 
+  mutate(totalimgs = sum(nimages)) %>% 
+  group_by(taxagroup, totalimgs) %>% 
+  summarise(nimages = sum(nimages),
+            .groups = "drop") %>% 
+  mutate(percent = round(nimages / totalimgs * 100,2)) %>% 
+  arrange(-nimages)
+
+# Percent of copepod images classified as with lipid sac: 
+# 6075/(6075+670296)*100 = 0.9%
+```
+
+
+
+# Combine all data
+Filter only the living portion
+```{r, eval=FALSE}
+Amund_UVP6 <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
+                        am_2024_3, am_2024_4, am_2024_5) %>% 
+  left_join(taxamatch %>% select(object_annotation_category, taxagroup),
+            by = "object_annotation_category") %>% 
+  filter(taxagroup != "Exclude-nonliving")%>% 
+  filter(taxagroup != "Exclude-living") 
+
+# TODO rename morphotraits?
+# Major = object_major, Minor = object_minor, Perim. = object_perim.,
+#          Feret = object_feret, Area = object_area, Elongation = object_elongation,
+#          Ver.Sym. = object_symetriev, Ver.Sym.2 = object_symetrievc, 
+#          Circ. = object_circ., Thickr = object_thickr, 
+#          Mean.grey = object_mean, Med.grey = object_median,
+#          `Hist.grey 75%` = object_histcum3, 
+#          Sdev.grey = object_stddev, Skew.grey = object_skew,
+#          Fractal = object_fractal, 
+#          `Perim./Feret` = object_perimferet,
+#          `Perim./Major` = object_perimmajor
+
+# Correct some metadata errors
+Amund_UVP6 <- Amund_UVP6 %>% 
+  mutate(object_lon = if_else(sample_stationid == "LSea-23",
+                              -abs(object_lon), object_lon))
+
+# TODO include the ECOPART information
+
+# Add the volume per 5m bin information from ECOPART
+ecopart_2021_5 <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  # Rename sample_id and Depth_5m to clearly specify bin size
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+ecopart_2023_2 <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_40_Amudsen2023/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+Ecopart_UVP6 <- bind_rows(ecopart_2021_5, ecopart_2023_2)
+
+Ecopart_UVP6_totalVolume <- Ecopart_UVP6 %>% 
+  group_by(sample_id) %>% 
+  summarise(maxDepth = max(Depth_5m),
+            volume_L = sum(Sampled_volume_L),
+            volume_m3 = sum(Sampled_volume_m3),
+            .groups = "drop")
+
+# Match sample to volume (+- 2.5)
+Amund_UVP6 <- Amund_UVP6 %>% 
+  mutate(Depth_5m = floor(object_depth_max / 5)*5+2.5) %>% 
+  left_join(Ecopart_UVP6,
+            by = join_by(sample_id, Depth_5m))
+```
+
+
+# Explore sampling metadata
+Note that there may be multiple casts in the same station
+```{r, eval=FALSE}
+# TODO need to get actual station depths for filtering "shallow" stations
+
+Amund_UVP6_meta <- Amund_UVP6 %>% 
+  group_by(sample_id) %>% 
+  # Calculate deepest sample depth
+  mutate(nimages = n(),
+         maxSampleDepth = max(object_depth_max)) %>% 
+  ungroup() %>% 
+  distinct(sample_id, .keep_all = TRUE) %>% 
+  select(-c(object_depth_max:Sampled_volume_m3)) %>% 
+  # Add total volume info
+  left_join(Ecopart_UVP6_totalVolume, by = join_by(sample_id)) %>% 
+  # Establish DOY, Year
+  mutate(Year = year(object_date),
+         Month = month(object_date),
+         DOY = yday(object_date))
+
+
+
+# Establish Twilight (UTC dates provided?) based on solar angle for the date with SunTools
+# Note that in summer, may be all during daytime
+df.twilight <- Amund_UVP6_meta %>% 
+  select(sample_id, object_lon, object_lat, object_date, object_time, 
+         Year, Month, DOY) %>% 
+  mutate(fullDate = as.POSIXct(paste(object_date, object_time),
+                                     tz = "UTC")) %>% 
+  group_by(sample_id) %>% 
+  mutate(dawn = crepuscule(matrix(c(object_lon, object_lat), nrow = 1),
+                           fullDate,
+                           solarDep = 6,
+                           direction = "dawn",
+                           POSIXct.out = TRUE)) %>%
+
+  mutate(dusk = crepuscule(matrix(c(object_lon, object_lat), nrow = 1),
+                           fullDate,
+                           solarDep = 6,
+                           direction = "dusk",
+                           POSIXct.out = TRUE)) %>%
+  mutate(sunrise = sunriset(matrix(c(object_lon, object_lat), nrow = 1),
+                           fullDate,
+                           direction = "sunrise",
+                           POSIXct.out = TRUE)) %>% 
+  mutate(sunset = sunriset(matrix(c(object_lon, object_lat), nrow = 1),
+                           fullDate,
+                           direction = "sunset",
+                           POSIXct.out = TRUE)) %>% 
+  # TODO Decide what to assign as night/day
+  mutate(twilight = if_else(fullDate >= dawn$time & fullDate < dusk$time,
+                            "Day", ""),
+         twilight = if_else(fullDate >= dusk$time | fullDate < dawn$time,
+                            "Night", twilight)) %>% 
+  # If NA during August at high latitude, that indicates day time
+  mutate(twilight = if_else(is.na(twilight), "Day", twilight))
+
+# Confirm twilight assignment
+ggplot(Amund_UVP6_meta, aes(x = DOY, y = object_time, color = twilight,
+                            shape = as.factor(Year))) +
+  geom_point() +
+  ylab("Time (UTC)") +
+  scale_x_continuous(breaks = c(182,213,244,274,305),
+                     labels = c("Jul","Aug","Sep","Oct","Nov"))
+
+# Assign twilight in data frames
+Amund_UVP6_meta <- Amund_UVP6_meta %>% 
+  left_join(df.twilight %>% select(sample_id, twilight),
+            by = "sample_id")
+Amund_UVP6 <- Amund_UVP6 %>% 
+  left_join(df.twilight %>% select(sample_id, twilight),
+            by = "sample_id")
+```
+
+
+# Metadata plots
+```{r, eval=FALSE}
+# Are there more images when casts are deeper or volume sampled was higher?
+cowplot::plot_grid(
+  ggplot(Amund_UVP6_meta %>% filter(maxDepth > 0), 
+         aes(x = maxDepth, y = nimages)) +
+    geom_point() +
+    geom_smooth(method = "lm"),
+  ggplot(Amund_UVP6_meta %>% filter(maxDepth > 0), 
+         aes(x = volume_L, y = nimages)) +
+    geom_point() +
+    geom_smooth(method = "lm")
+)
+
+
+# Map samples
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,64,83), rotate = T,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(object_lat > 62), 
+                                aes(x = object_lon, y = object_lat, 
+                                    # shape = Year,
+                                    color = maxSampleDepth),
+                                size = 2, alpha = 0.7) +
+  scale_color_viridis_c(name = "Depth (m)", trans = "log10") +
+  # scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "bottom") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot by year and DOY
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,64,83), rotate = T, bathy.style = "contour_blues",
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(object_lat > 62) %>% 
+                                  mutate(Month = as.factor(Month)), 
+                                aes(x = object_lon, y = object_lat, 
+                                    shape = Month,
+                                    fill = DOY),
+                                size = 3, alpha = 0.7) +
+  scale_shape_manual(values = c(21,22,23,24), labels = c("Jul","Aug","Sep","Oct")) +
+  scale_fill_viridis_c(name = "DOY", option = "turbo", direction = -1,
+                       breaks = c(182,213,244,274,305),
+                       labels = c("Jul 1","Aug 1","Sep 1","Oct 1","Nov 1")) +
+  theme(axis.title = element_blank(),
+        legend.position = "bottom") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)) +
+  facet_wrap(~Year)
+
+
+ggsave("figures/stations_by_date.png",
+       height = 5, width = 9, units = "in", bg = "white")
+
+# General distribution of all samples with bottome depth 
+basemap("ArcticStereographic", bathymetry = TRUE, glaciers = FALSE,
+        limits = c(-90,-53,49,83), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_blues",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  # filter(object_lat > 62) %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat, 
+                                    shape = Year, color = Year, size = Year),
+                                alpha = 1) +
+  scale_color_manual(values = c("hotpink","gold3","purple2"), name = "Year") +
+  scale_shape_manual(values = c(16,17,18), name = "Year") +
+  scale_size_manual(values = c(3,2,2), guide = "none") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12))+ 
+  guides(color  = guide_legend(order = 1),
+         shape  = guide_legend(order = 1),
+         fill = guide_legend(order = 2))
+
+
+ggsave("figures/stations_bathy.png",
+       height = 9, width = 8, units = "in", bg = "white")
+```
+
+# Export data
+```{r}
+save(file = "data/Amund_UVP6_20251031.RData",
+     Amund_UVP6, Amund_UVP6_meta, taxamatch, Ecopart_UVP6)
+
+rm(am_2021_5, am_2023_2, am_2024_2,
+   am_2024_3, am_2024_4, am_2024_5)
+```
+
+
+
+
+
+
+# Deprecated scripts
+## Old method for organizing taxa names
+Note that in this approach, taxa marked as dead/house are considered nonliving
+```{r, eval=FALSE}
+# Organize to major groups
+taxamatch <- tibble(object_annotation_category = 
+                      c(am_2021_5$object_annotation_category,
+                        am_2023_2$object_annotation_category,
+                        am_2024_2$object_annotation_category,
+                        am_2024_3$object_annotation_category,
+                        am_2024_4$object_annotation_category,
+                        am_2024_5$object_annotation_category)) %>% 
+  group_by(object_annotation_category) %>% 
+  summarise(nimages = n(), .groups = "drop") %>% 
+  arrange(object_annotation_category) %>% 
+  mutate(taxaname = object_annotation_category) %>% 
+  
+  mutate(taxaname = if_else(taxaname %in% c("Copepoda<Maxillopoda"),
+                        "Copepoda", taxaname),
+         taxaname = if_else(taxaname %in% c("side<with visible lipid sac",
+                                            "top-bottom<with visible lipid sac"),
+                            "Calanus-lipid", taxaname),
+         taxaname = if_else(taxaname %in% c("Cnidaria<Metazoa", "Cnidaria X"),
+                            "Cnidaria", taxaname),
+         taxaname = if_else(taxaname %in% c("Ctenophora X", "Ctenophora<Metazoa"),
+                            "Ctenophora", taxaname),
+         taxaname = if_else(taxaname %in% c("larvae<Echinodermata"),
+                            "Echinodermata", taxaname)) %>% 
+  # Excluded nonliving and living
+  mutate(taxaname = if_else(taxaname %in% c("t001","t002","t003","t005","t007"),
+                            "Exclude-nonliving", taxaname),
+          taxaname = if_else(grepl(c("detritus|feces|dead|artefact|sphere|crystal|turbid|reflection|bubble|badfocus|othertocheck|dark|fecal pellets|house|fiber"),
+                                  taxaname) == TRUE,
+                            "Exclude-nonliving", taxaname),
+         taxaname = if_else(grepl(c("egg|antenna|tentacle|part|over segmented|oversegmented|Actinopterygii|solitary|colonial|spiky|fish"),
+                                  taxaname) == TRUE,
+                            "Exclude-living", taxaname),
+         
+         taxaname = if_else(taxaname %in% c("rhizaria like (Deprecated)",
+                                            "like<Rhizaria","veliger<Mollusca",
+                                            "Chordata","Polychaeta","Mollusca"),
+                            "Exclude-living", taxaname),
+         taxaname = if_else(taxaname %in% c("Collodaria","Medusettidae","rhizaria","Rhizaria",
+                                            "Aulacanthidae","Aulophaeridae","Cannosphaeridae",
+                                            "Aulosphaeridae","Coelodendridae","Coelographis",
+                                            "Foraminifera"),
+                            "Rhizaria", taxaname)) %>% 
+
+  
+  mutate(taxagroup = taxaname) %>% 
+  mutate(taxagroup = if_else(taxaname %in% c("Calanus","Calanus-lipid", "Calanoida",
+                                             "Metridia","Paraeuchaeta",
+                                             "Oncaeidae","Heterorhabdidae",
+                                             "Heterorhabdus",
+                                             "Harpacticoida", "Cyclopoida"),
+                             "Copepoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Hyperiidea","Themisto"),
+                             "Amphipoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Crustacea","Eumalacostraca",
+                                            "Isopoda","Cumacea",
+                                            "Euphausiacea larvae"),
+                             "Crustaceans", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Beroe abyssicola","Cydippida",
+                                             "Beroe cucumis", "Mertensia ovum",
+                                             "Lobata", "Beroe"),
+                             "Ctenophora", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Limacinidae","Clionidae","Limacina",
+                                             "Limacina helicina"),
+                             "Pteropoda", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Eukrohnia"),
+                             "Chaetognatha", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Phyllodocida","Swima","Poeobius"),
+                             "Annelida", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Salpida","Appendicularia"),
+                             "Tunicata", taxagroup),
+         taxagroup = if_else(taxaname %in% c("Euphysa","Halitholus",
+                                             "Aeginopsis","Aglantha digitale",
+                                             "Botrynema ellinorae",
+                                             "Solmundella bitentaculata",
+                                             "Aeginidae", "Botrynema",
+                                             "Hydrozoa",
+                                             "Hydromedusae","Siphonophorae"),
+                             "Cnidaria", taxagroup))
+
+
+```
+

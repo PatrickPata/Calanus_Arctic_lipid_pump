@@ -67,6 +67,8 @@ amund2024_pred <- read.csv(file_predictions) %>%
 
 ## Organize dataframe of 2024 amundsen samples for update site figure
 ```{r}
+# TODO: file1 and file3 are leg 5 that were categorized as "Calanus" and should be corrected
+# TODO: file 2 is leg 2 and all categorized as "Calanus"
 file1 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_15244_20250729_1739.tsv"
 file2 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_14844_20250729_1740.tsv"
 file3 <- "C:/Users/patri/OneDrive - Université Laval/Laval_Postdoc/Laval-imaging-analysis/UVP6_amundsen2024/ecotaxa_export__TSV_14853_20250729_1741.tsv"

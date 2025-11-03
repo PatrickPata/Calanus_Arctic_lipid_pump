@@ -184,22 +184,30 @@ Amund_UVP6 <- Amund_UVP6 %>%
   mutate(object_lon = if_else(sample_stationid == "LSea-23",
                               -abs(object_lon), object_lon))
 
-# TODO include the ECOPART information
+# Include the ECOPART information
 
 # Add the volume per 5m bin information from ECOPART
-ecopart_2021_5 <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_52_darkedge2021/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
   # Rename sample_id and Depth_5m to clearly specify bin size
   rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
   select(sample_id, Depth_5m, Sampled_volume_L) %>% 
   # convert volume in L to m3
   mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
-ecopart_2023_2 <- read.table("../../Laval-imaging-analysis/ECOPART/export_reduced_20250311_16_40_Amudsen2023/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
+ecopart_2023_2 <- read.table("C:/Sync/UVP6_Data/Ecopart/2023_Leg2/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
   rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
   select(sample_id, Depth_5m, Sampled_volume_L) %>% 
   # convert volume in L to m3
   mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+# TODO Note that Leg 4 data is still missing
+ecopart_2024_235 <- read.table("C:/Sync/UVP6_Data/Ecopart/2024_Leg235/export_reduced_20251103_volumes_ed.tsv",  header = TRUE, sep = "\t") %>% 
+  rename(sample_id = Profile, Depth_5m = `Depth..m.`,
+         Sampled_volume_L = `Sampled.volume..L.`) %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  # convert volume in L to m3
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
 
-Ecopart_UVP6 <- bind_rows(ecopart_2021_5, ecopart_2023_2)
+
+Ecopart_UVP6 <- bind_rows(ecopart_2021_5, ecopart_2023_2, ecopart_2024_235)
 
 Ecopart_UVP6_totalVolume <- Ecopart_UVP6 %>% 
   group_by(sample_id) %>% 
@@ -273,6 +281,14 @@ df.twilight <- Amund_UVP6_meta %>%
   # If NA during August at high latitude, that indicates day time
   mutate(twilight = if_else(is.na(twilight), "Day", twilight))
 
+# Assign twilight in data frames
+Amund_UVP6_meta <- Amund_UVP6_meta %>% 
+  left_join(df.twilight %>% select(sample_id, twilight),
+            by = "sample_id")
+Amund_UVP6 <- Amund_UVP6 %>% 
+  left_join(df.twilight %>% select(sample_id, twilight),
+            by = "sample_id")
+
 # Confirm twilight assignment
 ggplot(Amund_UVP6_meta, aes(x = DOY, y = object_time, color = twilight,
                             shape = as.factor(Year))) +
@@ -281,13 +297,6 @@ ggplot(Amund_UVP6_meta, aes(x = DOY, y = object_time, color = twilight,
   scale_x_continuous(breaks = c(182,213,244,274,305),
                      labels = c("Jul","Aug","Sep","Oct","Nov"))
 
-# Assign twilight in data frames
-Amund_UVP6_meta <- Amund_UVP6_meta %>% 
-  left_join(df.twilight %>% select(sample_id, twilight),
-            by = "sample_id")
-Amund_UVP6 <- Amund_UVP6 %>% 
-  left_join(df.twilight %>% select(sample_id, twilight),
-            by = "sample_id")
 ```
 
 

@@ -403,11 +403,36 @@ cowplot::plot_grid(
 )
 ```
 
-# TODO Map the 
+# TODO Map the stations
+Are the high flux at NW polynya indications of subducted organic matter?
+```{r}
+library(ggOceanMaps) 
+metad <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced_20250311_16_52_Export_metadata_summary.tsv",  header = TRUE, sep = "\t") 
 
 
-# TODO: Apply the error propagations
+# Map samples
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,64,83), rotate = T,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = metad,
+                                aes(x = Longitude, y = Latitude, 
+                                    color = yyyy.mm.dd.hh.mm),
+                                size = 2, alpha = 0.9) +
+  # scale_color_viridis_c(name = "Depth (m)", trans = "log10") +
+  # scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "right") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+```
+
+# TODO: Apply the error propagations in plots (simply add the SD)
 
 
+
+
+```{r}
+
+```
 
 

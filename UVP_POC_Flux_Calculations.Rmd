@@ -31,29 +31,7 @@ ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced
 colnames(ecopart_2021_5) <- cnames$AnnotatedColumnName
 ```
 
-
-# UVP Data processing
-Following the matlab scripts in the Rufas et al. (2024) paper.
-https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m
-
-## Establish the size class bins and bin width
-Note that the last size class is >16.4 mm but set the max bin to 32.768mm. This size bin seldom has any observations so can be discarded later.
-```{r}
-# 
-UVP6_sizebins_edges_um <- c(1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768)
-N_sizebins <- 15
-
-# Convert um to mm
-UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
-# Get width of size bins
-UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:15]
-# Get midpoints of size bins
-UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:15] + UVP6_sizebins_width/2 
-
-
-```
-
-## Functions for calculating and modeling the POC flux at each depth
+# Functions for calculating and modeling the POC flux at each depth
 The PSD is based on the LPM (large particulate material) concentrations (# L-1) by size classes.
 - In the calculatePocFlux function: the psd and binMiddle inputs are arrays for each depth bin. The zeros are not removed since these are summed anyway.
 - In the calculateModelledPsd: observedVol is a single value, and observedN/binWidth/binMiddle are arrays
@@ -184,6 +162,29 @@ trunc <- calculateModelledPsd(observedN, a_vol, a_binw, a_binm )
 calculatePOCFlux(trunc$estimNbl, a_binm)
 ```
 
+
+# UVP Data processing
+Following the matlab scripts in the Rufas et al. (2024) paper.
+https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m
+
+## Establish the size class bins and bin width
+Note that the last size class is >16.4 mm but set the max bin to 32.768mm. This size bin seldom has any observations so can be discarded later.
+```{r}
+# 
+UVP6_sizebins_edges_um <- c(1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768)
+UVP6_N_sizebins <- 15
+
+# Convert um to mm
+UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
+# Get width of size bins
+UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:15]
+# Get midpoints of size bins
+UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:15] + UVP6_sizebins_width/2 
+
+
+```
+
+
 ### For testing the random sampler simulated particle concencrations
 ```{r, eval=FAKSE}
 df_simulated <- data.frame(
@@ -253,12 +254,13 @@ ggplot(Asc, aes(x = name, y = (value*Sampled_volume_L))) +
 
 ```
 
-# Calculate POC flux
+## Calculate POC flux
 ```{r}
 # For each row apply the calculations
 # TODO should the 32-128 um size classes be removed to match UVP5 measurements?
 pocFlux <- A %>% 
-  select(sample_id, Depth_5m, Sampled_volume_L)
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA)
 
 # TODO generalize later to just do the entire ecopart df with all stations
 for (i in c(1:nrow(pocFlux))) {
@@ -272,7 +274,7 @@ for (i in c(1:nrow(pocFlux))) {
   trunc <- calculateModelledPsd(observedN, a_vol, 
                                 UVP6_sizebins_width, UVP6_sizebins_mid )
   
-  pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, a_binm)
+  pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
   pocFlux$C1[i] <- trunc$C1
   pocFlux$alpha[i] <- trunc$alpha
   pocFlux$lambda[i] <- trunc$lambda
@@ -294,7 +296,7 @@ for (i in c(1:nrow(pocFlux))) {
   observedN <- round( a_par128 * a_vol )
   trunc <- calculateModelledPsd(observedN, a_vol, 
                                 UVP6_sizebins_width, UVP6_sizebins_mid )
-  pocFlux$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, a_binm)
+  pocFlux$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
   
   
   # Add the random samples function for sample volume error
@@ -335,12 +337,13 @@ ggplot(pocFlux, aes(x = ModelFlux, y = Depth_5m)) +
 ```
 
 
-# TODO: Apply to all profiles, average by depth bin
+## TODO: Apply to all profiles, average by depth bin
 ```{r}
 # TODO fix issue with the optimization model when the C1 value needs to be changed
 
 pocFlux <- ecopart_2021_5 %>% 
-  select(sample_id, datetime, Depth_5m, Sampled_volume_L)
+  select(sample_id, datetime, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA)
 
 for (i in c(1:nrow(pocFlux))) {
   a_par <- ecopart_2021_5[i, 7:21]
@@ -350,14 +353,18 @@ for (i in c(1:nrow(pocFlux))) {
   pocFlux$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
   # With truncated power law model
   observedN <- round( a_par * a_vol )
-  trunc <- calculateModelledPsd(observedN, a_vol, 
-                                UVP6_sizebins_width, UVP6_sizebins_mid )
   
-  pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, a_binm)
-  pocFlux$C1[i] <- trunc$C1
-  pocFlux$alpha[i] <- trunc$alpha
-  pocFlux$lambda[i] <- trunc$lambda
-  
+  tryCatch( {
+    trunc <- calculateModelledPsd(observedN, a_vol, 
+                                  UVP6_sizebins_width, UVP6_sizebins_mid )
+    
+    pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+    pocFlux$C1[i] <- trunc$C1
+    pocFlux$alpha[i] <- trunc$alpha
+    pocFlux$lambda[i] <- trunc$lambda
+  },
+  error = function(e){cat("ERROR: at i =", i, " ", 
+                          conditionMessage(e), "\n")})
   
   # Start at 128 um size class?
   a_par128 <- a_par
@@ -366,7 +373,7 @@ for (i in c(1:nrow(pocFlux))) {
   observedN <- round( a_par128 * a_vol )
   trunc <- calculateModelledPsd(observedN, a_vol, 
                                 UVP6_sizebins_width, UVP6_sizebins_mid )
-  pocFlux$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, a_binm)
+  pocFlux$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
 }
 
 
@@ -403,7 +410,7 @@ cowplot::plot_grid(
 )
 ```
 
-# TODO Map the stations
+## Map the stations
 Are the high flux at NW polynya indications of subducted organic matter?
 ```{r}
 library(ggOceanMaps) 
@@ -426,13 +433,309 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 
 ```
 
-# TODO: Apply the error propagations in plots (simply add the SD)
+## TODO: Apply the error propagations in plots (simply add the SD)
 
 
-
-
+# ** UVP6 All data processing **
+## Aggregate all data with particle concentrations
 ```{r}
+cnames <- read.csv('data/Ecopart_PAR_file_column_names.csv')
+
+ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced_20250311_16_52_PAR_Aggregated.tsv",  header = FALSE, sep = "\t", skip = 1) 
+colnames(ecopart_2021_5) <- cnames$AnnotatedColumnName
+
+ecopart_2023_2 <- read.table("C:/Sync/UVP6_Data/Ecopart/2023_Leg2/export_reduced_20250311_16_40_PAR_Aggregated.tsv",  header = FALSE, sep = "\t", skip = 1) 
+ecopart_2023_2 <- ecopart_2023_2[,1:36]
+colnames(ecopart_2023_2) <- cnames$AnnotatedColumnName
+
+ecopart_2024_235 <- read.table("C:/Sync/UVP6_Data/Ecopart/2024_Leg235/export_detailed_20251103_19_57_PAR_Aggregated.tsv",  header = FALSE, sep = "\t", skip = 1) 
+ecopart_2024_235 <- ecopart_2024_235[,1:36]
+colnames(ecopart_2024_235) <- cnames$AnnotatedColumnName
+
+UVP6_all <- bind_rows(ecopart_2021_5, ecopart_2023_2, ecopart_2024_235)
+
+rm(ecopart_2021_5, ecopart_2023_2, ecopart_2024_235)
+
+UVP6_sizebins_edges_um <- c(1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768)
+UVP6_N_sizebins <- 15
+
+# Convert um to mm
+UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
+# Get width of size bins
+UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:15]
+# Get midpoints of size bins
+UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:15] + UVP6_sizebins_width/2 
+```
+
+
+## General POC Flux calculation
+Only run if there are new calculations, else load the output file.
+```{r, eval=FALSE}
+pocFlux_UVP6 <- UVP6_all %>% 
+  select(sample_id, project, datetime, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA,
+         ObsFlux128 = NA, ModelFlux128 = NA)
+
+for (i in c(1:nrow(pocFlux_UVP6))) {
+  a_par <- UVP6_all[i, 7:21]
+  a_vol <- UVP6_all$Sampled_volume_L[i]
+  
+  # No model
+  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  
+  if(sum(observedN) > 0){
+    tryCatch( {
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      
+      pocFlux_UVP6$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+      pocFlux_UVP6$C1[i] <- trunc$C1
+      pocFlux_UVP6$alpha[i] <- trunc$alpha
+      pocFlux_UVP6$lambda[i] <- trunc$lambda
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+    
+    # Start at 128 um size class?
+    tryCatch( {
+      a_par128 <- a_par
+      a_par128[1:7] <- 0
+      pocFlux_UVP6$ObsFlux128[i] <- calculatePOCFlux(a_par128, UVP6_sizebins_mid)
+      observedN <- round( a_par128 * a_vol )
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      pocFlux_UVP6$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+    
+  } 
+}
+
+pocFluxErr_UVP6 <- pocFlux_UVP6 %>% 
+  filter(is.na(ModelFlux))
+
+# # Export results to limit recalculations of this long loop
+# save(file = "data/UVP6_CA_Arctic_pocFlux_results_20251104.RData",
+#      pocFlux_UVP6, UVP6_all)
+```
+
+## Plot results
+TODO add metadata
+```{r}
+# Relationship between calculated POC flux and sampled volume
+ggplot(pocFlux_UVP6, aes(x = Sampled_volume_L, y = ModelFlux,
+                    color = Depth_5m)) +
+  geom_point() +
+  scale_x_log10() + scale_y_log10()
+
+
+# Average across depth_bins (all casts)
+pocFlux_depthAve <- pocFlux_UVP6 %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  group_by(Depth_5m) %>% 
+  summarise(across(ObsFlux:ModelFlux128, 
+            list(mean = mean, sd = sd)),
+            .groups = "drop") 
+
+ggplot(pocFlux, aes(x = Depth_5m, y = ModelFlux)) +
+  geom_point(aes(color = datetime), alpha = 0.5) +
+  coord_flip() +
+  scale_x_reverse() +
+  scale_y_log10() +
+  theme(legend.position = "none")
+
+cowplot::plot_grid(
+  ggplot(pocFlux_depthAve, aes(x = ObsFlux_mean, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = ModelFlux_mean), color = "blue") +
+    scale_y_reverse(),
+  
+  ggplot(pocFlux_depthAve, aes(x = ObsFlux128_mean, y = Depth_5m)) +
+    geom_point(color = "pink") +
+    geom_point(aes(x = ModelFlux128_mean), color = "deepskyblue") +
+    scale_y_reverse() 
+)
+
 
 ```
+
+## To Delete: check zero total concentration UVP6 samples
+Seems like there is biovolume data but no particle concentration data... why?
+```{r}
+AA <- ecopart_2024_235 %>% 
+  filter(sample_id %in% pocFluxErr_UVP6$sample_id) 
+colSums(AA[7:36])
+```
+
+
+
+# ** UVP5 Data processing and POC flux analysis **
+## Load and prep data
+```{r}
+# Load data
+load('C:/Sync/UVP5_Data_Kikoetal2022/Canadian_Arctic_subset.RData')
+
+
+UVP5_sizebins_edges_mm <- c(0.0403,0.0508,0.064,0.0806,0.102,0.128,0.161,0.203,0.256,0.323,0.406,0.512,0.645,0.813,1.02,1.29,1.63,2.05,2.58,3.25,4.1,5.16,6.5,8.19,10.3,13,16.4,20.6,26, 50) # extra 50 for >26mm
+UVP5_N_sizebins <- 29
+
+# Get width of size bins
+UVP5_sizebins_width <- UVP5_sizebins_edges_mm[2:30] - UVP5_sizebins_edges_mm[1:29]
+# Get midpoints of size bins
+UVP5_sizebins_mid <- UVP5_sizebins_edges_mm[1:29] + UVP5_sizebins_width/2 
+```
+
+## Map distribution of samples
+```{r}
+UVP5_CA_Arctic_meta <- UVP5_CA_Arctic_meta %>% 
+  mutate(Date_Time = as.Date(Date_Time)) %>% 
+  mutate(Year = year(Date_Time),
+         Month = month(Date_Time),
+         DOY = yday(Date_Time))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,50,85), rotate = T,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = UVP5_CA_Arctic_meta,
+                                aes(x = Longitude, y = Latitude, 
+                                    color = Year),
+                                size = 2, alpha = 0.8) +
+  scale_color_viridis_c() +
+  theme(axis.title = element_blank(),
+        legend.position = "right") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Temporal sampling
+ggplot(UVP5_CA_Arctic_meta, aes(x = as.factor(Year), y = DOY, 
+                                color = as.factor(Month))) +
+  geom_point(size = 3)
+
+```
+
+## General POC Flux calculation
+Only run if there are new calculations, else load the output file.
+```{r, eval=FALSE}
+pocFlux <- UVP5_CA_Arctic %>% 
+  select(Profile, sample_id = Sample_id, datetime = Date_Time, 
+         Depth_5m = Pressure_dbar, Sampled_volume_L = Volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA)
+
+for (i in c(1:nrow(pocFlux))) {
+  a_par <- UVP5_CA_Arctic[i, 12:40]
+  a_vol <- UVP5_CA_Arctic$Volume_L[i]
+  
+  # No model
+  pocFlux$ObsFlux[i] <- calculatePOCFlux(a_par, UVP5_sizebins_mid)
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  
+  tryCatch( {
+    trunc <- calculateModelledPsd(observedN, a_vol, 
+                                  UVP5_sizebins_width, UVP5_sizebins_mid )
+    
+    pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP5_sizebins_mid)
+    pocFlux$C1[i] <- trunc$C1
+    pocFlux$alpha[i] <- trunc$alpha
+    pocFlux$lambda[i] <- trunc$lambda
+  },
+  error = function(e){cat("ERROR: at i =", i, " ", 
+                          conditionMessage(e), "\n")})
+
+}
+
+# # Export results to limit recalculations of this long loop
+# save(file = "data/UVP5_CA_Arctic_POCFLUX_results_20251104.RData",
+#      pocFlux, UVP5_CA_Arctic, UVP5_CA_Arctic_meta, UVP5_chead)
+```
+
+## Plot results
+```{r}
+load("data/UVP5_CA_Arctic_POCFLUX_results_20251104.RData")
+
+# Identify casts with error
+pocFluxErr <- pocFlux %>% 
+  filter(is.na(ModelFlux))
+
+ggplot(pocFlux, aes(x = Depth_5m, y = ModelFlux)) +
+  geom_point() +
+  coord_flip() +
+  scale_x_reverse()
+
+# Relationship between calculated POC flux and sampled volume
+ggplot(pocFlux, aes(x = Sampled_volume_L, y = ModelFlux,
+                    color = Depth_5m)) +
+  geom_point() +
+  scale_x_log10() + scale_y_log10()
+
+
+# Average across depth_bins (all casts)
+pocFlux_depthAve <- pocFlux %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  group_by(Depth_5m) %>% 
+  summarise(across(ObsFlux:ModelFlux, 
+            list(mean = mean, sd = sd)),
+            .groups = "drop") 
+
+
+ggplot(pocFlux_depthAve, aes(x = ObsFlux_mean, y = Depth_5m)) +
+  geom_point() +
+  geom_point(aes(x = ModelFlux_mean), color = "blue") +
+  scale_y_reverse() +
+  xlab("POC flux (mg C m-2 d-1)")
+
+# Average by latitudinal bins 5 deg lat
+# The > 80 Lat bin has really high values to 10,000 so will exclude these for now
+pocFlux_depthAve_latgrad <- pocFlux %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  left_join(UVP5_CA_Arctic_meta %>% 
+              select(sample_id = Sample_id,
+                     Longitude, Latitude, Year, Month, DOY),
+            by = "sample_id") %>% 
+  mutate(LatBin = floor(Latitude/5)*5) %>% 
+  group_by(LatBin, Depth_5m) %>% 
+  summarise(across(ObsFlux:ModelFlux, 
+            list(mean = mean, sd = sd)),
+            .groups = "drop") %>% 
+  filter(LatBin != 80)
+
+
+ggplot(pocFlux_depthAve_latgrad, aes(x = ObsFlux_mean, y = Depth_5m)) +
+  geom_point() +
+  geom_point(aes(x = ModelFlux_mean), color = "blue") +
+  scale_y_reverse() +
+  xlab("POC flux (mg C m-2 d-1)") +
+  facet_wrap(~LatBin, scale = "free_y")
+
+# Monthly flux at different depths per latitutdinal bin
+pocFlux_depthAve_latgrad_month <- pocFlux %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  left_join(UVP5_CA_Arctic_meta %>% 
+              select(sample_id = Sample_id,
+                     Longitude, Latitude, Year, Month, DOY),
+            by = "sample_id") %>% 
+  mutate(LatBin = floor(Latitude/10)*10) %>% 
+  group_by(LatBin, Depth_5m, Month) %>% 
+  summarise(across(ObsFlux:ModelFlux, 
+            list(mean = mean, sd = sd)),
+            n = n(),
+            .groups = "drop") 
+
+# TODO Better to average a 20 m interval?
+AA <- pocFlux_depthAve_latgrad_month %>% 
+  filter(Depth_5m %in% c(152.5, 502.5, 1002.5, 2002.5))
+
+ggplot(AA, 
+       aes(x = as.factor(Month), y = ModelFlux_mean)) +
+  # geom_errorbar(aes(ymin = ModelFlux_mean,
+  #                   ymax = ModelFlux_mean + ModelFlux_sd)) +
+  geom_bar(aes(fill = as.factor(Depth_5m)), stat = "identity") +
+  facet_grid(Depth_5m~LatBin, scale = "free_y") +
+  theme(legend.position = "none") +
+  ggtitle("Monthly mean POC flux at different depths")
+```
+
 
 

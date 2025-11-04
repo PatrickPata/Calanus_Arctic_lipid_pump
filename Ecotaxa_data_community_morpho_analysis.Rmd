@@ -67,7 +67,8 @@ uvp6_ecopartBin <- uvp6_ecopartBin %>%
 
 # Total Abundance
 commun_dep_totalAbund <- Amund_UVP6 %>% 
-  filter(sample_cruise %in% c("darkedge", "amundsen2023")) %>% 
+  filter(sample_cruise %in% c("darkedge", "amundsen2023", 
+                              "am_leg2", "am_leg3", "am_leg5")) %>% 
   mutate(Year = year(object_date),
          Month = month(object_date),
          DOY = yday(object_date)) %>% 
@@ -99,12 +100,13 @@ ggplot(commun_dep_totalAbund, aes(y = abundance_m3,
   labs(x = "", y = "Abundance (indivs /m3)") +
   theme(legend.position = "none") +
   scale_x_discrete(limits = rev) +
-  facet_wrap(~Month)
+  facet_wrap(~Month, scale = "free_x")
 
 
 # Average abundance composition
 commun_dep_taxagroups <- Amund_UVP6 %>% 
-  filter(sample_cruise %in% c("darkedge", "amundsen2023")) %>% 
+  filter(sample_cruise %in% c("darkedge", "amundsen2023",
+                              "am_leg2", "am_leg3", "am_leg5")) %>% 
   mutate(Year = year(object_date),
          Month = month(object_date),
          DOY = yday(object_date)) %>% 
@@ -138,10 +140,17 @@ ggplot(commun_dep_taxagroups, aes(y = abundance_m3,
   labs(x = "", y = "Abundance (indivs /m3)") +
   theme(legend.position = "none") +
   scale_x_discrete(limits = rev) +
-  facet_wrap(~Month)
+  facet_wrap(~Month, scale = "free")
 
+ggplot(commun_dep_taxagroups, aes(y = abundance_m3,
+                                  x = depthRange)) +
+  geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  scale_y_continuous(trans = "log10") +
+  coord_flip() +
+  labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = rev)
 ```
-
 
 # Morphotrait space
 TODO: need to curate taxa that get included, especially when there are large images for gelatinous taxa

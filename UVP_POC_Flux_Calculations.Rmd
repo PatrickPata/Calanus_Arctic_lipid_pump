@@ -302,9 +302,10 @@ for (i in c(1:nrow(pocFlux))) {
                             conditionMessage(e), "\n")})
     
     # Start at 128 um size class?
+    a_par128 <- a_par
+    a_par128[1:7] <- 0
+    
     tryCatch( {
-      a_par128 <- a_par
-      a_par128[1:7] <- 0
       pocFlux$ObsFlux128[i] <- calculatePOCFlux(a_par128, UVP6_sizebins_mid)
       observedN <- round( a_par128 * a_vol )
       trunc <- calculateModelledPsd(observedN, a_vol, 
@@ -426,8 +427,8 @@ cowplot::plot_grid(
 )
 
 
-ggsave("figures/example_UVP6_pocflux.png",
-       bg = "white", width = 7, height = 6, units = "in")
+# ggsave("figures/example_UVP6_pocflux.png",
+#        bg = "white", width = 7, height = 6, units = "in")
 ```
 
 
@@ -559,6 +560,8 @@ UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
 UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:15]
 # Get midpoints of size bins
 UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:15] + UVP6_sizebins_width/2 
+
+# TODO have the script start at the 64 um size class already
 ```
 
 
@@ -593,9 +596,10 @@ for (i in c(1:nrow(pocFlux_UVP6))) {
                             conditionMessage(e), "\n")})
     
     # Start at 128 um size class?
+    a_par128 <- a_par
+    a_par128[1:7] <- 0
+    
     tryCatch( {
-      a_par128 <- a_par
-      a_par128[1:7] <- 0
       pocFlux_UVP6$ObsFlux128[i] <- calculatePOCFlux(a_par128, UVP6_sizebins_mid)
       observedN <- round( a_par128 * a_vol )
       trunc <- calculateModelledPsd(observedN, a_vol, 

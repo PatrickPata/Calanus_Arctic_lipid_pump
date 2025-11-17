@@ -23,6 +23,7 @@ Load libraries and data
 library(tidyverse)
 
 theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
 
 cnames <- read.csv('data/Ecopart_PAR_file_column_names.csv')
 
@@ -165,6 +166,29 @@ calculatePOCFlux(a_par2, a_binm)
 observedN <- round( a_par * a_vol )
 trunc <- calculateModelledPsd(observedN, a_vol, a_binw, a_binm )
 calculatePOCFlux(trunc$estimNbl, a_binm)
+```
+
+# Historical Sediment trap data
+Some values not from Baffin Bay
+Annual POC Flux: (g C m-2 y-1)
+Daily POC Flux: (mg C m-2 y-1)
+```{r}
+sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
+  # Remove the anomalously high value for Mackenzie shelf
+  filter(Daily_Flux != 7000) %>% 
+  mutate(Area = if_else(AreaCode == "NOW", "Baffin-NOW", "Other-Arctic")) %>% 
+         # filter(Area == "Baffin-NOW") %>% 
+         filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
+                                  "100-120POC","120POC" ))
+
+ggplot(sedTrap, 
+       aes(x = Depth_m, y = Daily_Flux)) +
+  geom_point(aes(color = VarCode, shape = Area),
+             size = 3, alpha = 0.8) +
+  coord_flip() +
+  scale_x_reverse() +
+  ylab("POC flux (mg C m-2 d-1)") +
+  xlab("Depth (m)") 
 ```
 
 

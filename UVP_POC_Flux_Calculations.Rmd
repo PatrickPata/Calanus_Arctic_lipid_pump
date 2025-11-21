@@ -14,6 +14,8 @@ Note that seasonal variation in POC flux is expected based on the results in the
 
 Note that in the truncated power law model in Bisson et al. (2022), the modelled particle count is lower for larger particles (stronger decrease with higher lambda).
 
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -25,11 +27,16 @@ library(tidyverse)
 theme_set(theme_bw())
 `%notin%` <- Negate(`%in%`)
 
-cnames <- read.csv('data/Ecopart_PAR_file_column_names.csv')
+cnames <- read.csv('data/Ecopart_UVP6_detailed_PAR_file_column_names.csv')
 
-# Not the the colymn headers need to be formatted properly
-ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced_20250311_16_52_PAR_Aggregated.tsv",  header = FALSE, sep = "\t", skip = 1) 
+# Note the the column headers need to be formatted properly
+ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2024_Leg4/living_particles/export_detailed_20251120_16_26_PAR_Aggregated.tsv",  header = FALSE, skip = 1) 
 colnames(ecopart_2021_5) <- cnames$AnnotatedColumnName
+
+# Will only have values starting size class 18 (50.8-64 um)
+ecopart_2021_5 <- ecopart_2021_5 %>% 
+  select(-c(concentration_sc_1:concentration_sc_17,
+            biovolume_sc_1:biovolume_sc_17))
 ```
 
 # Functions for calculating and modeling the POC flux at each depth

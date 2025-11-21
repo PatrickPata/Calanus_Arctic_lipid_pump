@@ -113,3 +113,49 @@ commun %>%
 
 ```
 
+
+# Organize the metadata of the copepod lipid sac images 
+N = 286+467 = 753 images for 8 stations
+```{r}
+# Get column names
+df <- read.table("C:/Sync/UVP6_Data/Alix_Amundsen_Leg5/ecotaxa_export__TSV_18084_20251119_0315_side.tsv",
+                 sep="\t", header = TRUE, nrows=10)
+colnames(df)
+
+df.side <- read_tsv(
+  "C:/Sync/UVP6_Data/Alix_Amundsen_Leg5/ecotaxa_export__TSV_18084_20251119_0315_side.tsv", 
+  col_select = c(img_file_name, img_rank,
+                 object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor)) %>% 
+  filter(img_rank == 100) %>% 
+  select(-img_rank)
+
+df.top<- read_tsv(
+  "C:/Sync/UVP6_Data/Alix_Amundsen_Leg5/ecotaxa_export__TSV_18084_20251119_0315_top.tsv", 
+  col_select = c(img_file_name, img_rank,
+                 object_id, sample_id, sample_cruise, sample_stationid, 
+                 object_lon, object_lat, object_date, object_time, object_depth_max,
+                 object_annotation_status, object_annotation_category,
+                 object_annotation_hierarchy,
+                 object_major, object_minor, object_perim., object_feret, object_area, 
+                 object_elongation, object_symetriev, object_symetrievc, 
+                 object_circ., object_thickr, object_mean, object_median,
+                 object_histcum3, object_stddev, object_skew,
+                 object_fractal, object_perimferet, object_perimmajor)) %>% 
+  filter(img_rank == 100) %>% 
+  select(-img_rank)
+
+# combine
+df.metadata <- bind_rows(df.side, df.top)
+
+rm(df, df.side, df.top)
+```
+
+

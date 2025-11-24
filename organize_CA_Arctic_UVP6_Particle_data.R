@@ -41,6 +41,32 @@ rm(df1, df2, df3, df4)
 uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary")
 
+# Calculate max bin depth and total volume filtered per profile and add to metadata
+maxbin <- uvp6_PAR %>% 
+  group_by(sample_id) %>% 
+  summarise(max_5mbin_depth = max(Depth_5m),
+            total_volume_L = sum(Sampled_volume_L),
+            .groups = "drop")
+uvp6_profiles <- uvp6_profiles %>% 
+  rename(sample_id = Profile) %>% 
+  left_join(maxbin,
+            join_by(sample_id))
+
+p <- ggplot(maxbin, aes(x = max_5mbin_depth, y = total_volume_L)) +
+  geom_point() +
+  ggtitle("A. Total volume filtered")
+ggExtra::ggMarginal(p, type = "histogram")
+
+ggplot(uvp6_PAR, aes(x = Sampled_volume_L)) +
+  geom_density() +
+  scale_x_log10() 
+summary(uvp6_PAR$Sampled_volume_L)
+sd(uvp6_PAR$Sampled_volume_L)
+# Average sampled volume of a 5m bin is 54 +- 34L
+
+# Some 5m bins have very high sampled volume 
+tail(sort(uvp6_PAR$Sampled_volume_L), 20)
+
 save(file = "data/UVP6_ECOPART_Data_20251121.RData",
      uvp6_par_cnames, uvp6_PAR, uvp6_profiles)
 

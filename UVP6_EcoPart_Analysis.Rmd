@@ -1,0 +1,443 @@
+---
+title: "UVP6_EcoPart_Analysis"
+author: "Patrick Pata"
+date: "2025-11-21"
+output: html_document
+---
+
+Analysis of the EcoPart particle distribution data. This updates the UVP_POC_Flux_Calculations.Rmd for work specifically on the UVP6. It includes the calculation of the POC flux based on the detailed 45* size classes and evaluations of the sample distribution and particle size distributions.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+library(ggOceanMaps) 
+
+theme_set(theme_bw())
+`%notin%` <- Negate(`%in%`)
+
+source("functions/uvp_poc_flux_functions.R")
+load("data/UVP6_ECOPART_Data_20251121.RData")
+
+# Annotate metadata
+uvp6_profiles <- uvp6_profiles %>% 
+  rename(datetime = `yyyy-mm-dd hh:mm`) %>%
+  mutate(year = year(datetime), month = month(datetime), doy = yday(datetime))
+```
+
+
+# Plot the distribution of samples
+```{r}
+ggplot(uvp6_profiles, aes(x = datetime, y = max_5mbin_depth,
+                          color = Site)) +
+  geom_point() +
+  facet_wrap(~year, scales = "free_x") +
+  theme(legend.position = "none") +
+  ggtitle("Profile distribution")
+
+# Map samples
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,64,83), rotate = T,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = uvp6_profiles,
+                                aes(x = Longitude, y = Latitude, 
+                                    color = Site),
+                                size = 2, alpha = 0.9) +
+  # scale_color_viridis_c(name = "Depth (m)", trans = "log10") +
+  # scale_shape_manual(values = c(21, 24), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+```
+
+## Profile curation
+```{r}
+# How many profiles deeper than 200m and 100m
+ggplot(uvp6_profiles, aes(x = max_5mbin_depth)) +
+  geom_histogram(binwidth = 50) +
+  # geom_histogram(aes(y = ..density..)) +
+  #  stat_ecdf(geom = "line", color = "red", size = 1.2) +
+  geom_vline(xintercept = c(200, 500, 1000))
+
+uvp6_profiles %>% 
+  filter(max_5mbin_depth <= 200) %>% 
+  nrow()
+uvp6_profiles %>% 
+  filter(max_5mbin_depth >= 1000) %>% 
+  nrow()
+```
+
+
+# Plot the size distribution slopes
+
+## 1 cast: size vs concentration
+```{r}
+A <- uvp6_PAR %>% 
+  filter(sample_id == "de110_002") %>% 
+  pivot_longer(cols = concentration_sc_18:biovolume_sc_45) %>% 
+  filter(grepl("concentration", name) == T) %>% 
+  left_join(uvp6_par_cnames %>% 
+              select(name = AnnotatedColumnName,
+                     Size_class_width_mm, Size_class_midpoint_mm),
+            by = join_by(name))
+
+ggplot(A, aes(x = Size_class_midpoint_mm, y = value)) +
+  geom_point(aes(color = Depth_5m)) +
+  scale_x_log10() +
+  scale_y_log10()
+
+
+# Average samples according to... display distributions per depth?
+
+```
+
+# TODELETE: Check a profile 
+
+## Check concentrations
+- Select a profile, calculate/visualize total particle concentration, calculate POC flux
+- Maybe also convert biovolume concentration to carbon content?
+```{r, eval=FALSE}
+A <- uvp6_PAR %>% 
+  filter(sample_id == "amundsen2023_163_2")  # Deep option: de_bb2_float
+ 
+
+# Asum <- A %>% 
+#   group_by(sample_id, Depth_5m) %>% 
+#   summarise(totalPart = sum(value), 
+#             .groups = "drop")
+
+
+Asum <- A %>% select(Depth_5m, Sampled_volume_L)
+Asum$totalPart <- rowSums(A[,8:35])
+Asum$totalBioVol <- rowSums(A[,36:63])
+Asum$totalPart80 <- rowSums(A[,10:35])
+Asum$totalBioVol80 <- rowSums(A[,38:63])
+Asum$totalPart128 <- rowSums(A[,12:35])
+Asum$totalBioVol128 <- rowSums(A[,40:63])
+
+ggplot(Asum, aes(x = totalPart, y = Depth_5m)) +
+  geom_point() +
+  scale_y_reverse()
+
+cowplot::plot_grid(
+  ggplot(Asum, aes(x = totalPart, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = totalPart80), color = "deepskyblue") +
+    geom_point(aes(x = totalPart128), color = "pink") +
+    scale_y_reverse(),
+  ggplot(Asum, aes(x = totalBioVol, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = totalBioVol80), color = "deepskyblue") +
+    geom_point(aes(x = totalBioVol128), color = "pink") +
+    scale_y_reverse()
+)
+
+Along <- A %>% 
+  pivot_longer(cols = concentration_sc_18:biovolume_sc_45) %>%
+  filter(grepl("concentration", name) == T) %>%
+  left_join(uvp6_par_cnames %>%
+              select(name = AnnotatedColumnName,
+                     Size_class_width_mm, Size_class_midpoint_mm),
+            by = join_by(name))
+
+ggplot(Along, 
+  aes(y = value, x = Depth_5m, color = name)) +
+  geom_line() +
+  coord_flip() +
+  scale_y_continuous(trans = "log10", 
+                     breaks = c(0.01,0.1,1,10,100,1000),
+                     labels = c(0.01,0.1,1,10,100,1000)) +
+  scale_x_reverse() +
+  ylab("Concentration (# L-1)") + xlab("Depth (m)") +
+  theme(legend.position = "none") +
+  ggtitle(paste("Profile:", unique(A$sample_id)))
+
+
+# Particle concentration by size (excluding 50.8-80.6 um)
+ggplot(Along %>% 
+         filter(Size_class_midpoint_mm > 0.073), 
+       aes(x = Size_class_midpoint_mm, y = value)) +
+  geom_point(aes(color = Depth_5m)) +
+  scale_y_log10() +
+  scale_x_log10() +
+  scale_color_viridis_c() +
+  # theme(legend.position = "none") +
+  xlab("Size class") + ylab("Particle concentration")
+
+```
+
+
+
+## Calculate POC flux for a single profile
+```{r, eval=FALSE}
+sc.df <- uvp6_par_cnames %>% 
+  filter(grepl("concentration", AnnotatedColumnName) == T) %>% 
+  filter(Lower_limit_um >= 50.80) %>% 
+  filter(Size_class_midpoint_mm > 0.073)
+
+# Get width of size bins
+UVP6_sizebins_width <- sc.df$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- sc.df$Size_class_midpoint_mm
+
+# TODO Exclude size classes below ... 128 um?
+# Seems like SC 18 and 19 (50.8-64 and 64-80.6 um) have anomalously high counts and note that these are below the UVP6 resolution of 0.73 um pixel-1, so could not be trusted.
+# Excluding SC 20 and 21 ( 80.6-128 um) does not seem to change the POC flux calculation that much since their particle concentrations seem reasonable
+
+
+# For each row apply the calculations
+# TODO should the 32-128 um size classes be removed to match UVP5 measurements?
+pocFlux <- A %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA)
+
+# TODO generalize later to just do the entire ecopart df with all stations
+for (i in c(1:nrow(pocFlux))) {
+  a_par <- A[i, 10:35]
+  a_vol <- A$Sampled_volume_L[i]
+  
+  # No model
+  pocFlux$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  
+  
+  if(sum(observedN) > 0){
+    tryCatch( {
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      
+      pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+      pocFlux$C1[i] <- trunc$C1
+      pocFlux$alpha[i] <- trunc$alpha
+      pocFlux$lambda[i] <- trunc$lambda
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+    
+    # Start at 128 um size class?
+    a_par128 <- a_par
+    a_par128[1:2] <- 0
+    
+    tryCatch( {
+      pocFlux$ObsFlux128[i] <- calculatePOCFlux(a_par128, UVP6_sizebins_mid)
+      observedN <- round( a_par128 * a_vol )
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      pocFlux$ModelFlux128[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+    
+  } 
+  
+  # Add the random samples function for sample volume error
+  simulatedNbl <- generateRandomSamplesOfParticleNumber(a_par, a_vol)
+  fluxIter <- rep(NA, nIterations)
+  for (iIter in seq_len(nIterations)) {
+    if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
+      fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ], UVP6_sizebins_mid)
+    }
+  }
+  pocFlux$fluxErr[i] <- sd(fluxIter, na.rm = TRUE)
+  
+  
+  simulatedNbl <- generateRandomSamplesOfParticleNumber(a_par128, a_vol)
+  fluxIter <- rep(NA, nIterations)
+  for (iIter in seq_len(nIterations)) {
+    if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
+      fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ], UVP6_sizebins_mid)
+    }
+  }
+  pocFlux$fluxErr128[i] <- sd(fluxIter, na.rm = TRUE)
+}
+
+# Observed vs modelled flux
+cowplot::plot_grid(
+  ggplot(pocFlux, aes(x = ObsFlux, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = ModelFlux), color = "blue") +
+    geom_errorbar(aes(xmin = ModelFlux - fluxErr, 
+                      xmax = ModelFlux + fluxErr), width = 0, color = "blue") +
+    scale_y_reverse(),
+  
+  ggplot(pocFlux, aes(y = Depth_5m)) +
+    geom_point(aes(x = ModelFlux128), color = "deepskyblue") +
+    geom_errorbar(aes(xmin = ModelFlux128 - fluxErr128, 
+                      xmax = ModelFlux128 + fluxErr128), 
+                  width = 0, color = "deepskyblue") +
+    geom_point(aes(x = ObsFlux128), color = "pink") +
+    scale_y_reverse() 
+)
+
+# The Modelled POC flux + error bar
+ggplot(pocFlux, aes(x = ModelFlux, y = Depth_5m)) +
+  geom_point(color = "blue") +
+  geom_errorbar(aes(xmin = ModelFlux - fluxErr, 
+                    xmax = ModelFlux + fluxErr), width = 0, color = "blue") +
+  scale_y_reverse()
+
+
+
+
+```
+
+
+
+
+# Calculate flux for 80.6 um to 26mm (26 size classes)
+
+## Preparations
+```{r}
+sc.df <- uvp6_par_cnames %>% 
+  filter(grepl("concentration", AnnotatedColumnName) == T) %>% 
+  filter(Lower_limit_um >= 50.80) %>% 
+  filter(Size_class_midpoint_mm > 0.073) %>% 
+  filter(Size_class_midpoint_mm >= 0.1445)
+
+# Get width of size bins
+UVP6_sizebins_width <- sc.df$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- sc.df$Size_class_midpoint_mm
+
+print(paste0("N size classes: ",length(UVP6_sizebins_mid)))
+```
+
+
+## TODO: Apply to all profiles, average by depth bin
+```{r}
+# TODO fix issue with the optimization model when the C1 value needs to be changed
+nIterations <-  100
+pocFlux <- uvp6_PAR %>% 
+  select(sample_id, date, time, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA,
+         fluxErr = NA)
+
+for (i in c(1:nrow(pocFlux))) {
+  a_par <- uvp6_PAR[i, (36-length(UVP6_sizebins_mid)):35]
+  a_vol <- uvp6_PAR$Sampled_volume_L[i]
+  
+  # No model
+  pocFlux$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  
+  tryCatch( {
+    trunc <- calculateModelledPsd(observedN, a_vol, 
+                                  UVP6_sizebins_width, UVP6_sizebins_mid )
+    
+    pocFlux$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl, UVP6_sizebins_mid)
+    pocFlux$C1[i] <- trunc$C1
+    pocFlux$alpha[i] <- trunc$alpha
+    pocFlux$lambda[i] <- trunc$lambda
+  },
+  error = function(e){cat("ERROR: at i =", i, " ", 
+                          conditionMessage(e), "\n")})
+  
+  # Add the random samples function for sample volume error
+  simulatedNbl <- generateRandomSamplesOfParticleNumber(a_par, a_vol,
+                                                        N_sizebins = length(UVP6_sizebins_mid))
+  fluxIter <- rep(NA, nIterations)
+  for (iIter in seq_len(nIterations)) {
+    if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
+      fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ], UVP6_sizebins_mid)
+    }
+  }
+  pocFlux$fluxErr[i] <- sd(fluxIter, na.rm = TRUE)
+  
+  
+  if (i%%500 == 0) {
+    print(paste("Finished processing:",i,"rows."))
+  }
+}
+
+save(file = paste0("data/pocFlux_estimates_24sc_", 
+                   format(Sys.time(), "%Y %m %d"),
+                   ".RData"),
+  pocFlux, sc.df)
+
+
+
+# ggplot(pocFlux %>% 
+#          filter(!is.na(ModelFlux)), 
+#        aes(x = Depth_5m, y = ModelFlux)) +
+#   geom_point(aes(color = date)) +
+#   coord_flip() +
+#   scale_x_reverse() +
+#   theme(legend.position = "none")
+# 
+# # Relationship between calculated POC flux and sampled volume
+# ggplot(pocFlux %>% 
+#          filter(!is.na(ModelFlux)), 
+#        aes(x = Sampled_volume_L, y = ModelFlux,
+#                     color = Depth_5m)) +
+#   geom_point() +
+#   scale_x_log10() + scale_y_log10()
+
+
+# Average across depth_bins (all casts)
+pocFlux <- pocFlux[1:(i-1),] # TODO remove this after resolving the optimization error
+pocFlux_depthAve <- pocFlux %>%
+  group_by(Depth_5m) %>%
+  summarise(across(ObsFlux:ModelFlux,
+            list(mean = mean, sd = sd)),
+            .groups = "drop")
+
+ggplot(pocFlux_depthAve, aes(x = ObsFlux_mean, y = Depth_5m)) +
+  geom_point() +
+  geom_point(aes(x = ModelFlux_mean), color = "blue") +
+  scale_y_reverse()
+
+AA <- pocFlux %>% 
+          filter(sample_id == "am_leg5_keb_S07")
+ ggplot(AA, aes(x = ObsFlux, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = ModelFlux), color = "blue") +
+    geom_errorbar(aes(xmin = ModelFlux - fluxErr, 
+                      xmax = ModelFlux + fluxErr), width = 0, color = "blue") +
+    scale_y_reverse()
+
+```
+
+## Distribution of POC flux at 200m and 1000m
+```{r}
+POC_selected <- pocFlux %>% 
+  filter(Depth_5m %in% c(202.5, 502.5, 1002.5)) %>% 
+  filter(ModelFlux <= 500) %>%  # Large values from shallow stations
+  left_join(uvp6_profiles %>% 
+              select(sample_id, max_5mbin_depth, year, month, doy))
+
+POC_selected %>% 
+  group_by(Depth_5m) %>% 
+    summarise(across(ObsFlux:ModelFlux,
+            list(mean = mean, sd = sd)),
+            ncasts = n(),
+            .groups = "drop")
+
+ggplot(POC_selected, aes(x = as.factor(Depth_5m), y = ModelFlux)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+ggplot(POC_selected, aes(x = as.factor(month), y = ModelFlux)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  facet_wrap(~Depth_5m)
+# POC_selected_26sc <- POC_selected
+
+# max cast depth vs POC flux
+ggplot(POC_selected, aes(x = max_5mbin_depth, y = ModelFlux)) +
+  geom_point() +
+  facet_wrap(~Depth_5m)
+```
+
+
+## TODO: Apply the error propagations in plots (simply add the SD)
+
+
+
+

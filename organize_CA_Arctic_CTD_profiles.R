@@ -104,15 +104,15 @@ save(file = "data/uvp6_associated_ctd_20251124.RData",
 #   scale_color_viridis_c() +
 #   facet_wrap(~cruise_name, scales = "free")
 
-# AA <- ctd %>% filter(cruise_number == "2021005")
-# AA.ctd <- oce::as.ctd(salinity = AA$psal,
-#                       temperature = AA$te90,
-#                       pressure = AA$pressure,
-#                       time = AA$datetime,
-#                       ship = AA$platform_name,
-#                       cruise = AA$cruise_name,
-#                       station = AA$station,
-#                       longitude = AA$longitude,
-#                       latitude = AA$latitude)  
-#   
-# oce::plotTS(AA.ctd)
+AA <- ctd %>% filter(cruise_number == "2023_03")
+AA.ctd <- oce::as.ctd(salinity = AA$psal,
+                      temperature = AA$te90,
+                      pressure = AA$pressure,
+                      time = AA$datetime,
+                      ship = AA$platform_name,
+                      cruise = AA$cruise_name,
+                      station = AA$station,
+                      longitude = AA$longitude,
+                      latitude = AA$latitude)
+
+oce::plotTS(AA.ctd)

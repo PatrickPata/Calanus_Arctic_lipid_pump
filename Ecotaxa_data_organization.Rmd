@@ -24,7 +24,7 @@ library(ggOceanMaps)
 #                  sep="\t", header = TRUE, nrows=10)
 
 am_2021_5 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2021_Leg5/ecotaxa_export__TSV_5108_20251030_2015.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2021_Leg5/ecotaxa_export__TSV_5108_20251030_2015.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -36,7 +36,7 @@ am_2021_5 <- read_tsv(
                  object_fractal, object_perimferet, object_perimmajor))
 
 am_2023_2 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2023_Leg2/ecotaxa_export__TSV_10101_20251030_2021.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2023_Leg2/ecotaxa_export__TSV_10101_20251030_2021.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -49,7 +49,7 @@ am_2023_2 <- read_tsv(
 
 
 am_2024_2 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2024_Leg2/ecotaxa_export__TSV_14844_20251030_1706.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2024_Leg2/ecotaxa_export__TSV_14844_20251120_1930.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -61,7 +61,7 @@ am_2024_2 <- read_tsv(
                  object_fractal, object_perimferet, object_perimmajor))
 
 am_2024_3 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2024_Leg3/ecotaxa_export__TSV_14859_20251030_1957.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2024_Leg3/ecotaxa_export__TSV_14859_20251120_1941.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -73,7 +73,7 @@ am_2024_3 <- read_tsv(
                  object_fractal, object_perimferet, object_perimmajor))
 
 am_2024_4 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2024_Leg4/ecotaxa_export__TSV_17498_20251030_1937.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2024_Leg4/ecotaxa_export__TSV_17498_20251120_1945.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -85,7 +85,7 @@ am_2024_4 <- read_tsv(
                  object_fractal, object_perimferet, object_perimmajor))
 
 am_2024_5 <- read_tsv(
-  "C:/Sync/UVP6_Data/Amundsen_2024_Leg5/ecotaxa_export__TSV_18084_20251030_1658.tsv", 
+  "C:/Sync/UVP6_Data/Ecotaxa_metadata/Amundsen_2024_Leg5/ecotaxa_export__TSV_18084_20251120_1934.tsv", 
   col_select = c(object_id, sample_id, sample_cruise, sample_stationid, 
                  object_lon, object_lat, object_date, object_time, object_depth_max,
                  object_annotation_status, object_annotation_category,
@@ -116,6 +116,8 @@ taxamatch <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
   # Identify Rhizaria and other major groups
   mutate(taxagroup = if_else(grepl("Rhizaria", object_annotation_hierarchy) == TRUE,
                              "Rhizaria", taxagroup)) %>% 
+  mutate(taxagroup = if_else(grepl("Haptophyta", object_annotation_hierarchy) == TRUE,
+                             "Haptophyta", taxagroup)) %>% 
   mutate(taxagroup = if_else(grepl("Mollusca", object_annotation_hierarchy) == TRUE,
                              "Mollusca", taxagroup)) %>% 
   mutate(taxagroup = if_else(grepl("Echinodermata", object_annotation_hierarchy) == TRUE,
@@ -143,28 +145,34 @@ taxamatch <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
   mutate(taxagroup = if_else(taxagroup == "", "Exclude-living", taxagroup))
 
 
-taxamatch %>% 
+df <- taxamatch %>% 
   mutate(totalimgs = sum(nimages)) %>% 
   group_by(taxagroup, totalimgs) %>% 
   summarise(nimages = sum(nimages),
             .groups = "drop") %>% 
   mutate(percent = round(nimages / totalimgs * 100,2)) %>% 
   arrange(-nimages)
+df
+# write.csv(df, file = "tables/UVP6_taxagroup_image_counts.csv", row.names = F)
 
 # Percent of copepod images classified as with lipid sac: 
-# 6075/(6075+670296)*100 = 0.9%
+# 7547/(7547+668758)*100 = 1.1%
 ```
 
 
 
 # Combine all data
-Filter only the living portion
 ```{r, eval=FALSE}
+# 1. Prepare the volume data from Ecopart
+# These can be accessed through the individual EcoPart output files inside C:\Sync\UVP6_Data\Ecopart. Here use the organized Ecopart output of the particle concentrations which contain the volume information in 5 m bins.
+load("data/UVP6_ECOPART_Data_20251121.RData")
+
+# 2. Filter only the living portion
 Amund_UVP6 <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
                         am_2024_3, am_2024_4, am_2024_5) %>% 
   left_join(taxamatch %>% select(object_annotation_category, taxagroup),
             by = "object_annotation_category") %>% 
-  filter(taxagroup != "Exclude-nonliving")%>% 
+  filter(taxagroup != "Exclude-nonliving") %>% 
   filter(taxagroup != "Exclude-living") 
 
 # TODO rename morphotraits?
@@ -184,43 +192,66 @@ Amund_UVP6 <- Amund_UVP6 %>%
   mutate(object_lon = if_else(sample_stationid == "LSea-23",
                               -abs(object_lon), object_lon))
 
-# Include the ECOPART information
-
-# Add the volume per 5m bin information from ECOPART
-ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2021_Leg5/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
-  # Rename sample_id and Depth_5m to clearly specify bin size
-  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
-  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
-  # convert volume in L to m3
-  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
-ecopart_2023_2 <- read.table("C:/Sync/UVP6_Data/Ecopart/2023_Leg2/export_reduced_20250311_volumes.tsv",  header = TRUE, sep = "\t") %>% 
-  rename(sample_id = Profile, Depth_5m = Depth_m) %>% 
-  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
-  # convert volume in L to m3
-  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
-# TODO Note that Leg 4 data is still missing
-ecopart_2024_235 <- read.table("C:/Sync/UVP6_Data/Ecopart/2024_Leg235/export_reduced_20251103_volumes_ed.tsv",  header = TRUE, sep = "\t") %>% 
-  rename(sample_id = Profile, Depth_5m = `Depth..m.`,
-         Sampled_volume_L = `Sampled.volume..L.`) %>% 
-  select(sample_id, Depth_5m, Sampled_volume_L) %>% 
-  # convert volume in L to m3
-  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
-
-
-Ecopart_UVP6 <- bind_rows(ecopart_2021_5, ecopart_2023_2, ecopart_2024_235)
-
-Ecopart_UVP6_totalVolume <- Ecopart_UVP6 %>% 
-  group_by(sample_id) %>% 
-  summarise(maxDepth = max(Depth_5m),
-            volume_L = sum(Sampled_volume_L),
-            volume_m3 = sum(Sampled_volume_m3),
-            .groups = "drop")
-
 # Match sample to volume (+- 2.5)
 Amund_UVP6 <- Amund_UVP6 %>% 
   mutate(Depth_5m = floor(object_depth_max / 5)*5+2.5) %>% 
-  left_join(Ecopart_UVP6,
-            by = join_by(sample_id, Depth_5m))
+  left_join(uvp6_PAR %>% 
+              select(sample_id, Depth_5m, Sampled_volume_L),
+            by = join_by(sample_id, Depth_5m)) %>% 
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+
+# 3. Organize the nonliving fraction to size classes for POC flux calculation?
+# Note that this starts at the 700 um size class (if based on the major axis).
+Amund_UVP6_detritus <- bind_rows(am_2021_5, am_2023_2, am_2024_2,
+                                 am_2024_3, am_2024_4, am_2024_5) %>% 
+  left_join(taxamatch %>% select(object_annotation_category, taxagroup),
+            by = "object_annotation_category") %>% 
+  # Categorize all living as living
+  mutate(taxagroup = if_else(taxagroup == "Exclude-nonliving", 
+                             "detritus","living")) %>% 
+  select(object_id:object_major, taxagroup) %>% 
+  # Calculate size (based on major axis * 73 um)
+  mutate(size_um = object_major * 73) %>% 
+  # Add 5 m depth bin and sample volume
+  mutate(Depth_5m = floor(object_depth_max / 5)*5+2.5) %>% 
+  left_join(uvp6_PAR %>% 
+              select(sample_id, Depth_5m, Sampled_volume_L),
+            by = join_by(sample_id, Depth_5m)) %>% 
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+# Assign size class based on the 45 detailed group of EcoPart
+part_scs <- uvp6_par_cnames %>% 
+  filter(grepl("concentration",AnnotatedColumnName) == T) %>% 
+  mutate(size_class = str_remove(AnnotatedColumnName, "concentration_")) %>% 
+  select(-c(OrigColumnName, AnnotatedColumnName))
+part_scs$Upper_limit_um[45] <- 10000 # to add an "upper limit"
+
+Amund_UVP6_detritus <- Amund_UVP6_detritus %>% 
+  inner_join(part_scs,
+             by = join_by(
+               size_um >= Lower_limit_um,
+               size_um < Upper_limit_um
+             ))
+
+# Count the number of detritus and living by sample, depth, and size class 
+Amund_UVP6_detritus_summary <- Amund_UVP6_detritus %>% 
+  group_by(sample_id, Depth_5m, Sampled_volume_L, taxagroup, 
+           size_class, Lower_limit_um, Upper_limit_um) %>% 
+  summarise(nimages = n(), .groups = "drop") %>% 
+  mutate(concentration_L = nimages/Sampled_volume_L) %>% 
+  # Calculate percent detritus in each sample, depth, and size class
+  group_by(sample_id, Depth_5m, size_class) %>% 
+  mutate(total_imgs = sum(nimages)) %>% 
+  ungroup() %>% 
+  mutate(percent_total = nimages / total_imgs * 100) %>% 
+  select(-total_imgs)
+
+
+summary( (Amund_UVP6_detritus_summary %>% 
+            filter(taxagroup == "detritus") )$percent_total)
+sd( (Amund_UVP6_detritus_summary %>% 
+            filter(taxagroup == "detritus") )$percent_total)
 ```
 
 
@@ -238,12 +269,13 @@ Amund_UVP6_meta <- Amund_UVP6 %>%
   distinct(sample_id, .keep_all = TRUE) %>% 
   select(-c(object_depth_max:Sampled_volume_m3)) %>% 
   # Add total volume info
-  left_join(Ecopart_UVP6_totalVolume, by = join_by(sample_id)) %>% 
+  left_join(uvp6_profiles %>% 
+              select(sample_id, total_volume_L),
+            by = join_by(sample_id)) %>% 
   # Establish DOY, Year
   mutate(Year = year(object_date),
          Month = month(object_date),
          DOY = yday(object_date))
-
 
 
 # Establish Twilight (UTC dates provided?) based on solar angle for the date with SunTools
@@ -381,103 +413,59 @@ ggsave("figures/stations_bathy.png",
 ```
 
 # Export data
-```{r}
-save(file = "data/Amund_UVP6_20251031.RData",
-     Amund_UVP6, Amund_UVP6_meta, taxamatch, Ecopart_UVP6)
+```{r, eval = FALSE}
+# These are large files!
+save(file = paste0("C:/Sync/UVP6_Data/Amund_UVP6_plankton_","20251125",".RData"),
+     Amund_UVP6, Amund_UVP6_meta, taxamatch)
+save(file = paste0("C:/Sync/UVP6_Data/Amund_UVP6_detritus_","20251125",".RData"),
+     Amund_UVP6_detritus, Amund_UVP6_detritus_summary, part_scs)
 
 rm(am_2021_5, am_2023_2, am_2024_2,
    am_2024_3, am_2024_4, am_2024_5)
 ```
 
 
+# Check size class binning
+```{r}
+test_profile <- "am_leg5_TCA_BB2_04" #amundsen2023_105_1
 
-
-
-
-# Deprecated scripts
-## Old method for organizing taxa names
-Note that in this approach, taxa marked as dead/house are considered nonliving
-```{r, eval=FALSE}
-# Organize to major groups
-taxamatch <- tibble(object_annotation_category = 
-                      c(am_2021_5$object_annotation_category,
-                        am_2023_2$object_annotation_category,
-                        am_2024_2$object_annotation_category,
-                        am_2024_3$object_annotation_category,
-                        am_2024_4$object_annotation_category,
-                        am_2024_5$object_annotation_category)) %>% 
-  group_by(object_annotation_category) %>% 
-  summarise(nimages = n(), .groups = "drop") %>% 
-  arrange(object_annotation_category) %>% 
-  mutate(taxaname = object_annotation_category) %>% 
+# sample profile from ecopart (start with size class 29: 700 um +)
+df_ecopart <- uvp6_PAR %>% 
+  filter(sample_id == test_profile) %>% 
+  select(sample_id:Sampled_volume_L, 
+         concentration_sc_29:concentration_sc_45) %>% 
+  # elongate to size class per row
+  pivot_longer(cols = concentration_sc_29:concentration_sc_45,
+               names_to = "size_class", 
+               values_to = "concen_ecopart") %>% 
   
-  mutate(taxaname = if_else(taxaname %in% c("Copepoda<Maxillopoda"),
-                        "Copepoda", taxaname),
-         taxaname = if_else(taxaname %in% c("side<with visible lipid sac",
-                                            "top-bottom<with visible lipid sac"),
-                            "Calanus-lipid", taxaname),
-         taxaname = if_else(taxaname %in% c("Cnidaria<Metazoa", "Cnidaria X"),
-                            "Cnidaria", taxaname),
-         taxaname = if_else(taxaname %in% c("Ctenophora X", "Ctenophora<Metazoa"),
-                            "Ctenophora", taxaname),
-         taxaname = if_else(taxaname %in% c("larvae<Echinodermata"),
-                            "Echinodermata", taxaname)) %>% 
-  # Excluded nonliving and living
-  mutate(taxaname = if_else(taxaname %in% c("t001","t002","t003","t005","t007"),
-                            "Exclude-nonliving", taxaname),
-          taxaname = if_else(grepl(c("detritus|feces|dead|artefact|sphere|crystal|turbid|reflection|bubble|badfocus|othertocheck|dark|fecal pellets|house|fiber"),
-                                  taxaname) == TRUE,
-                            "Exclude-nonliving", taxaname),
-         taxaname = if_else(grepl(c("egg|antenna|tentacle|part|over segmented|oversegmented|Actinopterygii|solitary|colonial|spiky|fish"),
-                                  taxaname) == TRUE,
-                            "Exclude-living", taxaname),
-         
-         taxaname = if_else(taxaname %in% c("rhizaria like (Deprecated)",
-                                            "like<Rhizaria","veliger<Mollusca",
-                                            "Chordata","Polychaeta","Mollusca"),
-                            "Exclude-living", taxaname),
-         taxaname = if_else(taxaname %in% c("Collodaria","Medusettidae","rhizaria","Rhizaria",
-                                            "Aulacanthidae","Aulophaeridae","Cannosphaeridae",
-                                            "Aulosphaeridae","Coelodendridae","Coelographis",
-                                            "Foraminifera"),
-                            "Rhizaria", taxaname)) %>% 
+  mutate(size_class = str_remove(size_class, "concentration_")) %>% 
+  filter(concen_ecopart > 0)
 
-  
-  mutate(taxagroup = taxaname) %>% 
-  mutate(taxagroup = if_else(taxaname %in% c("Calanus","Calanus-lipid", "Calanoida",
-                                             "Metridia","Paraeuchaeta",
-                                             "Oncaeidae","Heterorhabdidae",
-                                             "Heterorhabdus",
-                                             "Harpacticoida", "Cyclopoida"),
-                             "Copepoda", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Hyperiidea","Themisto"),
-                             "Amphipoda", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Crustacea","Eumalacostraca",
-                                            "Isopoda","Cumacea",
-                                            "Euphausiacea larvae"),
-                             "Crustaceans", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Beroe abyssicola","Cydippida",
-                                             "Beroe cucumis", "Mertensia ovum",
-                                             "Lobata", "Beroe"),
-                             "Ctenophora", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Limacinidae","Clionidae","Limacina",
-                                             "Limacina helicina"),
-                             "Pteropoda", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Eukrohnia"),
-                             "Chaetognatha", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Phyllodocida","Swima","Poeobius"),
-                             "Annelida", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Salpida","Appendicularia"),
-                             "Tunicata", taxagroup),
-         taxagroup = if_else(taxaname %in% c("Euphysa","Halitholus",
-                                             "Aeginopsis","Aglantha digitale",
-                                             "Botrynema ellinorae",
-                                             "Solmundella bitentaculata",
-                                             "Aeginidae", "Botrynema",
-                                             "Hydrozoa",
-                                             "Hydromedusae","Siphonophorae"),
-                             "Cnidaria", taxagroup))
+df_recalc <- Amund_UVP6_detritus_summary %>% 
+  select(-c(Lower_limit_um, Upper_limit_um, percent_total, nimages)) %>% 
+  filter(sample_id == test_profile) %>% 
+  # Concentration in /L
+  pivot_wider(names_from = taxagroup, values_from = concentration_L,
+              values_fill = 0) %>% 
+  mutate(concen_total = detritus + living) %>% 
+  rename(concen_detritus = detritus, concen_living = living) %>% 
+  select(sample_id, size_class, Depth_5m,
+         volume_recalc = Sampled_volume_L,
+         concen_total, concen_detritus, concen_living)
+
+# Combine to check
+df_combined <- full_join(df_ecopart, df_recalc,
+                         by = join_by(sample_id, Depth_5m, size_class))
 
 
+# Should be the safe if recalculation exactly matches the Ecopart algorithm
+sum(df_combined$concen_ecopart, na.rm = T)
+sum(df_combined$concen_total, na.rm = T)
+
+ggplot(df_combined, aes(x = concen_ecopart, y = concen_total,
+                        color = size_class)) +
+  geom_point() +
+  geom_abline()
 ```
 

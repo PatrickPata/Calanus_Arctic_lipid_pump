@@ -5,6 +5,8 @@ date: "2025-03-17"
 output: html_document
 ---
 
+Deprecated scripts as of November 25, 2025.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -206,9 +208,9 @@ cowplot::plot_grid(
 )
 
 
-
-ggsave("figures/UVP6_prosome_crop_comparison.png",
-       heigh = 5, width = 7, units = "in")
+# 
+# ggsave("figures/UVP6_prosome_crop_comparison.png",
+#        heigh = 5, width = 7, units = "in")
 
 
 # rm(comp.lipids)
@@ -292,8 +294,8 @@ cowplot::plot_grid(
 )
 
 
-ggsave("figures/UVP6_lipidcrop_accuracy.png",
-       heigh = 5, width = 7, units = "in")
+# ggsave("figures/UVP6_lipidcrop_accuracy.png",
+#        heigh = 5, width = 7, units = "in")
 ```
 
 
@@ -393,8 +395,8 @@ cowplot::plot_grid(
 )
 
 
-ggsave("figures/UVP6_lipidfullness_evaluation2.png",
-       heigh = 5, width = 7, units = "in")
+# ggsave("figures/UVP6_lipidfullness_evaluation2.png",
+#        heigh = 5, width = 7, units = "in")
 ```
 
 

@@ -372,7 +372,7 @@ ggsave("figures/UVP6_LF_accuracy.png",
 ### Calculate adjusting Ecotaxa major and minor axis to the segmentation values
 ```{r, eval=TRUE}
 ecotaxa_adjust <- uvp6 %>% 
-  filter(type == "annotated") %>% 
+  filter(type == "annotated") %>%
   select(major_segmentation = prosomeMajor, 
          minor_segmentation = minor_derived, 
          biovolume_segmentation = prosome_biovolume_mm3,
@@ -396,46 +396,46 @@ ecotaxa_adjust_minor <- lm(minor_segmentation ~ minor_ecotaxa,
 #      file = "data/to_adjust_ecotaxa_length.RData")
 
 
-# cowplot::plot_grid(
-#   ggplot(ecotaxa_adjust, aes(x = major_ecotaxa, y = major_segmentation)) +
-#     geom_abline() +
-#     geom_point(alpha = 0.5) +
-#     geom_smooth(method = "lm") +
-#     annotate("text", 
-#              x = max(ecotaxa_adjust$major_ecotaxa, na.rm = TRUE),
-#              y = min(ecotaxa_adjust$major_segmentation, na.rm = TRUE),
-#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$major_segmentation, 
-#                                              ecotaxa_adjust$major_ecotaxa)),
-#              hjust = 1, vjust = 0, size = 5) +
-#     xlab("Major axis Ecotaxa (mm)") +
-#     ylab("Major axis segmentation (mm)"),
-#   
-#   ggplot(ecotaxa_adjust, aes(x = minor_ecotaxa, y = minor_segmentation)) +
-#     geom_abline() +
-#     geom_point(alpha = 0.5) +
-#     geom_smooth(method = "lm") +
-#     annotate("text", 
-#              x = max(ecotaxa_adjust$minor_ecotaxa, na.rm = TRUE),
-#              y = min(ecotaxa_adjust$minor_segmentation, na.rm = TRUE),
-#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$minor_segmentation, 
-#                                              ecotaxa_adjust$minor_ecotaxa)),
-#              hjust = 1, vjust = 0, size = 5) +
-#     xlab("Minor axis Ecotaxa (mm)") +
-#     ylab("Minor axis segmentation (mm)"),
-#   
-#   ggplot(ecotaxa_adjust, aes(x = biovolume_ecotaxa, y = biovolume_segmentation)) +
-#     geom_abline() +
-#     geom_point(alpha = 0.5) +
-#     geom_smooth(method = "lm") +
-#     annotate("text", 
-#              x = max(ecotaxa_adjust$biovolume_ecotaxa, na.rm = TRUE),
-#              y = min(ecotaxa_adjust$biovolume_segmentation, na.rm = TRUE),
-#              label = paste0("R² = ", calc_r2(ecotaxa_adjust$biovolume_segmentation, 
-#                                              ecotaxa_adjust$biovolume_ecotaxa)),
-#              hjust = 1, vjust = 0, size = 5) +
-#     xlab("Biovolume axis Ecotaxa (mm)") +
-#     ylab("Biovolume axis segmentation (mm)")
-# )
+cowplot::plot_grid(
+  ggplot(ecotaxa_adjust, aes(x = major_ecotaxa, y = major_segmentation)) +
+    geom_abline() +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm") +
+    annotate("text",
+             x = max(ecotaxa_adjust$major_ecotaxa, na.rm = TRUE),
+             y = min(ecotaxa_adjust$major_segmentation, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(ecotaxa_adjust$major_segmentation,
+                                             ecotaxa_adjust$major_ecotaxa)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Major axis Ecotaxa (mm)") +
+    ylab("Major axis segmentation (mm)"),
+
+  ggplot(ecotaxa_adjust, aes(x = minor_ecotaxa, y = minor_segmentation)) +
+    geom_abline() +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm") +
+    annotate("text",
+             x = max(ecotaxa_adjust$minor_ecotaxa, na.rm = TRUE),
+             y = min(ecotaxa_adjust$minor_segmentation, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(ecotaxa_adjust$minor_segmentation,
+                                             ecotaxa_adjust$minor_ecotaxa)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Minor axis Ecotaxa (mm)") +
+    ylab("Minor axis segmentation (mm)"),
+
+  ggplot(ecotaxa_adjust, aes(x = biovolume_ecotaxa, y = biovolume_segmentation)) +
+    geom_abline() +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm") +
+    annotate("text",
+             x = max(ecotaxa_adjust$biovolume_ecotaxa, na.rm = TRUE),
+             y = min(ecotaxa_adjust$biovolume_segmentation, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(ecotaxa_adjust$biovolume_segmentation,
+                                             ecotaxa_adjust$biovolume_ecotaxa)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Biovolume axis Ecotaxa (mm)") +
+    ylab("Biovolume axis segmentation (mm)")
+)
 ```
 
 

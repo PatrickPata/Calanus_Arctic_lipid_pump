@@ -289,6 +289,52 @@ calanus.lipid <- calanoid.level1.traitdata %>%
   filter(genus == "Calanus") %>% 
   # filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
   mutate(traitValue = as.numeric(traitValue)) 
+
+# The general calanoid carbon percent biovolume / dry weight
+calanoids.cperc <- calanoid.level1.traitdata %>% 
+  filter(traitName %in% c("carbonPWW","carbonPDW","dryWeightPWW",
+                          "lipidPWW","lipidPDW")) %>% 
+  mutate(traitValue = as.numeric(traitValue))
+
+# rough average of all traits (not controlled by species)... the 0.2 * 0.45 is actually a good estimate
+calanoids.cperc %>% 
+  group_by(traitName) %>% 
+  summarise(nindiv = n(),
+            mean = mean(traitValue, na.rm = T),
+            sd = sd(traitValue, na.rm = T),
+            .groups = "drop")
+
+# filter carbonPWW to not include large species (Neocalanus, Rhincalanus, Calanus fin/gl/hy ... pac&hel??)
+calanoids.cpww <- calanoids.cperc %>% 
+  filter(traitName == "carbonPWW") %>% 
+  group_by(scientificName) %>% 
+  summarise(nindiv = n(),
+            mean = mean(traitValue, na.rm = T),
+            sd = sd(traitValue, na.rm = T),
+            .groups = "drop") %>% 
+  arrange(-mean)
+calanoids.cpww <- calanoids.cpww %>% 
+  mutate(scientificName = factor(scientificName,
+                                 levels = unique(calanoids.cpww$scientificName))) %>% 
+  # exclude pseudocalanus minutus because it seems like an outlier with n = 1
+  filter(scientificName != "Pseudocalanus minutus")
+
+# species average
+mean(calanoids.cpww$mean)
+# species average without large calanus...
+mean( (calanoids.cpww %>% 
+         filter(scientificName %notin% c("Pseudocalanus minutus", "Calanus hyperboreus",
+                                         "Calanus helgolandicus", "Neocalanus plumchrus",
+                                         "Calanus finmarchicus", "Calanus glacialis")))$mean)
+
+
+ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
+  geom_errorbar(aes(xmin = mean - sd, xmax = mean + sd)) +
+  geom_point(size = 2) + 
+  geom_vline(xintercept = 9, color = "pink") + # 20% x 45%
+  geom_vline(xintercept = mean(calanoids.cpww$mean), color = "red") + # species average
+  xlab("Carbon % Wet Weight")
+  
 ```
 
 
@@ -434,12 +480,12 @@ ggsave("figures/indiv_trait_distribution_forlabel.png",
 ```{r}
 loki.segmentations <- loki.segmentations %>% 
   mutate(taxa = case_when(
-    object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "hyperboreus F",
-    object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "hyperboreus CV",
-    object_annotation_category == "civstage+lateral<Calanus hyperboreus" ~ "hyperboreus CIV",
-    object_annotation_category == "female+lateral<Calanus glacialis" ~ "glacialis F",
-    object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "glacialis CV",
-    object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "glacialis CIV",
+    object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "C. hyperboreus F",
+    object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CV",
+    object_annotation_category == "civstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CIV",
+    object_annotation_category == "female+lateral<Calanus glacialis" ~ "C. glacialis F",
+    object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "C. glacialis CV",
+    object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "C. glacialis CIV",
     TRUE ~ object_annotation_category
   ) )
 
@@ -473,27 +519,48 @@ plot_grid(
     theme(legend.position = "bottom",
           axis.title.y = element_blank()), 
   
-  
-  
-  ggplot(loki.segmentations,
-         aes(x = prosome_length_mm, 
-             fill = taxa, color = taxa))+
-    geom_density(alpha = 0.6) +
-    # scale_fill_manual(values = clrs, name = "Data source") +
-    # scale_color_manual(values = clrs, name = "Data source") +
+  # TODO plot LOKI as boxplots instead
+ggplot(loki.segmentations,
+         aes(x = prosome_length_mm, y = taxa,
+             color = taxa))+
+    geom_boxplot() +
     scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
     xlab("Prosome length (mm)") +
     theme(legend.position = "bottom",
-          axis.title.y = element_blank()),
-  
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()),
   ggplot(loki.segmentations,
-         aes(x = waxester_carbon,
-             fill = taxa, color = taxa))+
-    geom_density(alpha = 0.4) +
+         aes(x = waxester_carbon, y = taxa,
+             color = taxa))+
+    geom_boxplot() +
     scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
     xlab("Wax ester carbon (mg C)") +
     theme(legend.position = "bottom",
-          axis.title.y = element_blank()), 
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()),
+
+  
+  # ggplot(loki.segmentations,
+  #        aes(x = prosome_length_mm, 
+  #            fill = taxa, color = taxa))+
+  #   geom_density(alpha = 0.6) +
+  #   # scale_fill_manual(values = clrs, name = "Data source") +
+  #   # scale_color_manual(values = clrs, name = "Data source") +
+  #   scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
+  #   xlab("Prosome length (mm)") +
+  #   theme(legend.position = "bottom",
+  #         axis.title.y = element_blank()),
+  # 
+  # ggplot(loki.segmentations,
+  #        aes(x = waxester_carbon,
+  #            fill = taxa, color = taxa))+
+  #   geom_density(alpha = 0.4) +
+  #   scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+  #   xlab("Wax ester carbon (mg C)") +
+  #   theme(legend.position = "bottom",
+  #         axis.title.y = element_blank()), 
   
   ncol = 2, align = "hv"
 ) 
@@ -502,14 +569,15 @@ plot_grid(
 ggsave("figures/indiv_trait_distribution_LOKIdetails_20251126.png",
        height = 7, width = 14, units = "in", bg = "white")
 
+
 ```
 
 
 # Export trait data
 ```{r}
 # TODO This is temporary and needs to be updated with the other copepod data
-save(indiv_traits,
-     file = "data/uvp6_images_calculated_traits_20251126.RData")
+save(indiv_traits, other.copepods.traits,
+     file = "data/uvp6_images_calculated_traits_20251127.RData")
 
 
 ```
@@ -519,9 +587,129 @@ save(indiv_traits,
 # FOR copepods without segmentations....
 ## The rest of the copepods
 ```{r}
+other.copepods.traits <- all.copepods.uvp6 %>% 
+  mutate(with_segmentation = if_else(object_id %in% indiv_traits$object_id,
+                                     "segmented","others"))
+  # filter(object_id %notin% indiv_traits$object_id)
 
-other.copepods <- all.copepods.uvp6 %>% 
-  filter(object_id %notin% indiv_traits$object_id)
+# quick size distribution plots
+ggplot(other.copepods.traits,
+       aes(x = Major, 
+           fill = with_segmentation, color = with_segmentation )) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_log10() +
+  xlab("Major (mm)") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank())
+
+ggplot(other.copepods.traits,
+       aes(x = Area, 
+           fill = with_segmentation, color = with_segmentation )) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_log10() +
+  xlab("Area (mm2)") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank())
+  
+# Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
+# ** Note only use this if Calanus **
+vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 Calanus species in (McConville et al. (2016)
+
+# Calculate biovolume-based carbon content based on major and minor axis
+other.copepods.traits <- other.copepods.traits %>% 
+  # Calculate biovolume
+  mutate(prosome_biovolume_mm3 = 4/3 * pi * (Major/2 * uvpRes) * ((Minor/2 * uvpRes)^2)) %>%
+  # Calculate carbon weight
+    
+  # Option 2: Direct biovolume --> carbon mass based on conversion factors in McConville et al. 2016 assuming 1 mm3 = 1 mg wet weight
+  mutate(prosome_mgC_McConville = 
+           prosome_biovolume_mm3 * vol2massC) %>% 
+  
+  # Option 3: Lucie's coefficient for conversion is 0.09 (20% wet weight, 45% carbon in dry weight). 
+  # This version assumes that there is no lipid sac. 
+  # A similar conversion factor is calculated when averaging the C%WW trait literature = 0.09075
+  mutate(structural_carbon = prosome_biovolume_mm3 * 0.2 * 0.45)  # Ikeda et al., 1989
+  
+
+ggplot(other.copepods.traits, aes(x = prosome_mgC_McConville, y = structural_carbon)) +
+  # geom_point() +
+  geom_abline() +
+  geom_smooth(method = "lm")
+
+
+ggplot(other.copepods.traits,
+       aes(x = structural_carbon, 
+           fill = with_segmentation, color = with_segmentation )) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_log10() +
+  xlab("Carbon weight (mg)") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank())
+  
+
+
+# Get % segmented copepods in total carbon weight per sample
+assemblage <- other.copepods.traits %>% 
+  filter(with_segmentation == "others") %>% 
+  select(object_id, sample_id, object_annotation_category, 
+         Depth_5m, Sampled_volume_m3,
+         prosome_length_mm = Major, 
+         total_carbon = structural_carbon,
+         with_segmentation) %>% 
+  # TODO there are a few missing images (42 were excluded?)
+  bind_rows(segmented.images %>% 
+              mutate(total_carbon =  structural_carbon + waxester_mass_mgC) %>% 
+              select(object_id, sample_id, object_annotation_category, 
+                     Depth_5m, Sampled_volume_m3,
+                     Major, prosome_length_mm,
+                     total_carbon) %>% 
+              mutate(with_segmentation = "segmented")) %>% 
+  group_by(sample_id, with_segmentation, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(total_carbon = sum(total_carbon),
+            mean_length = mean(prosome_length_mm),
+            .groups = "drop") %>% 
+  # Calculate total for the sample
+  group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  mutate(sample_total = sum(total_carbon)) %>% 
+  ungroup() %>% 
+  mutate(perc_carbon = total_carbon / sample_total * 100)
+
+ggplot(assemblage, aes(x = perc_carbon, fill = with_segmentation)) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  xlab("Percent of total carbon") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank())
+
+# integrate as carbon/m2 of each sample
+# TODO double check since this might be wrong....
+assemblage.integ <- assemblage %>% 
+  # calculate carbon concentration / m3 at each depth bin. .. must account for zeros
+  mutate(carbon_m3 = total_carbon / Sampled_volume_m3) %>% 
+  group_by(sample_id, with_segmentation) %>% 
+  summarise(carbon_m2 = mean(carbon_m3),
+            carbon_m3_sum = sum(carbon_m3 * 5),
+            max_depth = max(Depth_5m),
+            .groups = "drop") %>% 
+  group_by(sample_id) %>% 
+  mutate(sample_total = sum(carbon_m2)) %>% 
+  ungroup() %>% 
+  mutate(perc_carbon_m2 = carbon_m2 / sample_total * 100)
+  
+ggplot(assemblage.integ, aes(x = with_segmentation, y = carbon_m2)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+ggplot(assemblage.integ, aes(x = with_segmentation, y = perc_carbon_m2)) +
+  geom_boxplot() +
+  scale_y_log10()
 ```
 
 

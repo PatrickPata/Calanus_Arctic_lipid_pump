@@ -1,0 +1,215 @@
+---
+title: "Calculate lipid concentration and flux from traits"
+author: "Patrick Pata"
+date: "2025-11-27"
+output: html_document
+---
+
+
+This file replaces parts of a few deprecated files including UPV6_carbon_export.Rmd and UVP_lipidscape_analysis.Rmd.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load libraries and data
+```{r}
+library(tidyverse)
+library(cowplot)
+
+# The calculated trait values
+load("data/uvp6_images_calculated_traits_20251127.RData")
+
+# The UVP6 data including metadata 
+load("data/uvp6_CNN_segmentations_morphotraits_20251125.RData")
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+source("functions/lipid_pump_toolkit.R")
+
+```
+
+1. Need a column of [sample_id, object_id, depth_bin, sample_volume, if_segmented, structural_carbon, lipid_carbon, total_carbon, lipid_fullness]
+2. From this, get abundance and concentrations in each 5m bin  (sum / volume)
+3. To get depth integration, multiply each depth bin by 5 and then sum. Can also separately sum the upper 200 m 200-500m and 500m ++ to get epipelagic, upper mesopelagic, sequestration depth
+```{r}
+cope_carbon <- indiv_traits %>% 
+  # exclude LOKI data
+  filter(source != "LOKI segmented") %>% 
+  # Add some object_id metadata
+  left_join(segmented.images %>% 
+              select(object_id, sample_id, sample_cruise,
+                     Depth_5m, Sampled_volume_m3,
+                     is_size_extrapolated, is_bad_image),
+            by = "object_id") %>% 
+  # filter out bad image segmentations and extrapolated sizes
+  filter(is_size_extrapolated == F &
+           is_bad_image == F) %>% 
+  
+  # TODO some of the manually segmented images have no lipid content, fix this in the calculate_traits_from_images file.
+  filter(!is.na(waxester_carbon)) %>% 
+  select(-c(is_size_extrapolated, is_bad_image))
+  
+
+# Integrate to 100 m  bins - could be 50 m at surface?  
+# Note that the volumes are totaled here (i.e., not averaging the 5m bin vlaues)
+binsize <- 100
+cope_carbon_100m <- cope_carbon %>% 
+ mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  # Calculate abundance and carbon concentrations per 5 m depth bin
+  group_by(sample_id, sample_cruise, depthBin) %>% 
+  summarise(total_volume_m3 = sum(Sampled_volume_m3),
+            abundance = n(),
+            total_carbon = sum(total_carbon),
+            lipid_carbon = sum(waxester_carbon),
+            lipid_fullness_mean = mean(lf_carbon),
+            diapause_respiration_mean = mean(respirationRate_ugCday),
+            diapause_duration_mean = mean(diapauseDuration_day), 
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / total_volume_m3,
+         total_carbon_m3 = total_carbon / total_volume_m3,
+         lipid_carbon_m3 = lipid_carbon / total_volume_m3,
+         # This should practically be lipid_fullness_mean
+         percent_lipid_total_carbon = lipid_carbon / total_carbon * 100) %>% 
+  # Add labels for the depth bins
+  mutate(depthBinLabel = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
+  
+  # lengthen data frame
+  pivot_longer(cols = total_volume_m3:percent_lipid_total_carbon,
+               names_to = "variable", values_to = "value") 
+
+
+# TODO add carbon values for the copepods without segmentations
+# If most of these are at the surface, would be good to visualize that
+cope_carbon_others_100m <- other.copepods.traits %>% 
+  filter(object_id %notin% cope_carbon$object_id) %>% 
+  select(object_id, sample_id, sample_cruise,
+         Depth_5m, Sampled_volume_m3,
+         total_carbon = structural_carbon) %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  # Calculate abundance and carbon concentrations per 5 m depth bin
+  group_by(sample_id, sample_cruise, depthBin) %>% 
+  summarise(total_volume_m3 = sum(Sampled_volume_m3),
+            abundance = n(),
+            total_carbon = sum(total_carbon),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance / total_volume_m3,
+         total_carbon_m3 = total_carbon / total_volume_m3) %>% 
+  # Add labels for the depth bins
+  mutate(depthBinLabel = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
+  
+  # lengthen data frame
+  pivot_longer(cols = total_volume_m3:total_carbon_m3,
+               names_to = "variable", values_to = "value") 
+
+
+# Set the depthBinLabel factors
+dbs <- cope_carbon_100m %>% 
+  distinct(depthBin, depthBinLabel) %>% 
+  arrange(-depthBin) %>% 
+  # arbitrary assignment of layers
+  mutate(layer = if_else(depthBin >= 200 & depthBin < 500,
+                         "mesopelagic", "sequestration")) %>% 
+  mutate(layer = if_else(depthBin < 200, "epipelagic", layer))
+```
+
+## Plot stuff
+```{r}
+# Select profiles to visualize ... for now don't include shallow casts (<200 m)
+profiles_to_plot <- Amund_UVP6_meta %>% 
+  # filter(Year != 2024) %>% 
+  filter(maxSampleDepth > 200)
+
+
+ggplot(cope_carbon_100m %>% 
+         filter(sample_id %in% profiles_to_plot$sample_id) %>% 
+         filter(variable %in% c("abundance_m3","total_carbon_m3",
+                                "lipid_carbon_m3","lipid_fullness_mean")), 
+       aes(y = value, x = as.factor(depthBin))) +
+  # geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  geom_boxplot(outliers = F) +
+  coord_flip() +
+  theme(legend.position = "none") + 
+  scale_x_discrete(limits = rev,
+                   labels = dbs$depthBinLabel,
+                   name = "100 m depth bins") +
+  facet_wrap(~variable, scales = "free")
+
+
+ggplot(cope_carbon_100m %>% 
+         filter(sample_id %in% profiles_to_plot$sample_id) %>% 
+         filter(variable %in% c("lipid_carbon_m3")), 
+       aes(y = value, x = as.factor(depthBin))) +
+  # geom_boxplot(outlier.shape = 4, outlier.size = 1) +
+  geom_boxplot(outliers = F) +
+  coord_flip() +
+  # labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") + 
+  scale_x_discrete(limits = rev,
+                   labels = dbs$depthBinLabel,
+                   name = "100 m depth bins")
+
+
+
+# # Lipid fullness mean VS (total lipids/total carbon)
+# ggplot(cope_carbon_100m, aes(lipid_fullness_mean, percent_lipid_total_carbon)) +
+#   geom_point() +
+#   geom_abline() +
+#   geom_smooth(method = "lm", color = "red")
+
+
+# What is the % of the abundance, total carbon, and lipid carbon below 200? 500?
+# Most of the biomass is beyond the epipelagic... a lot of the copepods are already at sequestration depths
+sum_layers <- cope_carbon_100m %>% 
+  # only makes sense for abundance and concentations
+  filter(variable %notin% c("lipid_fullness_mean","diapause_respiration_mean",
+                            "diapause_duration_mean","percent_lipid_total_carbon")) %>% 
+  left_join(dbs, by = join_by(depthBin, depthBinLabel)) %>%
+  group_by(sample_id, sample_cruise, variable, layer) %>% 
+  summarise(sum_value = sum(value), .groups = "drop") %>% 
+  # calculate overall total and percentages represented by layer
+  group_by(sample_id, sample_cruise, variable) %>% 
+  mutate(total_value = sum(sum_value)) %>% 
+  ungroup() %>% 
+  mutate(percent_layer = sum_value / total_value * 100)
+
+ggplot(sum_layers %>% 
+         filter(sample_id %in% profiles_to_plot$sample_id) %>% 
+         filter(variable == "lipid_carbon_m3"),
+       aes(x = percent_layer, fill = layer)) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = c("blue2","gold1","hotpink"))
+```
+
+## Plot the carbon distribution segmented vs not segmented images
+*IMPORTANT* some casts do not start at surface like am_leg2_b4
+```{r}
+# TODO somethings seems to be wrong with the abundance values... too consistent
+all_copepods_100m <- cope_carbon_others_100m %>% 
+  mutate(source = "not segmented") %>% 
+  bind_rows(cope_carbon_100m %>% 
+              filter(variable %in% unique(cope_carbon_others_100m$variable)) %>% 
+              mutate(source = "segmented"))
+
+# Example for 1 profile
+AA <- all_copepods_100m %>% 
+         filter(sample_id == "am_leg2_b4") %>% 
+         filter(variable %in% c("abundance_m3","total_carbon_m3"))
+ggplot(AA, 
+       aes(y = value, x = as.factor(depthBin))) +
+  geom_bar(aes(fill = source), stat = "identity") +
+  coord_flip() +
+  # labs(x = "", y = "Abundance (indivs /m3)") +
+  theme(legend.position = "none") + 
+  scale_x_discrete(limits = rev,
+                   labels = dbs$depthBinLabel,
+                   name = "100 m depth bins") +
+  facet_wrap(~variable, scale = "free")
+
+```
+
+
+
+# TODO: Check proportion of vertical profiles below 200m and 500 m.... if at diapausing depth, then at diapause?

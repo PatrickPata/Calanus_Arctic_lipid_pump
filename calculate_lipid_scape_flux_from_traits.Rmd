@@ -64,6 +64,9 @@ dbs <- all.copepods.uvp6 %>%
   distinct(sample_id, Depth_5m, Sampled_volume_m3) %>% 
   mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
   
+  # TODO Alternative depth bins... 0-50, 50-100, 100:500, 500-1000, 1000+ ??
+  
+  
   # Calculate volumes
   group_by(sample_id, depthBin) %>% 
   summarise(volume_m3 = sum(Sampled_volume_m3),
@@ -139,7 +142,7 @@ cope_carbon_others_100m <- other.copepods.traits %>%
 ```
 
 ## Plot stuff
-```{r}
+```{r, eval = FALSE}
 # Select profiles to visualize ... for now don't include shallow casts (<200 m)
 profiles_to_plot <- Amund_UVP6_meta %>% 
   # filter(Year != 2024) %>% 
@@ -207,7 +210,7 @@ ggplot(sum_layers %>%
 
 ## Plot the carbon distribution segmented vs not segmented images
 *IMPORTANT* some inidividual casts can not observe large copepods for 100m chunks
-```{r}
+```{r, eval=FALSE}
 # TODO somethings seems to be wrong with the abundance values... too consistent
 all_copepods_100m <- cope_carbon_others_100m %>% 
   mutate(source = "not segmented") %>% 
@@ -244,6 +247,121 @@ ggplot(AA,
   facet_wrap(~variable, scale = "free")
 
 # It seems like individual count is very much tied to volume filtered that the abundance_m3 is almost consistent with depth. maybe that's really the case?
+```
+
+
+
+# Calculate total respired carbon
+- The cope_carbon data frame contains the respiration rate and diapause duration for the images segmented with lipid sacs.
+```{r}
+mutate(respirationRate_ugCday = 
+           (2.3*10^-7) * (mass_ugC^0.75) * 
+           exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))  * 86400) %>% 
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_carbon*1000)/(respirationRate_ugCday)) %>% 
+```
+
+Tarling et al. (2022) method for carbon export
+1. The total respiration flux is the summation of the product of abundance * diapause duration * respiration rate at each depth layer
+2. Overwintering non-predatory mortality rate (beta) = -0.001 day-1
+3. The total flux of the stored lipid and structural carbon from overwintering mortality is the fraction of the abundance lost to natural mortality multiplied by either the stored lipid or structural lipid carbon mass.
+4. The total C flux is the sum of the total respiration flux + total stored lipid mortality flux + structural carbon mortality flux (ug C m-2 year-1)
+
+The version of this here (need to verify):
+1. At each depth bin, calculate the total diapause respiration rate (ug C m-2) by multiplying the depth of the bin layer (100 m) * total of (individual respiration rate ug C s-1) / volume filtered in the depth layer (m-3) * diapause duration (days)
+2. Calculate proportion of the assemblage subjected to overwintering mortality at each depth bin. Based on total abundance of the depth bin? Or the abundance represented by each individual and then sum all individuals?
+
+Visser et al. (2017) uses the mortality rate of 0.005 d-1 
+```{r}
+# TODO For this part, can adjust proportion of epipelagic assemblage that will diapause
+# TODO double check the abundance calculation and vertical integration
+
+beta <- -0.001 # day-1
+carbexp_tarling <- cope_carbon %>% 
+  
+  # Cap the diapause duration to 240 days
+  mutate(diapauseDuration_day = if_else(diapauseDuration_day > 240,
+                                                240, diapauseDuration_day)) %>% 
+  # Calculate abundance fraction represented by the individual
+  mutate(abund = (5*(1/Sampled_volume_m3))) %>%  # 5 is for vertical integration of the 5m depth 
+  # Calculate the respired carbon concentration of each individual
+  # abundance in m2 * respiration rate in (ug C day-1) * diapause duration (days)
+  mutate(tot_c_resp = abund * (respirationRate_ugCday) * diapauseDuration_day ) %>% 
+  # Calculate the fraction of the "abundance" subjected to overwintering non-predatory mortality (indivs m-2)
+  mutate(mort_frac = abund - 
+           (abund * exp(beta * diapauseDuration_day))) %>% 
+  # Calculate the structural carbon and lipid carbon loss to natural mortality (ug C m-2)
+  mutate(tot_c_struc_mort = mort_frac * structural_carbon * 1000,
+         tot_c_lipid_mort = mort_frac * waxester_carbon * 1000) %>% 
+  # Calculate the total carbon flux contribution of the individual (ug C m-2 year-1)
+  # TODO note that the diapause duration needs to be correct here!
+  mutate(tot_c_flux = tot_c_resp + tot_c_struc_mort + tot_c_lipid_mort)
+
+# total carbon flux per cast (not C is converted to grams)
+carbexp_tarling_samples <- carbexp_tarling %>% 
+  # filter(sample_id %in% profiles_to_plot$sample_id) %>% 
+  
+  # TODO can bin by depth 
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            .groups = "drop") %>% 
+  # select(-sample_id) %>% 
+  # rename with units
+  rename('abundance\n(indivs m-2)' = abundance,
+         'biomass\n(gC m-2)' = biomass,
+         'total carbon flux\n(gC m-2 yr-1)' = tot_c_flux,
+         'total respiration flux\n(gC m-2 yr-1)' = tot_c_resp,
+         'total mortality flux structural\n(gC m-2 yr-1)' = tot_c_struc_mort,
+         'total mortality flux reserve\n(gC m-2 yr-1)' = tot_c_lipid_mort)
+
+summary(carbexp_tarling_samples)
+
+ggplot(carbexp_tarling_samples %>% 
+         select(-sample_id) %>% 
+         pivot_longer(cols = everything(), 
+                     names_to = "param", values_to = "value"),
+       aes(x = value)) +
+  geom_histogram() +
+  ylab("N samples") +
+  facet_wrap(~param, scales = "free") +
+  theme(strip.text.x = element_text(size = 12))
+# TODO add units (these are indiv/gC m-2 and rates are gC m-2 year-1)
+
+
+```
+
+# check the depth integration ... generally correct, there is small different likely because of the integration in 100 m bins
+```{r}
+carbexp_tarling_samples %>% 
+  filter(sample_id == "am_leg2_tcad1b")
+
+
+AA <- cope_carbon_100m %>% 
+  filter(sample_id == "am_leg2_tcad1b") %>% 
+  filter(variable %in% c("abundance_m3","total_carbon_m3")) %>%
+  group_by(variable) %>% 
+  mutate(value_integ = value * (5*n5mbins) ) %>% 
+  ungroup() %>% 
+  group_by(sample_id, variable) %>% 
+  summarise(value_integ_m2 = sum(value_integ),
+            .groups = "drop")
+
+```
+
+
+
+# Export data
+```{r, eval=FALSE}
+# TODO temporary export... need to finalize contents and curation
+save(file = "data/uvp6_profile_carbon_concentration.RData",
+     cope_carbon_100m, cope_carbon_others_100m, dbs, Amund_UVP6_meta)
+
+
 ```
 
 

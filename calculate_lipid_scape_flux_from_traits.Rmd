@@ -24,6 +24,7 @@ load("data/uvp6_images_calculated_traits_20251127.RData")
 # The UVP6 data including metadata 
 load("data/uvp6_CNN_segmentations_morphotraits_20251125.RData")
 
+
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 source("functions/lipid_pump_toolkit.R")
@@ -52,32 +53,53 @@ cope_carbon <- indiv_traits %>%
   select(-c(is_size_extrapolated, is_bad_image))
   
 
+
+
 # Integrate to 100 m  bins - could be 50 m at surface?  
 # Note that the volumes are totaled here (i.e., not averaging the 5m bin vlaues)
 binsize <- 100
+# Set the depthBinLabel factors ... applied to Ecopart volume!
+# TODO Apply to ecopart volumes!!!
+dbs <- all.copepods.uvp6 %>% 
+  distinct(sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  # Calculate volumes
+  group_by(sample_id, depthBin) %>% 
+  summarise(volume_m3 = sum(Sampled_volume_m3),
+            n5mbins = n(), .groups = "drop") %>% 
+  
+  # Add labels for the depth bins
+  mutate(depthBinLabel = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
+  # arbitrary assignment of layers
+  mutate(layer = if_else(depthBin >= 200 & depthBin < 500,
+                         "mesopelagic", "sequestration")) %>% 
+  mutate(layer = if_else(depthBin < 200, "epipelagic", layer))
+
 cope_carbon_100m <- cope_carbon %>% 
- mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  # TAdd total volume per depth bin
+  left_join(dbs, by = join_by(sample_id, depthBin)) %>% 
   
   # Calculate abundance and carbon concentrations per 5 m depth bin
-  group_by(sample_id, sample_cruise, depthBin) %>% 
-  summarise(total_volume_m3 = sum(Sampled_volume_m3),
-            abundance = n(),
+  group_by(sample_id, sample_cruise, depthBin, volume_m3, n5mbins,
+           depthBinLabel, layer) %>% 
+  summarise(abundance = n(),
             total_carbon = sum(total_carbon),
             lipid_carbon = sum(waxester_carbon),
             lipid_fullness_mean = mean(lf_carbon),
             diapause_respiration_mean = mean(respirationRate_ugCday),
             diapause_duration_mean = mean(diapauseDuration_day), 
             .groups = "drop") %>% 
-  mutate(abundance_m3 = abundance / total_volume_m3,
-         total_carbon_m3 = total_carbon / total_volume_m3,
-         lipid_carbon_m3 = lipid_carbon / total_volume_m3,
+  mutate(abundance_m3 = abundance / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3,
+         lipid_carbon_m3 = lipid_carbon / volume_m3,
          # This should practically be lipid_fullness_mean
          percent_lipid_total_carbon = lipid_carbon / total_carbon * 100) %>% 
-  # Add labels for the depth bins
-  mutate(depthBinLabel = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
   
   # lengthen data frame
-  pivot_longer(cols = total_volume_m3:percent_lipid_total_carbon,
+  pivot_longer(cols = abundance:percent_lipid_total_carbon,
                names_to = "variable", values_to = "value") 
 
 
@@ -89,30 +111,31 @@ cope_carbon_others_100m <- other.copepods.traits %>%
          Depth_5m, Sampled_volume_m3,
          total_carbon = structural_carbon) %>% 
   mutate(depthBin = floor(Depth_5m/binsize)*binsize) %>% 
+  
+  # Add total volume per depth bin
+  left_join(dbs, by = join_by(sample_id, depthBin)) %>% 
+  
   # Calculate abundance and carbon concentrations per 5 m depth bin
-  group_by(sample_id, sample_cruise, depthBin) %>% 
-  summarise(total_volume_m3 = sum(Sampled_volume_m3),
-            abundance = n(),
+  group_by(sample_id, sample_cruise, depthBin, volume_m3, n5mbins,
+           depthBinLabel, layer) %>% 
+  summarise(abundance = n(),
             total_carbon = sum(total_carbon),
             .groups = "drop") %>% 
-  mutate(abundance_m3 = abundance / total_volume_m3,
-         total_carbon_m3 = total_carbon / total_volume_m3) %>% 
+  mutate(abundance_m3 = abundance / volume_m3,
+         total_carbon_m3 = total_carbon / volume_m3) %>% 
   # Add labels for the depth bins
   mutate(depthBinLabel = paste0(depthBin,"m - ",depthBin+binsize,"m")) %>% 
   
   # lengthen data frame
-  pivot_longer(cols = total_volume_m3:total_carbon_m3,
+  pivot_longer(cols = abundance:total_carbon_m3,
                names_to = "variable", values_to = "value") 
 
 
-# Set the depthBinLabel factors
-dbs <- cope_carbon_100m %>% 
-  distinct(depthBin, depthBinLabel) %>% 
-  arrange(-depthBin) %>% 
-  # arbitrary assignment of layers
-  mutate(layer = if_else(depthBin >= 200 & depthBin < 500,
-                         "mesopelagic", "sequestration")) %>% 
-  mutate(layer = if_else(depthBin < 200, "epipelagic", layer))
+# cope_carbon_100m <- cope_carbon_100m %>% 
+#   left_join(dbs, by = join_by(depthBin, depthBinLabel))
+# cope_carbon_others_100m <- cope_carbon_others_100m %>% 
+#   left_join(dbs, by = join_by(depthBin, depthBinLabel))
+
 ```
 
 ## Plot stuff
@@ -133,7 +156,7 @@ ggplot(cope_carbon_100m %>%
   coord_flip() +
   theme(legend.position = "none") + 
   scale_x_discrete(limits = rev,
-                   labels = dbs$depthBinLabel,
+                   # labels = dbs$depthBinLabel,
                    name = "100 m depth bins") +
   facet_wrap(~variable, scales = "free")
 
@@ -148,7 +171,7 @@ ggplot(cope_carbon_100m %>%
   # labs(x = "", y = "Abundance (indivs /m3)") +
   theme(legend.position = "none") + 
   scale_x_discrete(limits = rev,
-                   labels = dbs$depthBinLabel,
+                   # labels = dbs$depthBinLabel,
                    name = "100 m depth bins")
 
 
@@ -166,7 +189,6 @@ sum_layers <- cope_carbon_100m %>%
   # only makes sense for abundance and concentations
   filter(variable %notin% c("lipid_fullness_mean","diapause_respiration_mean",
                             "diapause_duration_mean","percent_lipid_total_carbon")) %>% 
-  left_join(dbs, by = join_by(depthBin, depthBinLabel)) %>%
   group_by(sample_id, sample_cruise, variable, layer) %>% 
   summarise(sum_value = sum(value), .groups = "drop") %>% 
   # calculate overall total and percentages represented by layer
@@ -184,7 +206,7 @@ ggplot(sum_layers %>%
 ```
 
 ## Plot the carbon distribution segmented vs not segmented images
-*IMPORTANT* some casts do not start at surface like am_leg2_b4
+*IMPORTANT* some inidividual casts can not observe large copepods for 100m chunks
 ```{r}
 # TODO somethings seems to be wrong with the abundance values... too consistent
 all_copepods_100m <- cope_carbon_others_100m %>% 
@@ -193,21 +215,35 @@ all_copepods_100m <- cope_carbon_others_100m %>%
               filter(variable %in% unique(cope_carbon_others_100m$variable)) %>% 
               mutate(source = "segmented"))
 
-# Example for 1 profile
+# Average across all samples?
 AA <- all_copepods_100m %>% 
-         filter(sample_id == "am_leg2_b4") %>% 
-         filter(variable %in% c("abundance_m3","total_carbon_m3"))
+  filter(sample_id %in% profiles_to_plot$sample_id) %>% 
+  filter(variable %in% c("abundance_m3","total_carbon_m3")) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, Year, Month),
+            by = "sample_id") %>% 
+  filter(Year == 2024) %>% 
+  group_by(depthBin, depthBinLabel, variable, layer, source) %>% 
+  summarise(value_mean = mean(value, na.rm = T),
+            value_sd = sd(value, na.rm = T),
+            value_n = n(), .groups = "drop")
+
+# # Example for 1 profile
+# AA <- all_copepods_100m %>%
+#          filter(sample_id == "am_leg2_b4") %>%
+#          filter(variable %in% c("abundance_m3","total_carbon_m3"))
+
 ggplot(AA, 
-       aes(y = value, x = as.factor(depthBin))) +
+       aes(y = value_mean, x = as.factor(depthBin))) +
   geom_bar(aes(fill = source), stat = "identity") +
   coord_flip() +
   # labs(x = "", y = "Abundance (indivs /m3)") +
   theme(legend.position = "none") + 
   scale_x_discrete(limits = rev,
-                   labels = dbs$depthBinLabel,
                    name = "100 m depth bins") +
   facet_wrap(~variable, scale = "free")
 
+# It seems like individual count is very much tied to volume filtered that the abundance_m3 is almost consistent with depth. maybe that's really the case?
 ```
 
 

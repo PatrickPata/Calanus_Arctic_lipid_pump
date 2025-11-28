@@ -97,6 +97,7 @@ segmented.images <- segmented.images %>%
   
   # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
   mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
   mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
 # ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
   
@@ -168,6 +169,9 @@ manual.segmented.images <- manual.segmented.images %>%
   
   # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
   mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  
+  # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
+  
   mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
 # ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
   
@@ -183,14 +187,16 @@ manual.segmented.images <- manual.segmented.images %>%
 - The lipid mass calculated for LOKI is using the same equation as the wax ester calculation (Vogedes et al. 2010).
 - In the LOKI calculations, the factor for converting lipid dry mass to carbon mass is 0.79, which is 0.016 lower than the value of lambda used here. So need to adjust values to make the estimates comparable?
 ```{r}
-# AA <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
-#   select(total_lipids_mg, total_lipids_ugC, 
-#          total_lipids_carbon_area, total_lipids_carbon_volume) %>% 
+# AA <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>%
+#   select(total_lipids_mg, total_lipids_ugC,
+#          total_lipids_carbon_area, total_lipids_carbon_volume) %>%
 #   mutate(total_lipids_ugC_mgC = total_lipids_ugC / 1000)
 # 
 # ggplot(AA, aes(x = total_lipids_ugC_mgC, y = total_lipids_carbon_volume)) +
 #   geom_point() +
 #   geom_abline() +
+#   ylab("total_lipids_carbon_volume (mg C)") +
+#   xlab("total_lipids_ugC (converted to mg C)") +
 #   geom_smooth(method = "lm", color = "red")
 
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
@@ -322,8 +328,9 @@ calanoids.cpww <- calanoids.cpww %>%
 # species average
 mean(calanoids.cpww$mean)
 # species average without large calanus...
-mean( (calanoids.cpww %>% 
-         filter(scientificName %notin% c("Pseudocalanus minutus", "Calanus hyperboreus",
+notliipidcopes <- mean( (calanoids.cpww %>% 
+         filter(scientificName %notin% c("Calanus hyperboreus", "Neocalanus cristatus",
+                                         "Calanus pacificus",
                                          "Calanus helgolandicus", "Neocalanus plumchrus",
                                          "Calanus finmarchicus", "Calanus glacialis")))$mean)
 
@@ -333,7 +340,9 @@ ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
   geom_point(size = 2) + 
   geom_vline(xintercept = 9, color = "pink") + # 20% x 45%
   geom_vline(xintercept = mean(calanoids.cpww$mean), color = "red") + # species average
-  xlab("Carbon % Wet Weight")
+  geom_vline(xintercept = notliipidcopes, color = "blue") +
+  xlab("Carbon % Wet Weight") +
+  ylab("Calanoid copepods")
   
 ```
 
@@ -458,8 +467,8 @@ plot_grid(
   
   nrow = 1)
 
-ggsave("figures/indiv_trait_distribution_20251126.png",
-       height = 7, width = 14, units = "in", bg = "white")
+# ggsave("figures/indiv_trait_distribution_20251126.png",
+#        height = 7, width = 14, units = "in", bg = "white")
 
 ggplot(indiv_traits,
            aes(x = diapauseDuration_day,
@@ -472,8 +481,8 @@ ggplot(indiv_traits,
       theme(legend.position = "right",
             axis.title.y = element_blank())
     
-ggsave("figures/indiv_trait_distribution_forlabel.png",
-       height = 3, width = 4, units = "in", bg = "white")
+# ggsave("figures/indiv_trait_distribution_forlabel.png",
+       # height = 3, width = 4, units = "in", bg = "white")
 ```
 
 ### size distribution for LOKI

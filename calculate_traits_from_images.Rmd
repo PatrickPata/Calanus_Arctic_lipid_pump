@@ -96,7 +96,11 @@ segmented.images <- segmented.images %>%
   
   
   # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
-  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  
+    mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.07) %>%  # Option 2 of lower C%WW
+  
+  
   # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
   mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
 # ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
@@ -168,7 +172,9 @@ manual.segmented.images <- manual.segmented.images %>%
   
   
   # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
-  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
+  
+  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.07) %>%  # Option 2 of lower C%WW
   
   # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
   
@@ -188,11 +194,12 @@ manual.segmented.images <- manual.segmented.images %>%
 - In the LOKI calculations, the factor for converting lipid dry mass to carbon mass is 0.79, which is 0.016 lower than the value of lambda used here. So need to adjust values to make the estimates comparable?
 ```{r}
 # AA <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>%
-#   select(total_lipids_mg, total_lipids_ugC,
+#   select(total_lipids_mg, total_lipids_ugC, lipid_volume_mm3,
 #          total_lipids_carbon_area, total_lipids_carbon_volume) %>%
-#   mutate(total_lipids_ugC_mgC = total_lipids_ugC / 1000)
+#   mutate(total_lipids_ugC_mgC = total_lipids_ugC / 1000) %>% 
+#   mutate(total_lipids_Jonas = lipid_volume_mm3 * 0.9 * 0.79)
 # 
-# ggplot(AA, aes(x = total_lipids_ugC_mgC, y = total_lipids_carbon_volume)) +
+# ggplot(AA, aes(x = total_lipids_ugC_mgC, y = total_lipids_Jonas)) +
 #   geom_point() +
 #   geom_abline() +
 #   ylab("total_lipids_carbon_volume (mg C)") +
@@ -200,10 +207,11 @@ manual.segmented.images <- manual.segmented.images %>%
 #   geom_smooth(method = "lm", color = "red")
 
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
-
+ 
 # match trait names
-  mutate(total_carbon = prosome_carbon_volume + total_lipids_carbon_volume,
-         lf_carbon = fullness_ratio_carbon_volume * 100,
+  mutate(total_carbon = prosome_carbon_volume + total_lipids_ugC/1000,
+         # lf_carbon = fullness_ratio_carbon_volume * 100,
+         lf_carbon = total_lipids_ugC/1000 / total_carbon * 100,
          waxester_carbon = total_lipids_ugC / 1000) %>% 
   #  # Recalculated version (lipid carbon not based on the variable total_lipids_carbon_volume)
   # mutate(lf_carbon = waxester_carbon / (waxester_carbon + prosome_carbon_volume) * 100) %>% 
@@ -467,8 +475,8 @@ plot_grid(
   
   nrow = 1)
 
-# ggsave("figures/indiv_trait_distribution_20251126.png",
-#        height = 7, width = 14, units = "in", bg = "white")
+ggsave("figures/indiv_trait_distribution_20251201.png",
+       height = 7, width = 14, units = "in", bg = "white")
 
 ggplot(indiv_traits,
            aes(x = diapauseDuration_day,
@@ -575,15 +583,15 @@ ggplot(loki.segmentations,
 ) 
 
 
-ggsave("figures/indiv_trait_distribution_LOKIdetails_20251126.png",
-       height = 7, width = 14, units = "in", bg = "white")
+# ggsave("figures/indiv_trait_distribution_LOKIdetails_20251126.png",
+#        height = 7, width = 14, units = "in", bg = "white")
 
 
 ```
 
 
 # Export trait data
-```{r}
+```{r, eval=FALSE}
 # TODO This is temporary and needs to be updated with the other copepod data
 save(indiv_traits, other.copepods.traits,
      file = "data/uvp6_images_calculated_traits_20251127.RData")
@@ -613,6 +621,36 @@ ggplot(other.copepods.traits,
   theme(legend.position = "bottom",
         axis.title.y = element_blank())
 
+ggplot(other.copepods.traits %>% 
+         filter(sample_cruise %in% c("darkedge","amundsen2023")),
+       aes(x = Major, 
+           fill = with_segmentation, color = with_segmentation )) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_log10() +
+  xlab("Major (mm)") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank()) +
+  ggtitle("2021 + 2023")
+
+
+ggplot(other.copepods.traits %>% 
+         filter(sample_cruise %notin% c("darkedge","amundsen2023")),
+       aes(x = Major, 
+           fill = with_segmentation, color = with_segmentation )) +
+  geom_density(alpha = 0.6) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_color_manual(values = clrs, name = "Data source") +
+  scale_x_log10() +
+  xlab("Major (mm)") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank()) +
+  ggtitle("2024")
+```
+
+
+```{r}
 ggplot(other.copepods.traits,
        aes(x = Area, 
            fill = with_segmentation, color = with_segmentation )) +

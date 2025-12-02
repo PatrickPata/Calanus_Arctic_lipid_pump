@@ -35,9 +35,9 @@ df_poc_flux <- pocFlux %>%
   # TODO temporary and should not simply be *365 because of interannual variability
   # mutate(poc_model = poc_model * 365 / 1000,
   #        poc_error = poc_error * 365 / 1000) %>% 
-  # The observations are the average for only Jun-October (5 months), the rest of the year, the primary production is lower and POC flux is likely much lower
-  mutate(poc_model = (poc_model * 153 / 1000) + (poc_model/2 * 212 / 1000),
-         poc_error = (poc_error * 153 / 1000) + (poc_error/2 * 153 / 1000)) %>%
+  # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
+  mutate(poc_model = (poc_model * 123 / 1000) + (poc_model/2 * 242 / 1000),
+         poc_error = (poc_error * 123 / 1000) + (poc_error/2 * 242 / 1000)) %>%
   # exclude really high POC flux values
   filter(poc_model < 750)
 

@@ -124,7 +124,7 @@ uvp6 <- uvp6 %>%
            prosome_biovolume_mm3 * vol2massC) %>% 
   
   
-  # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
+  # Option 3: Lucie's coefficient for conversion is 0.09 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
   mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
   mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
 # ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient

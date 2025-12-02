@@ -53,8 +53,6 @@ cope_carbon <- indiv_traits %>%
   select(-c(is_size_extrapolated, is_bad_image))
   
 
-
-
 # Integrate to 100 m  bins - could be 50 m at surface?  
 # Note that the volumes are totaled here (i.e., not averaging the 5m bin vlaues)
 binsize <- 100
@@ -252,14 +250,6 @@ ggplot(AA,
 
 
 # Calculate total respired carbon
-- The cope_carbon data frame contains the respiration rate and diapause duration for the images segmented with lipid sacs.
-```{r}
-mutate(respirationRate_ugCday = 
-           (2.3*10^-7) * (mass_ugC^0.75) * 
-           exp(0.6 * (273.65-273)/ ((8.62*10^-5)*273.65*273))  * 86400) %>% 
-  mutate(diapauseDuration_day = 
-           (0.8*waxester_carbon*1000)/(respirationRate_ugCday)) %>% 
-```
 
 Tarling et al. (2022) method for carbon export
 1. The total respiration flux is the summation of the product of abundance * diapause duration * respiration rate at each depth layer
@@ -374,7 +364,18 @@ ggplot(carbexp_tarling_samples,
   scale_x_discrete(breaks = xdepth$sample_id,
                    labels = xdepth$maxdepth) +
   theme(legend.position = "bottom") +
-  xlab("Stations ordered by bottom depth") +
+  xlab("Stations ordered by cast depth") +
+  ylab("Total carbon flux (gC m-2 yr-1)") 
+
+ggplot(carbexp_tarling_samples %>% 
+         filter(maxdepth > 200), 
+       aes(x = sample_id, y = c_flux_val, fill = component)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("blue","black","hotpink")) +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  theme(legend.position = "bottom") +
+  xlab("Stations ordered by cast depth") +
   ylab("Total carbon flux (gC m-2 yr-1)") 
 
 

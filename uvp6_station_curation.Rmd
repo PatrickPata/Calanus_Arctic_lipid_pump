@@ -1,0 +1,438 @@
+---
+title: "Station curation"
+author: "Patrick Pata"
+date: "2025-12-02"
+output: html_document
+---
+
+1. Load station data
+2. Load UVP6 and CTD data to get max tow depths
+3. Calculate % of bottom depth with cast
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(ggOceanMaps)
+library(ggrepel)
+
+
+```
+
+# 1. Load station data from Excel
+```{r, eval=FALSE}
+stns_2021 <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
+                                   sheet = "2021_stations") %>% 
+  mutate(Cruise = "darkedge") %>% 
+  select(-`UTC\r\nTime`)
+stns_2023 <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
+                                   sheet = "2023_stations") %>% 
+  mutate(Cruise = "amundsen_2023")
+stns_2024 <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
+                                   sheet = "2024_stations") %>% 
+  mutate(Cruise = paste0("am_leg", Leg))
+
+stns_meta <- bind_rows(stns_2021, stns_2023, stns_2024)
+rm(stns_2021, stns_2023, stns_2024)
+
+# Export this data frame to append the station name formating that matches UVP6.
+write.csv(file = "data/Amundsen_stations_list.csv",
+          stns_meta, row.names = F)
+```
+
+# 2. Load UVP6 and CTD data
+```{r}
+load("data/uvp6_CNN_segmentations_morphotraits_20251125.RData")
+rm(all.copepods.uvp6)
+
+stns_meta <- read.csv("data/Amundsen_stations_list_ed20251201.csv") %>% 
+  select(sample_cruise = Cruise,  
+         sample_stationid = station_id,
+         Amund_Station_ID = Station.ID,
+         bottom_depth_m = `Depth..m.`) %>% 
+  filter(sample_stationid != "") %>% 
+  # Choose max depth
+  group_by(sample_cruise, sample_stationid) %>% 
+  mutate(bottom_depth_m = max(bottom_depth_m)) %>% 
+  ungroup() %>% 
+  distinct(sample_cruise, sample_stationid, .keep_all = T)
+
+# Add bottom depth to Amund_UVP metadata
+Amund_UVP6_meta <- Amund_UVP6_meta %>% 
+  # For 2021 darkedge, the station id is only the first segment
+  mutate(sample_stationid_ed = if_else(sample_cruise == "darkedge",
+                                       str_extract(sample_id, "^[^_]+"), 
+                                       sample_stationid)) %>% 
+  mutate(sample_stationid_ed = if_else(sample_id == "de_bb2_float",
+                                       "de_bb2_float", sample_stationid_ed)) %>% 
+  
+  
+  left_join(stns_meta, 
+            by = join_by(sample_cruise, 
+                         sample_stationid_ed == sample_stationid))
+
+# 26 stations have no bottom depth information
+nodepth <- Amund_UVP6_meta %>% 
+  filter(is.na(bottom_depth_m))
+```
+
+# 3. Match stations
+```{r}
+ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
+  geom_point(aes(color = sample_cruise)) +
+  geom_abline()
+
+# Check samples with max tow depth not within 100 m of bottom depth
+
+tocheck_depth <- Amund_UVP6_meta %>% 
+  filter(maxSampleDepth > bottom_depth_m + 100 |
+           maxSampleDepth < bottom_depth_m - 100 |
+           is.na(bottom_depth_m)) %>% 
+  mutate(perc_diff = maxSampleDepth / bottom_depth_m * 100) %>% 
+  relocate(sample_cruise, sample_stationid, 
+           maxSampleDepth, bottom_depth_m, perc_diff)
+
+ggplot(tocheck_depth, aes(x = maxSampleDepth, y = bottom_depth_m)) +
+  geom_point(aes(color = sample_cruise)) +
+  geom_abline() 
+
+# TODO figure out what to do with these samples
+```
+
+# 4. Organize profiles into group casts
+## 2021 Dark Edge
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "darkedge")
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        # limits = c(-90,-50,64,83), rotate = T,
+        limits = c(-90,-50,74,82), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_id,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_id), size = 2, max.repel = 20)
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+## 2023 Leg 2
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "amundsen2023") %>% 
+  filter(object_date < "2023-09-08") %>%  # division between leg 2 and 3
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,64,83), rotate = T,
+        # limits = c(-90,-50,74,82), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```
+
+
+## 2023 Leg 3
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "amundsen2023") %>% 
+  filter(object_date > "2023-09-08") %>%  # division between leg 2 and 3
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,75,83), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```
+
+## 2024 Leg 2
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "am_leg2") %>% 
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-75,-50,55,70), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```
+
+
+## 2024 Leg 3
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "am_leg3") %>% 
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,72,85), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```
+
+
+
+## 2024 Leg 4
+Many repeat casts in the same station
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "am_leg4") %>% 
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-95,-50,72,82), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```
+
+
+## 2024 Leg 5
+```{r, eval=FALSE}
+df_subset <- Amund_UVP6_meta %>% 
+  filter(sample_cruise == "am_leg5") %>% 
+  arrange(object_date)
+df_subset <- df_subset %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = df_subset$sample_id))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-95,-50,50,79), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df_subset,
+                                aes(x = object_lon, y = object_lat, 
+                                    color = sample_id),
+                                size = 2, alpha = 0.9) +
+  # Plot the labels
+  ggspatial::geom_spatial_text_repel(data = df_subset,
+                                aes(x = object_lon, y = object_lat,
+                                    label = sample_stationid,
+                                    color = sample_id),
+                                max.overlaps = 20, size = 2) +
+  theme(axis.title = element_blank(),
+        legend.position = "none") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+# Plot casts depths chronologically
+ggplot(df_subset,
+       aes(x = object_date, y = maxSampleDepth,
+           color = sample_id)) +
+  geom_point() +
+  geom_text_repel(aes(label = sample_stationid), size = 2, max.repel = 20) +
+  theme(legend.position = "none")
+  
+
+ggplot(df_subset,
+       aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
+  geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
+  geom_point() +
+  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  scale_color_viridis_c() +
+  scale_y_reverse() +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") 
+```

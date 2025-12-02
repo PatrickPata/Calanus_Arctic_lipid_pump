@@ -1,0 +1,221 @@
+---
+title: "Literature copepod traits"
+author: "Patrick Pata"
+date: "2025-12-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+`%notin%` <- Negate(`%in%`)
+
+# Data for major group "Calanoids" in the lvl1 data (both main and excluded)
+load("data/calanoid_trait_data.RData")
+```
+
+# Size distribution of Arctic Calanus spp
+```{r}
+
+calanus.size <- calanoid.level1.traitdata %>% 
+  filter(genus %in% c("Calanus")) %>% 
+  filter(scientificName %in% c("Calanus finmarchicus",
+                               "Calanus glacialis",
+                               "Calanus hyperboreus")) %>% 
+  filter(traitName %in% c("bodyLength")) %>%  
+  # Assume all non prosome length is body length
+  mutate(sizeType = if_else(sizeType != "prosome length",
+                                  "body length", "prosome length")) %>%
+  mutate(sizeType = if_else(is.na(sizeType),
+                                  "body length", sizeType)) %>%
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  mutate(lifeStage = factor(lifeStage,
+                            levels = c("C1","C2","C3","C4","C5",
+                                       "adult","female","male"))) %>% 
+  mutate(sizeType = factor(sizeType,
+                           levels = c("prosome length", 
+                                      "body length")))
+
+
+ggplot(calanus.size,
+       aes(y = traitValue, x = scientificName,
+           color = lifeStage, shape = sizeType)) +
+  geom_point(size = 4, alpha = 0.5) +
+  scale_shape_manual(values = c(21:24)) +
+  facet_wrap(~sizeType)
+
+ggplot(calanus.size,
+         aes(x = traitValue, y = scientificName,
+             color = scientificName))+
+    geom_boxplot() +
+    theme(legend.position = "bottom",
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+  facet_wrap(~sizeType)
+
+# Size at C4
+calanus.size %>% 
+  group_by(scientificName, lifeStage, sizeType) %>% 
+  summarise(mean = mean(traitValue),
+            sd = sd(traitValue),
+            n = n(), .groups = "drop")
+```
+
+
+
+Visualize the trait distributions of carbon content, lipid content, size (length and weight), and respiration rates (active)
+```{r}
+resp <- calanoid.level1.traitdata %>% 
+  filter(majorgroup == "Calanoid") %>% 
+  filter(traitName %in% c("respirationRate_WSC_15C", 
+                          "respirationRate_WSDW_15C",
+                          "respirationRate_15C")) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  filter(genus == "Calanus") %>% 
+  filter(verbatimTemperature <= 2)
+
+Calanus.respiration <- resp %>% 
+  filter(genus == "Calanus") %>% 
+  group_by(traitName, scientificName) %>% 
+  summarise(mean = mean(traitValue),
+            sd = sd(traitValue),
+            n = n())
+```
+
+
+
+# Old figures
+```{r}
+copepods <- calanoid.level1.traitdata %>% 
+  filter(majorgroup == "Calanoid") %>% 
+  filter(traitName %in% c("carbonPDW","carbonPWW","dryWeightPWW",
+                          "lipidPDW")) %>%  #"lipidPWW"
+  mutate(traitValue = as.numeric(traitValue)) 
+
+
+ggplot(copepods %>% 
+         filter(genus %in% c("Calanus", "Neocalanus")), 
+       aes(x = scientificName, y = traitValue)) +
+  geom_boxplot() + 
+  geom_point(shape = 4) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~traitName, ncol = 2, scales = "free")
+
+ggplot(copepods %>% 
+         filter(traitName %in% c("carbonPDW","dryWeightPWW")),
+       aes(x = genus, y = traitValue)) +
+  geom_boxplot() + 
+  geom_point(shape = 4) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  facet_wrap(~traitName, ncol = 2, scales = "free")
+  
+
+```
+
+
+
+# Get literature values of traits
+- Body length
+- carbon weight
+- LipidPDW (note not carbon weight so likely higher?)
+- Respiration rate? But have to convert to 0 degC, and from ul O2/h to ugC/day
+```{r}
+calanus.length <- calanoid.level1.traitdata %>% 
+  filter(traitName == "bodyLength") %>%
+  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  filter(lifeStage %in% c("C3","C4","C5","male","female","adult"))
+
+
+calanus.cweight <- calanoid.level1.traitdata %>% 
+  filter(traitName == "carbonWeight") %>%
+  filter(genus == "Calanus") %>% 
+  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
+  mutate(traitValue = as.numeric(traitValue)) 
+
+# TODO Not exactly based on carbon like in this study
+calanus.lipid <- calanoid.level1.traitdata %>% 
+  filter(traitName == "lipidPDW") %>%
+  filter(genus == "Calanus") %>% 
+  # filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
+  mutate(traitValue = as.numeric(traitValue)) 
+
+# The general calanoid carbon percent biovolume / dry weight
+calanoids.cperc <- calanoid.level1.traitdata %>% 
+  filter(traitName %in% c("carbonPWW","carbonPDW","dryWeightPWW",
+                          "lipidPWW","lipidPDW")) %>% 
+  mutate(traitValue = as.numeric(traitValue))
+
+# rough average of all traits (not controlled by species)... the 0.2 * 0.45 is actually a good estimate
+calanoids.cperc %>% 
+  group_by(traitName) %>% 
+  summarise(nindiv = n(),
+            mean = mean(traitValue, na.rm = T),
+            sd = sd(traitValue, na.rm = T),
+            .groups = "drop")
+
+# filter carbonPWW to not include large species (Neocalanus, Rhincalanus, Calanus fin/gl/hy ... pac&hel??)
+calanoids.cpww <- calanoids.cperc %>% 
+  filter(traitName == "carbonPWW") %>% 
+  group_by(scientificName) %>% 
+  summarise(nindiv = n(),
+            mean = mean(traitValue, na.rm = T),
+            sd = sd(traitValue, na.rm = T),
+            .groups = "drop") %>% 
+  arrange(-mean)
+calanoids.cpww <- calanoids.cpww %>% 
+  mutate(scientificName = factor(scientificName,
+                                 levels = unique(calanoids.cpww$scientificName))) %>% 
+  # exclude pseudocalanus minutus because it seems like an outlier with n = 1
+  filter(scientificName != "Pseudocalanus minutus")
+
+# species average
+mean(calanoids.cpww$mean)
+# species average without large calanus...
+notliipidcopes <- mean( (calanoids.cpww %>% 
+         filter(scientificName %notin% c("Calanus hyperboreus", "Neocalanus cristatus",
+                                         "Calanus pacificus",
+                                         "Calanus helgolandicus", "Neocalanus plumchrus",
+                                         "Calanus finmarchicus", "Calanus glacialis")))$mean)
+
+
+ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
+  geom_errorbar(aes(xmin = mean - sd, xmax = mean + sd)) +
+  geom_point(size = 2) + 
+  geom_vline(xintercept = 9, color = "pink") + # 20% x 45%
+  geom_vline(xintercept = mean(calanoids.cpww$mean), color = "red") + # species average
+  geom_vline(xintercept = notliipidcopes, color = "blue") +
+  xlab("Carbon % Wet Weight") +
+  ylab("Calanoid copepods")
+  
+```
+
+
+
+# Subset data for Lucie
+```{r, eval=FALSE}
+unique(calanoid.level1.traitdata$traitName)
+
+copepods <- calanoid.level1.traitdata %>% 
+  filter(traitName %in% c("carbonPDW","carbonPWW","dryWeightPWW",
+                          "lipidPDW", "lipidPWW",
+                          "bodyLength", "wetWeight", "waterPWW", 
+                          "dryWeight", "carbonWeight")) %>%  
+  mutate(traitValue = as.numeric(traitValue))
+
+
+# write.csv(copepods,
+#           file = "data/for_lucie_calanoids_trait_data_lvl1.csv",
+#           row.names = F)
+colnames(copepods)
+copepods %>% 
+  group_by(traitName) %>% 
+  count()
+```
+

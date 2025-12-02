@@ -1,0 +1,59 @@
+---
+title: "Compare gravity and lipid pump"
+author: "Patrick Pata"
+date: "2025-12-01"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("data/uvp6_profile_carbon_concentration.RData")
+load("data/pocFlux_estimates_24sc_2025 11 24.RData")
+```
+
+# Compare stations
+```{r}
+# Lipid flux is sum of all components
+df_lipid_flux <- carbexp_tarling_samples %>% 
+  distinct(sample_id, maxdepth, tot_c_flux)
+
+# POC flux, get flux at reference_depth +- 10 m average
+# values in mg C m-2 d-1
+reference_depth <- 200
+df_poc_flux <- pocFlux %>% 
+  filter(Depth_5m >= (reference_depth-10) & Depth_5m <= (reference_depth+10)) %>% 
+  group_by(sample_id) %>% 
+  summarise(poc_model = mean(ModelFlux, na.rm = T),
+            poc_error = mean(fluxErr, na.rm = T),
+            .groups = "drop") %>% 
+  # Convert to annual flux... 
+  # TODO temporary and should not simply be *365 because of interannual variability
+  # mutate(poc_model = poc_model * 365 / 1000,
+  #        poc_error = poc_error * 365 / 1000) %>% 
+  # The observations are the average for only Jun-October (5 months), the rest of the year, the primary production is lower and POC flux is likely much lower
+  mutate(poc_model = (poc_model * 153 / 1000) + (poc_model/2 * 212 / 1000),
+         poc_error = (poc_error * 153 / 1000) + (poc_error/2 * 153 / 1000)) %>%
+  # exclude really high POC flux values
+  filter(poc_model < 750)
+
+# Combined data frames
+# Only the samples at depth >200 m are included
+flux_comparison <- df_poc_flux %>% 
+  left_join(df_lipid_flux, by = "sample_id")
+
+ggplot(flux_comparison, 
+       aes(x = poc_model, y = tot_c_flux, color = maxdepth)) +
+  geom_errorbar(aes(xmin = poc_model-poc_error,
+                    xmax = poc_model+poc_error)) +
+  geom_point() +
+  geom_abline() +
+  scale_color_viridis_c() +
+  scale_x_log10() + scale_y_log10() +
+  xlab("Gravity Pump") + ylab("Lipid Pump")
+```
+

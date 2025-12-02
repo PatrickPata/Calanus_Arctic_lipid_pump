@@ -335,6 +335,51 @@ ggplot(carbexp_tarling_samples %>%
 
 ```
 
+## Plot relative contributions
+```{r}
+# Sort stations by bottom depth
+carbexp_tarling_samples <- carbexp_tarling %>% 
+  # calculate max tow depth
+  group_by(sample_id) %>% 
+  summarise(tot_c_flux = sum(tot_c_flux) / 1000 / 1000, # from ug C
+            abundance = sum(abund),
+            biomass = sum(abund * total_carbon)  / 1000, # from mg C
+            tot_c_resp = sum(tot_c_resp) / 1000 / 1000, # from ug C
+            tot_c_struc_mort = sum(tot_c_struc_mort) / 1000 / 1000,
+            tot_c_lipid_mort = sum(tot_c_lipid_mort) / 1000 / 1000,
+            maxdepth = max(Depth_5m) + 2.5,
+            .groups = "drop") %>% 
+  arrange(maxdepth)
+carbexp_tarling_samples <- carbexp_tarling_samples %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = carbexp_tarling_samples$sample_id)) %>% 
+  rename(respiration = tot_c_resp, mortality_structural = tot_c_struc_mort,
+         mortality_lipid = tot_c_lipid_mort) %>% 
+  pivot_longer(cols = c(respiration, mortality_structural, mortality_lipid),
+               names_to = "component", values_to = "c_flux_val")
+
+# list of depths for x axis breaks and labels
+xdepth <- carbexp_tarling_samples %>% 
+  distinct(sample_id, maxdepth) %>%
+  mutate(maxdepth2 = floor(maxdepth/100) *100) %>%  # 50 m bins
+  group_by(maxdepth2) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  filter(maxdepth2 %notin% c(900,1200,1300,1500,1600)) # remove some points
+
+ggplot(carbexp_tarling_samples, 
+       aes(x = sample_id, y = c_flux_val, fill = component)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("blue","black","hotpink")) +
+  scale_x_discrete(breaks = xdepth$sample_id,
+                   labels = xdepth$maxdepth) +
+  theme(legend.position = "bottom") +
+  xlab("Stations ordered by bottom depth") +
+  ylab("Total carbon flux (gC m-2 yr-1)") 
+
+
+```
+
 # check the depth integration ... generally correct, there is small different likely because of the integration in 100 m bins
 ```{r}
 carbexp_tarling_samples %>% 
@@ -359,7 +404,8 @@ AA <- cope_carbon_100m %>%
 ```{r, eval=FALSE}
 # TODO temporary export... need to finalize contents and curation
 save(file = "data/uvp6_profile_carbon_concentration.RData",
-     cope_carbon_100m, cope_carbon_others_100m, dbs, Amund_UVP6_meta)
+     cope_carbon_100m, cope_carbon_others_100m, dbs, Amund_UVP6_meta,
+     carbexp_tarling_samples)
 
 
 ```

@@ -102,7 +102,45 @@ ggplot(tocheck_depth, aes(x = maxSampleDepth, y = bottom_depth_m)) +
 # TODO figure out what to do with these samples
 ```
 
-# 4. Organize profiles into group casts
+# 4. Plot profile groups
+```{r, width = 12}
+# TODO temporary and need to delete
+profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
+                                   sheet = "ECOPART_summary") %>% 
+  mutate(year = as.factor(year(`yyyy-mm-dd hh:mm`)))
+  
+update_profile_groups <- profiles_list %>% 
+  group_by(cruise_name, profile_group, region) %>% 
+  count() 
+
+update_profile_groups %>% 
+  group_by(region) %>% 
+  count()
+# TODO plot all 7 cruises, same color-symbol per profile_group [ label sampling period]
+# TODO set bottom depth as max and mean+-sd
+
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        # limits = c(-90,-50,75,83), rotate = T,
+        limits = c(-90,-50,50,83), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = profiles_list,
+                                aes(x = Longitude, y = Latitude, 
+                                    shape = year,
+                                    color = region),
+                                size = 3, alpha = 0.7) +
+  theme(axis.title = element_blank(),
+        legend.position = "right") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
+
+ggsave("figures/samples_map_by_region.png", width = 10, height = 10,
+       units = "in", bg = "white")
+```
+
+
+
+# 5. Inspect profiles for organizing profile_groups
 ## 2021 Dark Edge
 ```{r, eval=FALSE}
 df_subset <- Amund_UVP6_meta %>% 
@@ -110,7 +148,7 @@ df_subset <- Amund_UVP6_meta %>%
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         # limits = c(-90,-50,64,83), rotate = T,
-        limits = c(-90,-50,74,82), rotate = T,
+        limits = c(-90,-60,74,80), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,
@@ -120,7 +158,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   # Plot the labels
   ggspatial::geom_spatial_text_repel(data = df_subset,
                                 aes(x = object_lon, y = object_lat,
-                                    label = sample_id,
+                                    label = sample_stationid_ed,
                                     color = sample_id),
                                 max.overlaps = 20, size = 2) +
   theme(axis.title = element_blank(),
@@ -157,7 +195,7 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-90,-50,64,83), rotate = T,
+        limits = c(-90,-50,64,77), rotate = T,
         # limits = c(-90,-50,74,82), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
@@ -184,7 +222,8 @@ ggplot(df_subset,
   theme(legend.position = "none")
   
 
-ggplot(df_subset,
+ggplot(df_subset %>% 
+         filter(object_date > "2023-08-25"),
        aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
   geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
   geom_point() +
@@ -248,13 +287,15 @@ ggplot(df_subset,
 ```{r, eval=FALSE}
 df_subset <- Amund_UVP6_meta %>% 
   filter(sample_cruise == "am_leg2") %>% 
+  # filter(object_date > "2024-07-28") %>% 
   arrange(object_date)
 df_subset <- df_subset %>% 
   mutate(sample_id = factor(sample_id,
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-75,-50,55,70), rotate = T,
+        # limits = c(-70,-55,50,62), rotate = T,
+        limits = c(-70,-55,62,70), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,
@@ -286,7 +327,7 @@ ggplot(df_subset,
   geom_point() +
   geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
   scale_color_viridis_c() +
-  scale_y_reverse() +
+  # scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
         legend.position = "none") 
 ```
@@ -302,7 +343,7 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-90,-50,72,85), rotate = T,
+        limits = c(-90,-50,74,83), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,
@@ -334,7 +375,7 @@ ggplot(df_subset,
   geom_point() +
   geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
   scale_color_viridis_c() +
-  scale_y_reverse() +
+  # scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
         legend.position = "none") 
 ```
@@ -384,7 +425,7 @@ ggplot(df_subset,
   geom_point() +
   geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
   scale_color_viridis_c() +
-  scale_y_reverse() +
+  # scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
         legend.position = "none") 
 ```
@@ -400,7 +441,8 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-95,-50,50,79), rotate = T,
+        limits = c(-95,-50,70,80), rotate = T,
+        # limits = c(-95,-50,50,65), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,
@@ -432,7 +474,7 @@ ggplot(df_subset,
   geom_point() +
   geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
   scale_color_viridis_c() +
-  scale_y_reverse() +
+  # scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
         legend.position = "none") 
 ```

@@ -98,10 +98,8 @@ segmented.images <- segmented.images %>%
   # Option 3: Lucie's coefficient for conversion is 0.9 (20% wet weight, 45% carbon in dry weight). Not that this is calculated from area and not volume
   # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.2 * 0.45) %>%  # Ikeda et al., 1989
   
-    mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.07) %>%  # Option 2 of lower C%WW
-  
-  
-  # mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
+  # Option 3.2 for lower C%WW
+  mutate(structural_carbon = (prosome_biovolume_mm3 - lipid_volume_mm3) * 0.0766) %>%  # 7.66% if based on C%WW of calanoids exceptt Arctic lipid forming species
   mutate(prosome_mgC_Bourreau = structural_carbon + waxester_mass_mgC) %>% 
 # ** Note that wax ester mass is used here but Lucie's code seems to use lipid area/volume and multiplied with 0.79 Tarling et al. (2022) coefficient
   
@@ -276,83 +274,7 @@ indiv_traits <- segmented.images %>%
                                     "LOKI segmented")))
 ```
 
-# Get literature values of traits
-- Body length
-- carbon weight
-- LipidPDW (note not carbon weight so likely higher?)
-- Respiration rate? But have to convert to 0 degC, and from ul O2/h to ugC/day
-```{r}
-load("data/calanoid_trait_data.RData")
 
-calanus.length <- calanoid.level1.traitdata %>% 
-  filter(traitName == "bodyLength") %>%
-  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>% 
-  mutate(traitValue = as.numeric(traitValue)) %>% 
-  filter(lifeStage %in% c("C3","C4","C5","male","female","adult"))
-
-
-calanus.cweight <- calanoid.level1.traitdata %>% 
-  filter(traitName == "carbonWeight") %>%
-  filter(genus == "Calanus") %>% 
-  filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
-  mutate(traitValue = as.numeric(traitValue)) 
-
-# TODO Not exactly based on carbon like in this study
-calanus.lipid <- calanoid.level1.traitdata %>% 
-  filter(traitName == "lipidPDW") %>%
-  filter(genus == "Calanus") %>% 
-  # filter(scientificName %in% c("Calanus glacialis", "Calanus hyperboreus")) %>%
-  mutate(traitValue = as.numeric(traitValue)) 
-
-# The general calanoid carbon percent biovolume / dry weight
-calanoids.cperc <- calanoid.level1.traitdata %>% 
-  filter(traitName %in% c("carbonPWW","carbonPDW","dryWeightPWW",
-                          "lipidPWW","lipidPDW")) %>% 
-  mutate(traitValue = as.numeric(traitValue))
-
-# rough average of all traits (not controlled by species)... the 0.2 * 0.45 is actually a good estimate
-calanoids.cperc %>% 
-  group_by(traitName) %>% 
-  summarise(nindiv = n(),
-            mean = mean(traitValue, na.rm = T),
-            sd = sd(traitValue, na.rm = T),
-            .groups = "drop")
-
-# filter carbonPWW to not include large species (Neocalanus, Rhincalanus, Calanus fin/gl/hy ... pac&hel??)
-calanoids.cpww <- calanoids.cperc %>% 
-  filter(traitName == "carbonPWW") %>% 
-  group_by(scientificName) %>% 
-  summarise(nindiv = n(),
-            mean = mean(traitValue, na.rm = T),
-            sd = sd(traitValue, na.rm = T),
-            .groups = "drop") %>% 
-  arrange(-mean)
-calanoids.cpww <- calanoids.cpww %>% 
-  mutate(scientificName = factor(scientificName,
-                                 levels = unique(calanoids.cpww$scientificName))) %>% 
-  # exclude pseudocalanus minutus because it seems like an outlier with n = 1
-  filter(scientificName != "Pseudocalanus minutus")
-
-# species average
-mean(calanoids.cpww$mean)
-# species average without large calanus...
-notliipidcopes <- mean( (calanoids.cpww %>% 
-         filter(scientificName %notin% c("Calanus hyperboreus", "Neocalanus cristatus",
-                                         "Calanus pacificus",
-                                         "Calanus helgolandicus", "Neocalanus plumchrus",
-                                         "Calanus finmarchicus", "Calanus glacialis")))$mean)
-
-
-ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
-  geom_errorbar(aes(xmin = mean - sd, xmax = mean + sd)) +
-  geom_point(size = 2) + 
-  geom_vline(xintercept = 9, color = "pink") + # 20% x 45%
-  geom_vline(xintercept = mean(calanoids.cpww$mean), color = "red") + # species average
-  geom_vline(xintercept = notliipidcopes, color = "blue") +
-  xlab("Carbon % Wet Weight") +
-  ylab("Calanoid copepods")
-  
-```
 
 
 
@@ -604,14 +526,44 @@ save(indiv_traits, other.copepods.traits,
 # FOR copepods without segmentations....
 ## The rest of the copepods
 ```{r}
+# Establish minimum length threshold... lowest Major axis length of segmented images
+# Aroung 1.6 mm
+minLength <- min((other.copepods.traits %>% 
+       filter(with_segmentation == "segmented"))$Major*uvpRes)
+
+
+
 other.copepods.traits <- all.copepods.uvp6 %>% 
+  # Remove not complete copepods
+  filter(object_annotation_category %notin% c("antenna<Calanoida",
+                                              "antenna<Copepoda",
+                                              "dead<Copepoda",
+                                              "copepoda eggs",
+                                              "part<Copepoda")) %>% 
+  # Remove copepods validated to NOT be calanus
+  filter(object_annotation_category %notin% c("Cyclopoida", "Harpacticoida",
+                                              "Heterorhabdidae", "Heterorhabdus",
+                                              "Metridia", "Paraeuchaeta")) %>% 
+  # Only include VALIDATED images
+  filter(object_annotation_status == "validated") %>% 
+  # only include taxa larger than the smallest segmented image
+  filter((Major*uvpRes) >= minLength) %>% 
+  
   mutate(with_segmentation = if_else(object_id %in% indiv_traits$object_id,
                                      "segmented","others"))
   # filter(object_id %notin% indiv_traits$object_id)
 
+# Double check categories if all are living copepods
+AA <- other.copepods.traits %>%
+  filter((Major*uvpRes) >= minLength) %>%
+  filter(with_segmentation == "others") %>%
+  group_by(object_annotation_category) %>%
+  count()
+
+
 # quick size distribution plots
 ggplot(other.copepods.traits,
-       aes(x = Major, 
+       aes(x = Major * uvpRes, 
            fill = with_segmentation, color = with_segmentation )) +
   geom_density(alpha = 0.6) +
   scale_fill_manual(values = clrs, name = "Data source") +
@@ -623,7 +575,7 @@ ggplot(other.copepods.traits,
 
 ggplot(other.copepods.traits %>% 
          filter(sample_cruise %in% c("darkedge","amundsen2023")),
-       aes(x = Major, 
+       aes(x = Major * uvpRes, 
            fill = with_segmentation, color = with_segmentation )) +
   geom_density(alpha = 0.6) +
   scale_fill_manual(values = clrs, name = "Data source") +
@@ -637,7 +589,7 @@ ggplot(other.copepods.traits %>%
 
 ggplot(other.copepods.traits %>% 
          filter(sample_cruise %notin% c("darkedge","amundsen2023")),
-       aes(x = Major, 
+       aes(x = Major * uvpRes, 
            fill = with_segmentation, color = with_segmentation )) +
   geom_density(alpha = 0.6) +
   scale_fill_manual(values = clrs, name = "Data source") +
@@ -765,4 +717,17 @@ ggplot(assemblage.integ, aes(x = with_segmentation, y = perc_carbon_m2)) +
 ## Create random forest model of traits??
 
 ## Apply similar pixel to trait conversions
+
+## Identify images to double check in Ecotaxa
+```{r}
+AA <- all.copepods.uvp6 %>% 
+  filter(Major >= 27) %>%
+  mutate(taxa = paste(object_annotation_category, object_annotation_status)) %>% 
+  group_by(sample_cruise, taxa) %>%
+  count() %>% 
+  pivot_wider(names_from = sample_cruise,
+              values_from = n) 
+
+
+```
 

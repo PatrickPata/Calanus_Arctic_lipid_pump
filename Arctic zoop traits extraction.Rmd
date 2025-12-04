@@ -1,3 +1,0 @@
-# Goals: 
-#     1. Extract the lipid content information from literature. (stage-specific, likely unclear exactly when in comparison to environmental seasonality.)
-#     2. Calculate the relationship between ranges in %Lipids with other traits.

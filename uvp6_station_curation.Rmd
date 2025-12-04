@@ -104,21 +104,40 @@ ggplot(tocheck_depth, aes(x = maxSampleDepth, y = bottom_depth_m)) +
 
 # 4. Plot profile groups
 ```{r, width = 12}
+region_rename <- data.frame(
+  region = c("Baffin Bay", "Baffin Shelf", 
+             "Davis Strait", "Lancaster Sound",
+             "North Water Polynya", "Labrador Shelf", 
+             "Greenland Shelf", "Nares Strait"),
+  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
+                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+                       "Tallurutiup Imanga\n(Lancaster Sound)",
+                       "Pikialasorsuaq\n(North Water Polynya)", 
+                       "Nunatsiavut Shelf\n(Labrador Shelf)",
+                       "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
+                       "Sarvarjuaq\n(Nares Strait)"))
+
+
 # TODO temporary and need to delete
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
-  mutate(year = as.factor(year(`yyyy-mm-dd hh:mm`)))
+  mutate(year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
+  left_join(region_rename) %>% 
+  filter(profile_group != "AR24_LR24_GR24_UNG-3")
   
 update_profile_groups <- profiles_list %>% 
-  group_by(cruise_name, profile_group, region) %>% 
+  group_by(cruise_name, profile_group, region.inuktitut) %>% 
   count() 
 
 update_profile_groups %>% 
-  group_by(region) %>% 
+  group_by(region.inuktitut) %>% 
   count()
 # TODO plot all 7 cruises, same color-symbol per profile_group [ label sampling period]
 # TODO set bottom depth as max and mean+-sd
 
+clrs <- c("blue1", "red", "deeppink1","purple2","turquoise2",
+                                "goldenrod2", "sienna2", "forestgreen")
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         # limits = c(-90,-50,75,83), rotate = T,
@@ -128,10 +147,11 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   ggspatial::geom_spatial_point(data = profiles_list,
                                 aes(x = Longitude, y = Latitude, 
                                     shape = year,
-                                    color = region),
+                                    color = region.inuktitut),
                                 size = 3, alpha = 0.7) +
   theme(axis.title = element_blank(),
         legend.position = "right") +
+  scale_color_manual(values = clrs) +
   guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
 
 ggsave("figures/samples_map_by_region.png", width = 10, height = 10,
@@ -441,8 +461,8 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-95,-50,70,80), rotate = T,
-        # limits = c(-95,-50,50,65), rotate = T,
+        # limits = c(-95,-50,70,80), rotate = T,
+        limits = c(-95,-50,50,65), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,

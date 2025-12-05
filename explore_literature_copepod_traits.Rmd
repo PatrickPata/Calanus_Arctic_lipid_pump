@@ -198,24 +198,3 @@ ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
 
 
 
-# Subset data for Lucie
-```{r, eval=FALSE}
-unique(calanoid.level1.traitdata$traitName)
-
-copepods <- calanoid.level1.traitdata %>% 
-  filter(traitName %in% c("carbonPDW","carbonPWW","dryWeightPWW",
-                          "lipidPDW", "lipidPWW",
-                          "bodyLength", "wetWeight", "waterPWW", 
-                          "dryWeight", "carbonWeight")) %>%  
-  mutate(traitValue = as.numeric(traitValue))
-
-
-# write.csv(copepods,
-#           file = "data/for_lucie_calanoids_trait_data_lvl1.csv",
-#           row.names = F)
-colnames(copepods)
-copepods %>% 
-  group_by(traitName) %>% 
-  count()
-```
-

@@ -30,6 +30,149 @@ df.CNN.seg <- read.csv(paste0(fol, "new_predictions_uvp6_20251123.csv"))
 ```
 
 
+# Evaluate model training dataset
+* Refer to UVP_CNN_Model_evaluation.Rmd for plots and further analysis of the training model results. *
+
+## Open file
+Last model training done March 19, 2025
+
+IoU: Area of intersection/Area of union (TP / (TP + FN + FP)) [Best for image segmentation]
+Precision: TP / (TP + FP)
+Recall: TP / (TP + FN)
+F1score: 2 x (Precision x Recall) / (Precision + Recall) [Harmonic mean of precision and recall]
+```{r}
+# The output files of the model training
+res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1_v2/prediction_prosome_uvp6_20251204.csv")
+
+res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv") 
+
+# The metadata of the images used for model training
+meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+
+# Clean  the data frames
+res.prosome <- res.prosome %>% 
+  select(-c(directory)) %>%
+  left_join(meta.prosome %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png")) 
+
+res.lipid.crop <- res.lipid.crop %>% 
+  select(-c(directory, 
+            lipid_mass_annotated, lipid_mass_predicted)) %>%
+  left_join(meta.lipid %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png")) 
+
+# Summary of model training performance
+res.prosome %>% 
+  group_by(split) %>% 
+  summarise(across(IoU:F1score, list(
+    min = ~min(., na.rm = TRUE),
+    max = ~max(., na.rm = TRUE),
+    mean = ~mean(., na.rm = TRUE),
+    median = ~median(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    n = ~sum(!is.na(.)) # Count of non-NA values
+  ), .names = "{.col}_{.fn}"))
+
+res.lipid.crop %>% 
+  group_by(split) %>% 
+  summarise(across(IoU:F1score, list(
+    min = ~min(., na.rm = TRUE),
+    max = ~max(., na.rm = TRUE),
+    mean = ~mean(., na.rm = TRUE),
+    median = ~median(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    n = ~sum(!is.na(.)) # Count of non-NA values
+  ), .names = "{.col}_{.fn}"))
+```
+
+## Plot segmentation model performance
+Some plots to illustrate metrics but maybe a table of IoU is sufficient
+```{r, eval=FALSE}
+ggplot(res.prosome, aes(x = IoU, color = split)) +
+  # geom_histogram(fill = "white", alpha = 0.5, position = "identity") 
+  geom_density()
+
+ggplot(res.prosome, aes(x = split, y = IoU)) +
+  geom_violin() +
+  stat_summary(fun.data=mean_sdl, 
+               fun.args = list(mult = 1), 
+                 geom="pointrange", color="red") +
+  scale_y_continuous(breaks = seq(0,100,10))
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = prosome_pixels_predicted,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    theme(legend.position = "none") +
+    geom_smooth(method = "lm") +
+    geom_abline(),
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = IoU,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "none") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = F1score,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  
+  
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = Recall,
+                          color = split)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    theme(legend.position = "bottom") +
+    geom_hline(yintercept = 80, linetype = "dashed", color = "orange") +
+    geom_hline(yintercept = 90, linetype = "longdash", color = "orange"),
+  rel_heights = c(1,1.2)
+)
+```
+
+## Calculate and plot accuracy of waxester content
+```{r}
+res.lipid.crop <- res.lipid.crop %>% 
+  mutate(lipid_area_mm2_annotated = lipid_pixels_annotated * 0.073 * 0.073,
+         lipid_area_mm2_predicted = lipid_pixels_predicted * 0.073 * 0.073,
+         waxester_mass_mg_annotated = 0.167 * (lipid_area_mm2_annotated ^ 1.42),
+         waxester_mass_mg_predicted = 0.167 * (lipid_area_mm2_predicted ^ 1.42)) 
+
+
+lipid.reg <- lm(waxester_mass_mg_annotated ~ waxester_mass_mg_predicted,
+                data = res.lipid.crop)
+(lipid.reg.sum <- summary(lipid.reg))
+sqrt(mean(residuals(lipid.reg)^2)) # RMSE
+
+
+ggplot(res.lipid.crop, aes(x = waxester_mass_mg_predicted,
+                           y = waxester_mass_mg_annotated)) +
+  geom_point() +
+  geom_abline() +
+  geom_smooth(method = "lm", color = "pink")
+
+```
+
+
 # ** Merge segmentations and morphotraits **
 ```{r}
 # 1. Mark images found inside the bad images folder
@@ -93,99 +236,27 @@ all.copepods.uvp6 <- Amund_UVP6 %>%
 rm(Amund_UVP6)
 ```
 
-
-
-# Model training dataset
-* Refer to UVP_CNN_Model_evaluation.Rmd for plots and further analysis of the training model results. *
-
-## Open file
-Last model training done March 19, 2025
-
-IoU: Area of intersection/Area of union (TP / (TP + FN + FP))
-Precision: TP / (TP + FP)
-Recall: TP / (TP + FN)
-F1score: 2 x (Precision x Recall) / (Precision + Recall) [Harmonic mean of precision and recall] ... but in the script it is based on IoU and recall
-```{r}
-# The output files of the model training
-# res.lipid <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidUVP6_deamundp1/prediction_lipids_20250319.csv")
-res.lipid.crop <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1/prediction_lipids_20250319.csv")
-res.prosome <- read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1/prediction_prosome_UVP6_20250319.csv")
-
-# The metadata of the images used for model training
-meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
-  distinct(filename, .keep_all = TRUE)
-meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
-  distinct(filename, .keep_all = TRUE)
-
-# Clean  the data frames
-res.prosome <- res.prosome %>% 
-  select(-c(percent_overlap, directory)) %>%
-  left_join(meta.prosome %>%
-              select(filename, split, num_vertices),
-            by = join_by(filename)) %>% 
-  filter(!is.na(num_vertices)) %>% 
-  mutate(object_id = str_remove(filename, ".png")) 
-
-# res.lipid <- res.lipid %>% 
-#   select(-c(percent_overlap, directory, 
-#             lipid_mass_annotated, lipid_mass_predicted)) %>%
-#   left_join(meta.lipid %>%
-#               select(filename, split, num_vertices),
-#             by = join_by(filename)) %>% 
-#   filter(!is.na(num_vertices))
-
-res.lipid.crop <- res.lipid.crop %>% 
-  select(-c(percent_overlap, directory, 
-            lipid_mass_annotated, lipid_mass_predicted)) %>%
-  left_join(meta.lipid %>%
-              select(filename, split, num_vertices),
-            by = join_by(filename)) %>% 
-  filter(!is.na(num_vertices)) %>% 
-  mutate(object_id = str_remove(filename, ".png")) 
-
-# Summary of model training performance
-res.prosome %>% 
-  group_by(split) %>% 
-  summarise(across(IoU:F1score, list(
-    min = ~min(., na.rm = TRUE),
-    max = ~max(., na.rm = TRUE),
-    mean = ~mean(., na.rm = TRUE),
-    median = ~median(., na.rm = TRUE),
-    sd = ~sd(., na.rm = TRUE),
-    n = ~sum(!is.na(.)) # Count of non-NA values
-  ), .names = "{.col}_{.fn}"))
-
-res.lipid.crop %>% 
-  group_by(split) %>% 
-  summarise(across(IoU:F1score, list(
-    min = ~min(., na.rm = TRUE),
-    max = ~max(., na.rm = TRUE),
-    mean = ~mean(., na.rm = TRUE),
-    median = ~median(., na.rm = TRUE),
-    sd = ~sd(., na.rm = TRUE),
-    n = ~sum(!is.na(.)) # Count of non-NA values
-  ), .names = "{.col}_{.fn}"))
-
-```
-
-## Get size ranges of the data for training
+# Get size ranges of the data for training
 This is used to guide the curation of the predictions.
-
+Only consider images with both prosome and lipid manual segmentations.
 ```{r}
 manual.segmented.images <- segmented.images %>% 
-  select(object_id, Major, Minor, Feret, Area) %>% 
-  filter(object_id %in% res.prosome$object_id) %>% 
+  select(object_id, Major, Minor, Feret, Area,
+         prosomePredicted = prosome, lipidPredicted = lipid) %>% 
+  filter(object_id %in% res.lipid.crop$object_id) %>% 
   left_join(res.prosome %>% 
               select(object_id, 
                      prosomeManual = prosome_pixels_annotated,
                      prosomeMajorManual = prosome_major_annotated,
-                     prosomeMinorManual = prosome_minor_annotated),
+                     prosomeMinorManual = prosome_minor_annotated,
+                     prosomeIoU = IoU),
             by = "object_id") %>% 
   left_join(res.lipid.crop %>% 
               select(object_id, 
                      lipidManual = lipid_pixels_annotated,
                      lipidMajorManual = lipid_major_annotated,
-                     lipidMinorManual = lipid_minor_annotated),
+                     lipidMinorManual = lipid_minor_annotated,
+                     lipidIoU = IoU),
             by = "object_id") 
 
 sum.manual.seg <- manual.segmented.images %>% 
@@ -269,7 +340,7 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
 # TODO Also organize the annotated segmentations and output here
 save(segmented.images, Amund_UVP6_meta, manual.segmented.images,
      all.copepods.uvp6,
-     file = "data/uvp6_CNN_segmentations_morphotraits_20251125.RData")
+     file = "data/uvp6_CNN_segmentations_morphotraits_20251204.RData")
 
 
 # # The previous data file: (uvp6_meta is traits table for all living images, so dont export again)

@@ -53,7 +53,6 @@ segmented.images <- segmented.images %>%
   
   # Calculate minor axis based on prosome/lipid area and major axis (in pixels)
   mutate(minor_derived = (prosome / (pi * prosomeMajor/2)) * 2) %>% 
-  mutate(minor_lipid_derived = (lipid / (pi * lipidMajor/2)) * 2) %>% 
   
   
   # Calculate biovolume of prosome approximated as spheroid
@@ -63,14 +62,7 @@ segmented.images <- segmented.images %>%
   mutate(lipid_volume_mm3 = 
            (pi * lipid_area_mm2 ^ 2)/(4 * lipidMajor * uvpRes)) %>% 
   
-  # # Calculate lipid sac volume based spheroid (results in slightly larger volume)
-  # mutate(lipid_volume_mm3_sph = 
-  #          4/3 * pi * (lipidMajor/2 * uvpRes) * ((minor_lipid_derived/2 * uvpRes)^2))
 
-  
-  # Calculate lipid fullness based on volume
-  mutate(lipidfullness_volume  = (lipid_volume_mm3/prosome_biovolume_mm3 * 100)) %>% 
-  
   # (Calculate lipid carbon based on area following Vogedes et al. 2010 with coefficients for 3 Arctic Calanus species
   mutate(totallipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>%  
   mutate(waxester_mass_mg = 0.167 * (lipid_area_mm2 ^ 1.42)) %>%  

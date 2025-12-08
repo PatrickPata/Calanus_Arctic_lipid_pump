@@ -1,0 +1,178 @@
+---
+title: "CTD data analysis"
+author: "Patrick Pata"
+date: "2025-12-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(oce)
+`%notin%` <- Negate(`%in%`)
+
+load("data/uvp6_associated_ctd_20251208.RData")
+
+colnames(ctd)
+
+# Add region info
+region_rename <- data.frame(
+  region = c("Baffin Bay", "Baffin Shelf", 
+             "Davis Strait", "Lancaster Sound",
+             "North Water Polynya", "Labrador Shelf", 
+             "Greenland Shelf", "Nares Strait"),
+  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
+                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+                       "Tallurutiup Imanga\n(Lancaster Sound)",
+                       "Pikialasorsuaq\n(North Water Polynya)", 
+                       "Nunatsiavut Shelf\n(Labrador Shelf)",
+                       "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
+                       "Sarvarjuaq\n(Nares Strait)"),
+  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
+                   "deeppink1","red","blue1", "sienna2")) %>% 
+  # order regions as factors by latitude
+  mutate(region.inuktitut = factor(
+    region.inuktitut,
+    levels = c("Sarvarjuaq\n(Nares Strait)",
+               "Pikialasorsuaq\n(North Water Polynya)", 
+               "Tallurutiup Imanga\n(Lancaster Sound)",
+               "Sannirutiup Imavik\n(Baffin Bay)", 
+               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+               "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
+               "Nunatsiavut Shelf\n(Labrador Shelf)"
+    ))) %>% 
+  arrange(region.inuktitut)
+
+ctd <- ctd %>% 
+  filter(!is.na(te90)) %>% 
+  left_join(distinct(uvp6_ctd_match, ctd_filename, region),
+            by = join_by(filename == ctd_filename)) %>% 
+  left_join(region_rename, 
+            by = "region") 
+
+```
+
+# Calculate average temperature at 100 m depth intervals 
+```{r}
+temp_profiles_100m <- ctd %>% 
+  mutate(depth_bin = floor(pressure/100)*100) %>% 
+  group_by(filename, cruise_name, station, datetime, latitude, longitude,
+           region, region.inuktitut, region.color, depth_bin) %>% 
+  summarise(temp.mean = mean(te90, na.rm = T),
+            temp.sd = sd(te90, na.rm = T),
+            ndepths = n(), .groups = "drop")
+
+ggplot(temp_profiles_100m, 
+       aes(x = depth_bin, y = temp.mean, group = filename)) +
+  geom_line(aes(color = region.inuktitut), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(~cruise_name, scales = "free_y")
+
+
+# Get average temperature per 100m bin for each region
+region_temp_profiles_100m <- temp_profiles_100m %>% 
+  group_by(region, region.inuktitut, depth_bin) %>% 
+  summarise(reg.temp.mean = mean(temp.mean, na.rm = T),
+            reg.temp.sd = sd(temp.mean, na.rm = T),
+            nprofiles = n(), .groups = "drop")
+
+ggplot(region_temp_profiles_100m, 
+       aes(x = depth_bin, y = reg.temp.mean, color = region.inuktitut)) +
+  geom_errorbar(aes(ymin = reg.temp.mean-reg.temp.sd,
+                    ymax = reg.temp.mean+reg.temp.sd),
+                alpha = 0.2) +
+  geom_point() +
+  geom_line() +
+  coord_flip() +
+  scale_x_reverse() +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = c(0.8, 0.3)) +
+  ylab("Temperatue") + xlab("Depth")
+
+# ggsave("figures/region_ave_temp_100m.png",
+#        width = 6, height = 6, units = "in", bg = "white")
+```
+
+# Export the temperature data in 100 m bins
+```{r, eval=FALSE}
+save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
+     uvp6_ctd_match,
+     file = "data/ctd_temperature_100m_averages.RData")
+```
+
+
+# T-S plots of each region
+```{r}
+AA <- ctd
+
+df.oce <- oce::as.ctd(salinity = AA$psal,
+                      temperature = AA$te90,
+                      pressure = AA$pressure,
+                      time = AA$datetime,
+                      ship = AA$platform_name,
+                      cruise = AA$cruise_name,
+                      station = AA$station,
+                      longitude = AA$longitude,
+                      latitude = AA$latitude)
+
+
+oce::plotTS(df.oce)
+```
+
+
+
+# -- Extra --
+## Plot simple depth profiles 
+```{r}
+ggplot(ctd, aes(x = pressure, y = te90, group = filename)) +
+  geom_line(aes(color = region), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(~cruise_name, scales = "free_y")
+
+ggplot(ctd, aes(x = pressure, y = te90, group = filename)) +
+  geom_line(aes(color = region), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() 
+
+
+ggplot(ctd, aes(x = pressure, y = psal, group = filename)) +
+  geom_line(aes(color = latitude), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(~cruise_name, scales = "free_y")
+
+
+ggplot(ctd, aes(x = pressure, y = sigt, group = filename)) +
+  geom_line(aes(color = latitude), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(~cruise_name, scales = "free_y")
+```
+
+## T-S profiles
+```{r}
+AA <- ctd %>% filter(cruise_number == "2024_05")
+AA.ctd <- oce::as.ctd(salinity = AA$psal,
+                      temperature = AA$te90,
+                      pressure = AA$pressure,
+                      time = AA$datetime,
+                      ship = AA$platform_name,
+                      cruise = AA$cruise_name,
+                      station = AA$station,
+                      longitude = AA$longitude,
+                      latitude = AA$latitude)
+
+oce::plotTS(AA.ctd)
+
+```
+
+
+

@@ -13,6 +13,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(randomForest)
+library(randomForestExplainer)
+
 ```
 
 1. Load the manual segmentations + Ecotaxa morpho traits then calculate traits
@@ -234,8 +237,6 @@ ggplot(df.segmented, aes(x = Area, y = waxester_mass_mgC)) +
 
 # 3. Random forest model
 ```{r}
-library(randomForest)
-library(randomForestExplainer)
 
 # subset data to simply be StructCarbon, WaxEster, + predictors
 df_for_rf <- df.segmented %>% 

@@ -48,7 +48,6 @@ df.segmented <- inner_join(res.prosome, res.lipid.crop,
 
 # Calculate traits from pixels
   mutate(lipid_area_mm2 = lipid_pixels * uvpRes * uvpRes,
-         prosome_area_mm2 = prosome_pixels * uvpRes * uvpRes,
          prosome_length_mm = prosomeMajor * uvpRes) %>% 
   # Calculate minor axis based on prosome/lipid area and major axis (in pixels)
   mutate(minor_derived = (prosome_pixels / (pi * prosomeMajor/2)) * 2) %>% 
@@ -244,24 +243,26 @@ df_for_rf <- df.segmented %>%
 
 # Random forest regression on structural carbon mass
 set.seed(888)
-model.prosome <- randomForest(structural_carbon_mgC ~ .,
+rf.model.prosome <- randomForest(structural_carbon_mgC ~ .,
                       data = df_for_rf %>% 
                         select(-waxester_mass_mgC), 
                       importance = TRUE, proximity = TRUE)
 
 # Try random forest regression on lipid (wax ester) mass
 set.seed(888)
-model.lipid <- randomForest(waxester_mass_mgC ~ .,
+rf.model.lipid <- randomForest(waxester_mass_mgC ~ .,
                       data = df_for_rf %>% 
                         select(-c(structural_carbon_mgC)), 
                       importance = TRUE, proximity = TRUE)
-model.prosome 
-model.lipid 
+rf.model.prosome 
+rf.model.lipid 
 
-plot(model.prosome)
-plot(model.lipid)
+plot(rf.model.prosome)
+plot(rf.model.lipid)
 
 
+# save(rf.model.prosome, rf.model.lipid,
+#      file = "functions/random_forest_carbon_trait_models.RData")
 ```
 
 
@@ -277,9 +278,9 @@ calc_r2 <- function(x, y) {
   }
 }
 
-df.segmented$rf_pred_prosome <- predict(model.prosome, newdata = df.segmented %>% 
+df.segmented$rf_pred_prosome <- predict(rf.model.prosome, newdata = df.segmented %>% 
                              select(Major:PerimMajor))
-df.segmented$rf_pred_lipid <- predict(model.lipid, newdata = df.segmented %>% 
+df.segmented$rf_pred_lipid <- predict(rf.model.lipid, newdata = df.segmented %>% 
                              select(Major:PerimMajor))
 
 # Calculate RMSE

@@ -22,15 +22,222 @@ theme_set(theme_bw())
 source("functions/lipid_pump_toolkit.R")
 
 # Folder containing the predicted images and summary table file
-# Note lipidfullness is based on pixels, *2 for pcrop
+# Note lipidfullness is based on pixels, *2 for pcrop, so remove here
 fol <- "C:/Sync/UVP6_Data/lipid_predictions_20251123/"
 
-# The data file of predictions
-df.CNN.seg <- read.csv(paste0(fol, "new_predictions_uvp6_20251123.csv"))
+```
+
+# Curate the image data
+```{r}
+# 1. Load and select only the necessary columns
+df.CNN.seg <- read.csv(paste0(fol, "new_predictions_uvp6_20251123.csv")) %>% 
+  mutate(object_id = str_remove(filename, ".png")) %>% 
+  select(object_id, 
+         prosome_pixels = prosome_pixels_predicted,
+         prosome_major = prosome_major_predicted,
+         lipid_pixels = lipidpcrop_pixels_predicted,
+         lipid_major = lipidpcrop_major_predicted) %>% 
+  mutate(source = "CNN_segmentation")
+
+# 2. Mark images found inside the bad images folder
+# List file names of images inside the folder containing predicted images evaluated as bad segmentations
+bad.images.files <- list.files("C:/Sync/UVP6_Data/lipid_predictions_20251123/bad_segmentations/")
+
+df.CNN.seg <- df.CNN.seg %>% 
+  mutate(is_bad_image = if_else(object_id %in% 
+                                  str_remove(bad.images.files, "_overlapRGB.png"),
+                                T,F)) %>% 
+  relocate(object_id)
+
+# 3. Switch the manually segmented images in. Only the images that have both prosome and lipid annotations.
+# The output files of the model training
+res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1_v2/prediction_prosome_uvp6_20251204.csv")
+
+res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv")
+
+# Note that there are 2 images manually segmented that are not in the segmented images folder
+df.manual <- left_join(res.prosome, res.lipid.crop,
+                       by = join_by(filename)) %>% 
+  mutate(object_id = str_remove(filename, ".png")) %>% 
+  select(object_id, 
+         prosome_pixels = prosome_pixels_annotated,
+         prosome_major = prosome_major_annotated,
+         lipid_pixels = lipid_pixels_annotated,
+         lipid_major = lipid_major_annotated) %>%  
+  mutate(source = "manual_segmentation") %>% 
+  filter(!is.na(prosome_pixels) & !is.na(lipid_pixels)) %>% 
+  mutate(is_bad_image = F)
+
+df.CNN.seg <- df.CNN.seg %>% 
+  filter(object_id %notin% df.manual$object_id) %>% 
+  bind_rows(df.manual)
+
+
+rm(bad.images.files, res.prosome, res.lipid.crop)
+```
+
+Add morphotraits data
+```{r}
+# Open morphological traits data
+load("C:/Sync/UVP6_Data/Amund_UVP6_plankton_20251125.RData")
+segmented.images <- df.CNN.seg %>% 
+  left_join(Amund_UVP6, by = "object_id") %>% 
+  select(-c(twilight.x, twilight.y)) %>% 
+  rename(
+    Major = object_major, Minor = object_minor, 
+    Perim = object_perim., Feret = object_feret, 
+    Area = object_area, Elongation = object_elongation,
+    VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+    Circ = object_circ., Thickr = object_thickr, 
+    MeanGrey = object_mean, MedGrey = object_median,
+    HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
+    SkewGrey = object_skew, Fractal = object_fractal, 
+    PerimFeret = object_perimferet, PerimMajor = object_perimmajor
+  )
+
+# Check if any missing metadata
+segmented.images %>% 
+  filter(is.na(Major)) %>% 
+  nrow()
+
+# All the copepods and their morphotraits
+all.copepods.uvp6 <- Amund_UVP6 %>% 
+  filter(taxagroup %in% c("Copepoda", "Copepoda-lipidsac")) %>% 
+  select(-c(twilight.x, twilight.y)) %>% 
+  rename(
+    Major = object_major, Minor = object_minor, 
+    Perim = object_perim., Feret = object_feret, 
+    Area = object_area, Elongation = object_elongation,
+    VerSym = object_symetriev, VerSym2 = object_symetrievc, 
+    Circ = object_circ., Thickr = object_thickr, 
+    MeanGrey = object_mean, MedGrey = object_median,
+    HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
+    SkewGrey = object_skew, Fractal = object_fractal, 
+    PerimFeret = object_perimferet, PerimMajor = object_perimmajor
+  )
+
+rm(Amund_UVP6)
+
+# TODO continue here....
 ```
 
 
-# Evaluate model training dataset
+
+
+# Get size ranges of the data for training
+This is used to guide the curation of the predictions.
+Only consider images with both prosome and lipid manual segmentations.
+```{r}
+manual.segmented.images <- segmented.images %>% 
+  select(object_id, Major, Minor, Feret, Area,
+         prosomePredicted = prosome, lipidPredicted = lipid) %>% 
+  filter(object_id %in% res.lipid.crop$object_id) %>% 
+  left_join(res.prosome %>% 
+              select(object_id, 
+                     prosomeManual = prosome_pixels_annotated,
+                     prosomeMajorManual = prosome_major_annotated,
+                     prosomeMinorManual = prosome_minor_annotated,
+                     prosomeIoU = IoU),
+            by = "object_id") %>% 
+  left_join(res.lipid.crop %>% 
+              select(object_id, 
+                     lipidManual = lipid_pixels_annotated,
+                     lipidMajorManual = lipid_major_annotated,
+                     lipidMinorManual = lipid_minor_annotated,
+                     lipidIoU = IoU),
+            by = "object_id") 
+
+sum.manual.seg <- manual.segmented.images %>% 
+  select(-object_id) %>% 
+  summarise(across(everything(), list(
+    min = ~min(., na.rm = TRUE),
+    max = ~max(., na.rm = TRUE),
+    mean = ~mean(., na.rm = TRUE),
+    median = ~median(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    n = ~sum(!is.na(.)) # Count of non-NA values
+  ), .names = "{.col}_{.fn}")) %>% 
+  pivot_longer(cols = everything(), names_to = "statistic", values_to = "value") %>%
+  separate(statistic, into = c("column", "metric"), sep = "_") %>%
+  pivot_wider(names_from = metric, values_from = value)
+sum.manual.seg
+
+# What is the relationship between the Ecotaxa area trait and the prosome pixels annotated area?
+# The area as number of pixels identified by Ecotaxa is often larger than the prosome segmented.
+# Interestingly, there are instances when the segmented prosome is larger than the area reported by Ecotaxa. Why?
+ggplot(manual.segmented.images, aes(x = Area, y = prosomeManual)) +
+  geom_point(aes(color = lipidManual), alpha = 0.6) +
+  scale_color_viridis_c(guide = F) +
+  geom_abline() +
+  geom_smooth(method = "lm", color = "red")
+```
+
+
+# Curation of the automated lipid segmentations
+```{r}
+
+# TODO *** EXCLUDE EXTRAPOLATIONS ***
+to_exclude <- segmented.images %>% 
+  # remove all images smaller than the minimum size of the training data, also remove too small/large lipid and prosome pixel area!
+  filter(Major < filter(sum.manual.seg, column == "Major")$min |
+           Major > filter(sum.manual.seg, column == "Major")$max |
+           prosome_pixels_predicted < filter(sum.manual.seg, column == "prosomeManual")$min |
+           prosome_pixels_predicted > filter(sum.manual.seg, column == "prosomeManual")$max |
+           lipidpcrop_pixels_predicted < filter(sum.manual.seg, column == "lipidManual")$min |
+           lipidpcrop_pixels_predicted > filter(sum.manual.seg, column == "lipidManual")$max)
+
+
+segmented.images <- segmented.images %>% 
+  mutate(is_size_extrapolated = if_else( object_id %in% to_exclude$object_id, 
+                                         T,F))
+
+# How many of the bad images is in the excluded list? [only 88 of 350!]
+segmented.images %>% 
+  filter(is_bad_image == T) %>% 
+  filter(is_size_extrapolated == T) %>% 
+  count()
+
+# TODO Add derivation of the minor axis based on the prosome major axis and area (back calculation)
+segmented.images <- segmented.images %>% 
+  # Remove the not cropped prosome lipid predictions and the lipid fullness (based on pixel area)
+  select(-c(lipid_pixels_predicted, lipid_major_predicted, lipid_minor_predicted,
+            lipidfullness1)) %>% 
+  rename(prosome = prosome_pixels_predicted,
+         lipid = lipidpcrop_pixels_predicted, 
+         lipidfullness_area = lipidfullness2,
+         prosomeMajor = prosome_major_predicted,
+         prosomeMinor = prosome_minor_predicted,
+         lipidMajor = lipidpcrop_major_predicted,
+         lipidMinor = lipidpcrop_minor_predicted)
+
+  
+# TODO Apply data curations
+
+```
+
+
+
+
+
+# Export data
+```{r}
+Amund_UVP6_meta <- Amund_UVP6_meta %>% 
+  select(-c(twilight.x, twilight.y)) %>% 
+    mutate(Month_Name = month(object_date, label = TRUE, abbr = FALSE))
+  
+# TODO Also organize the annotated segmentations and output here
+save(segmented.images, Amund_UVP6_meta, manual.segmented.images,
+     all.copepods.uvp6,
+     file = "data/uvp6_CNN_segmentations_morphotraits_20251204.RData")
+
+
+# # The previous data file: (uvp6_meta is traits table for all living images, so dont export again)
+# save(uvp6_all, uvp6_volumes, uvp6_annot_table, uvp6_meta,
+#      file = "data/uvp6_lipids_20250410.RData")
+```
+
+
+# ** Evaluate model training dataset **
 * Refer to UVP_CNN_Model_evaluation.Rmd for plots and further analysis of the training model results. *
 
 ## Open file
@@ -171,183 +378,6 @@ ggplot(res.lipid.crop, aes(x = waxester_mass_mg_predicted,
   geom_smooth(method = "lm", color = "pink")
 
 ```
-
-
-# ** Merge segmentations and morphotraits **
-```{r}
-# 1. Mark images found inside the bad images folder
-# Folder containing predicted images evaluated as bad segmentations
-fol2 <- "C:/Sync/UVP6_Data/lipid_predictions_20251123/bad_segmentations/"
-# List file names of images inside the folder
-bad.images.files <- list.files(fol2)
-
-df.CNN.seg <- df.CNN.seg %>% 
-  mutate(is_bad_image = if_else(filename %in% 
-                                  str_remove(bad.images.files, "_overlapRGB"),
-                                T,F)) %>% 
-  mutate(object_id = str_remove(filename, ".png")) %>% 
-  relocate(object_id)
-
-# 2. Open morphological traits data
-load("C:/Sync/UVP6_Data/Amund_UVP6_plankton_20251125.RData")
-segmented.images <- df.CNN.seg %>% 
-  left_join(Amund_UVP6, by = "object_id") %>% 
-  select(-c(twilight.x, twilight.y)) %>% 
-  rename(
-    Major = object_major, Minor = object_minor, 
-    Perim = object_perim., Feret = object_feret, 
-    Area = object_area, Elongation = object_elongation,
-    VerSym = object_symetriev, VerSym2 = object_symetrievc, 
-    Circ = object_circ., Thickr = object_thickr, 
-    MeanGrey = object_mean, MedGrey = object_median,
-    HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
-    SkewGrey = object_skew, Fractal = object_fractal, 
-    PerimFeret = object_perimferet, PerimMajor = object_perimmajor
-  )
-
-# Check if any missing metadata
-segmented.images %>% 
-  filter(is.na(Major)) %>% 
-  nrow()
-
-# 3. All the copepods and their morphotraits
-
-all.copepods.uvp6 <- Amund_UVP6 %>% 
-  filter(taxagroup %in% c("Copepoda", "Copepoda-lipidsac")) %>% 
-  select(-c(twilight.x, twilight.y)) %>% 
-  rename(
-    Major = object_major, Minor = object_minor, 
-    Perim = object_perim., Feret = object_feret, 
-    Area = object_area, Elongation = object_elongation,
-    VerSym = object_symetriev, VerSym2 = object_symetrievc, 
-    Circ = object_circ., Thickr = object_thickr, 
-    MeanGrey = object_mean, MedGrey = object_median,
-    HistGrey75 = object_histcum3, SdevGrey = object_stddev, 
-    SkewGrey = object_skew, Fractal = object_fractal, 
-    PerimFeret = object_perimferet, PerimMajor = object_perimmajor
-  )
-
-
-# TODO mark if in segmentations
-
-
-
-# Remove the dataframe of all images?
-rm(Amund_UVP6)
-```
-
-# Get size ranges of the data for training
-This is used to guide the curation of the predictions.
-Only consider images with both prosome and lipid manual segmentations.
-```{r}
-manual.segmented.images <- segmented.images %>% 
-  select(object_id, Major, Minor, Feret, Area,
-         prosomePredicted = prosome, lipidPredicted = lipid) %>% 
-  filter(object_id %in% res.lipid.crop$object_id) %>% 
-  left_join(res.prosome %>% 
-              select(object_id, 
-                     prosomeManual = prosome_pixels_annotated,
-                     prosomeMajorManual = prosome_major_annotated,
-                     prosomeMinorManual = prosome_minor_annotated,
-                     prosomeIoU = IoU),
-            by = "object_id") %>% 
-  left_join(res.lipid.crop %>% 
-              select(object_id, 
-                     lipidManual = lipid_pixels_annotated,
-                     lipidMajorManual = lipid_major_annotated,
-                     lipidMinorManual = lipid_minor_annotated,
-                     lipidIoU = IoU),
-            by = "object_id") 
-
-sum.manual.seg <- manual.segmented.images %>% 
-  select(-object_id) %>% 
-  summarise(across(everything(), list(
-    min = ~min(., na.rm = TRUE),
-    max = ~max(., na.rm = TRUE),
-    mean = ~mean(., na.rm = TRUE),
-    median = ~median(., na.rm = TRUE),
-    sd = ~sd(., na.rm = TRUE),
-    n = ~sum(!is.na(.)) # Count of non-NA values
-  ), .names = "{.col}_{.fn}")) %>% 
-  pivot_longer(cols = everything(), names_to = "statistic", values_to = "value") %>%
-  separate(statistic, into = c("column", "metric"), sep = "_") %>%
-  pivot_wider(names_from = metric, values_from = value)
-sum.manual.seg
-
-# What is the relationship between the Ecotaxa area trait and the prosome pixels annotated area?
-# The area as number of pixels identified by Ecotaxa is often larger than the prosome segmented.
-# Interestingly, there are instances when the segmented prosome is larger than the area reported by Ecotaxa. Why?
-ggplot(manual.segmented.images, aes(x = Area, y = prosomeManual)) +
-  geom_point(aes(color = lipidManual), alpha = 0.6) +
-  scale_color_viridis_c(guide = F) +
-  geom_abline() +
-  geom_smooth(method = "lm", color = "red")
-```
-
-
-# Curation of the automated lipid segmentations
-```{r}
-
-# TODO *** EXCLUDE EXTRAPOLATIONS ***
-to_exclude <- segmented.images %>% 
-  # remove all images smaller than the minimum size of the training data, also remove too small/large lipid and prosome pixel area!
-  filter(Major < filter(sum.manual.seg, column == "Major")$min |
-           Major > filter(sum.manual.seg, column == "Major")$max |
-           prosome_pixels_predicted < filter(sum.manual.seg, column == "prosomeManual")$min |
-           prosome_pixels_predicted > filter(sum.manual.seg, column == "prosomeManual")$max |
-           lipidpcrop_pixels_predicted < filter(sum.manual.seg, column == "lipidManual")$min |
-           lipidpcrop_pixels_predicted > filter(sum.manual.seg, column == "lipidManual")$max)
-
-
-segmented.images <- segmented.images %>% 
-  mutate(is_size_extrapolated = if_else( object_id %in% to_exclude$object_id, 
-                                         T,F))
-
-# How many of the bad images is in the excluded list? [only 88 of 350!]
-segmented.images %>% 
-  filter(is_bad_image == T) %>% 
-  filter(is_size_extrapolated == T) %>% 
-  count()
-
-# TODO Add derivation of the minor axis based on the prosome major axis and area (back calculation)
-segmented.images <- segmented.images %>% 
-  # Remove the not cropped prosome lipid predictions and the lipid fullness (based on pixel area)
-  select(-c(lipid_pixels_predicted, lipid_major_predicted, lipid_minor_predicted,
-            lipidfullness1)) %>% 
-  rename(prosome = prosome_pixels_predicted,
-         lipid = lipidpcrop_pixels_predicted, 
-         lipidfullness_area = lipidfullness2,
-         prosomeMajor = prosome_major_predicted,
-         prosomeMinor = prosome_minor_predicted,
-         lipidMajor = lipidpcrop_major_predicted,
-         lipidMinor = lipidpcrop_minor_predicted)
-
-  
-# TODO Apply data curations
-
-```
-
-
-
-
-
-# Export data
-```{r}
-Amund_UVP6_meta <- Amund_UVP6_meta %>% 
-  select(-c(twilight.x, twilight.y)) %>% 
-    mutate(Month_Name = month(object_date, label = TRUE, abbr = FALSE))
-  
-# TODO Also organize the annotated segmentations and output here
-save(segmented.images, Amund_UVP6_meta, manual.segmented.images,
-     all.copepods.uvp6,
-     file = "data/uvp6_CNN_segmentations_morphotraits_20251204.RData")
-
-
-# # The previous data file: (uvp6_meta is traits table for all living images, so dont export again)
-# save(uvp6_all, uvp6_volumes, uvp6_annot_table, uvp6_meta,
-#      file = "data/uvp6_lipids_20250410.RData")
-```
-
 
 
 # ** Extra evaluation scripts **

@@ -18,8 +18,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggOceanMaps)
 library(ggrepel)
-
-
 ```
 
 # 1. Load station data from Excel
@@ -45,7 +43,7 @@ write.csv(file = "data/Amundsen_stations_list.csv",
 
 # 2. Load UVP6 and CTD data
 ```{r}
-load("data/uvp6_CNN_segmentations_morphotraits_20251125.RData")
+load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 rm(all.copepods.uvp6)
 
 stns_meta <- read.csv("data/Amundsen_stations_list_ed20251201.csv") %>% 
@@ -116,15 +114,35 @@ region_rename <- data.frame(
                        "Pikialasorsuaq\n(North Water Polynya)", 
                        "Nunatsiavut Shelf\n(Labrador Shelf)",
                        "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
-                       "Sarvarjuaq\n(Nares Strait)"))
+                       "Sarvarjuaq\n(Nares Strait)"),
+  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
+                   "deeppink1","red","blue1", "sienna2")) %>% 
+  # order regions as factors by latitude
+  mutate(region.inuktitut = factor(
+    region.inuktitut,
+    levels = c("Sarvarjuaq\n(Nares Strait)",
+               "Pikialasorsuaq\n(North Water Polynya)", 
+               "Tallurutiup Imanga\n(Lancaster Sound)",
+               "Sannirutiup Imavik\n(Baffin Bay)", 
+               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+               "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
+               "Nunatsiavut Shelf\n(Labrador Shelf)"
+    ))) %>% 
+  arrange(region.inuktitut)
 
+clrs <- unique(region_rename$region.color)
 
 # TODO temporary and need to delete
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
-  mutate(year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
+  mutate(Year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
   left_join(region_rename) %>% 
-  filter(profile_group != "AR24_LR24_GR24_UNG-3")
+  filter(profile_group != "AR24_LR24_GR24_UNG-3") %>% 
+  
+  # Add month and year
+  mutate(Month = month(`yyyy-mm-dd hh:mm`, label = T),
+         DOY = yday(`yyyy-mm-dd hh:mm`))
   
 update_profile_groups <- profiles_list %>% 
   group_by(cruise_name, profile_group, region.inuktitut) %>% 
@@ -136,8 +154,6 @@ update_profile_groups %>%
 # TODO plot all 7 cruises, same color-symbol per profile_group [ label sampling period]
 # TODO set bottom depth as max and mean+-sd
 
-clrs <- c("blue1", "red", "deeppink1","purple2","turquoise2",
-                                "goldenrod2", "sienna2", "forestgreen")
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         # limits = c(-90,-50,75,83), rotate = T,
@@ -146,21 +162,71 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = profiles_list,
                                 aes(x = Longitude, y = Latitude, 
-                                    shape = year,
+                                    shape = Year,
                                     color = region.inuktitut),
                                 size = 3, alpha = 0.7) +
+  scale_color_manual(values = clrs, name = "Region") +
   theme(axis.title = element_blank(),
-        legend.position = "right") +
-  scale_color_manual(values = clrs) +
+        legend.key.spacing.y = unit(0.2, "cm"),
+        legend.position = c(0.05, 0.05), 
+        legend.justification = c("left", "bottom"),
+        # legend.margin = margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black")) +
   guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
 
 ggsave("figures/samples_map_by_region.png", width = 10, height = 10,
        units = "in", bg = "white")
 ```
 
+# 5. Temporal plots
+```{r}
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,50,83), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  #bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = profiles_list,
+                                aes(x = Longitude, y = Latitude, 
+                                    shape = Month,
+                                    fill = DOY),
+                                size = 3, alpha = 0.7) +
+  theme(axis.title = element_blank(),
+        legend.position = "right") +
+  scale_fill_viridis_c(option = "turbo", direction = -1,
+                       breaks = c(182, 213, 244, 274),
+                       labels = c("Jul 1","Aug 1","Sep 1","Oct 1")) +
+  scale_shape_manual(values = c(21,22,23,24)) +
+  facet_wrap(~Year)
+
+# ggsave("figures/samples_map_by_dates_v2.png", width = 13, height = 6,
+#        units = "in", bg = "white")
+
+ggplot(profiles_list, aes(x = DOY, y = Year,
+                          color = region.inuktitut)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = clrs)
+
+# Number of casts per month by region
+ggplot(profiles_list, aes(x = Month, fill = region.inuktitut)) +
+  geom_histogram(stat = "count", position = "stack") +
+  scale_fill_manual(values = clrs, name = "Region") +
+  theme(legend.position = "right",
+        legend.key.spacing.y = unit(0.3, "cm")) +
+  ylab("N UVP6 profiles") 
+
+ggsave("figures/sample_dist_by_month.png",
+       width = 9, height = 4, units = "in", bg = "white")
+
+ggplot(profiles_list, aes(x = Year, fill = region.inuktitut)) +
+  geom_histogram(stat = "count", position = "stack") +
+  scale_fill_manual(values = clrs, name = "Region") +
+  ylab("N UVP6 profiles") 
 
 
-# 5. Inspect profiles for organizing profile_groups
+```
+
+
+
+# 6. Inspect profiles for organizing profile_groups
 ## 2021 Dark Edge
 ```{r, eval=FALSE}
 df_subset <- Amund_UVP6_meta %>% 
@@ -201,6 +267,27 @@ ggplot(df_subset,
   scale_color_viridis_c() +
   scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Check Darkedge profile depths
+```{r}
+de.check <- segmented.images %>% 
+  filter(sample_cruise == "darkedge") %>% 
+  group_by(sample_id) %>% 
+  summarise(min_samp_depth = min(object_depth_max),
+            max_samp_depth = max(object_depth_max),
+            .groups = "drop") %>% 
+  left_join(Amund_UVP6_meta, by = join_by(sample_id))
+
+colnames(de.check)
+
+ggplot(de.check, aes(x = sample_id, y = bottom_depth_m)) +
+  geom_point(color = "red") +
+  geom_errorbar(aes(ymin = min_samp_depth, ymax = max_samp_depth),
+                color = "blue") +
+  theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
+        legend.position = "none") +
+  scale_y_reverse()
 ```
 
 

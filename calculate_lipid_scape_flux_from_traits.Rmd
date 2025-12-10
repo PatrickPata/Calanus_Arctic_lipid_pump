@@ -602,7 +602,9 @@ ggsave("figures/vertical_biomass_by_region.png",
 
 # 5. TODO Export results
 ```{r}
-
+save(profile_totals_5m, profile_group_totals, regional_averages,
+     region_rename, uvp6_ctd_match, pg_meta,
+     file = "data/lipidflux_calculations_20251210.RData")
 ```
 
 

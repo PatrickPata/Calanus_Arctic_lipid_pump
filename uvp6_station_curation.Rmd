@@ -78,7 +78,7 @@ nodepth <- Amund_UVP6_meta %>%
 ```
 
 # 3. Match stations
-```{r}
+```{r, eval=FALSE}
 ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
   geom_point(aes(color = sample_cruise)) +
   geom_abline()
@@ -137,9 +137,8 @@ clrs <- unique(region_rename$region.color)
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
   mutate(Year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
-  left_join(region_rename) %>% 
-  filter(profile_group != "AR24_LR24_GR24_UNG-3") %>% 
-  
+  filter(!(region %in% c("Ungava Bay", "St Lawrence"))) %>% 
+  left_join(region_rename, by = "region") %>% 
   # Add month and year
   mutate(Month = month(`yyyy-mm-dd hh:mm`, label = T),
          DOY = yday(`yyyy-mm-dd hh:mm`))
@@ -148,16 +147,18 @@ update_profile_groups <- profiles_list %>%
   group_by(cruise_name, profile_group, region.inuktitut) %>% 
   count() 
 
+# Number of profiles and profile groups by region
 update_profile_groups %>% 
   group_by(region.inuktitut) %>% 
-  count()
+  summarise(n_profilegroups = n(),
+            n_profiles = sum(n),
+            .groups = "drop")
 # TODO plot all 7 cruises, same color-symbol per profile_group [ label sampling period]
 # TODO set bottom depth as max and mean+-sd
 
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        # limits = c(-90,-50,75,83), rotate = T,
-        limits = c(-90,-50,50,83), rotate = T,
+        limits = c(-85,-52,54,83), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = profiles_list,
@@ -170,18 +171,18 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.key.spacing.y = unit(0.2, "cm"),
         legend.position = c(0.05, 0.05), 
         legend.justification = c("left", "bottom"),
-        # legend.margin = margin(6,6,6,6),
+        legend.margin = ggplot2::margin(6,6,6,6),
         legend.box.background = element_rect(fill = "white", color = "black")) +
   guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
 
-ggsave("figures/samples_map_by_region.png", width = 10, height = 10,
+ggsave("figures/samples_map_by_region_v2.png", width = 6, height = 8,
        units = "in", bg = "white")
 ```
 
 # 5. Temporal plots
 ```{r}
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-90,-50,50,83), rotate = T,
+        limits = c(-85,-52,54,83), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  #bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = profiles_list,
@@ -548,8 +549,8 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        # limits = c(-95,-50,70,80), rotate = T,
-        limits = c(-95,-50,50,65), rotate = T,
+        limits = c(-95,-50,70,80), rotate = T,
+        # limits = c(-95,-50,50,70), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,

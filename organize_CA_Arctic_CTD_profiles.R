@@ -59,7 +59,8 @@ ctd_profiles <- ctd %>%
 
 # Open metadata for UVP6 casts
 uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
-                                   sheet = "ECOPART_summary")
+                                   sheet = "ECOPART_summary") %>% 
+  filter(!(region %in% c("Ungava Bay", "St Lawrence"))) 
 
 # # Assign by cast number? - Same station multiple casts do not have associated CTD
 # AB <- left_join(uvp6_profiles, ctd_profiles,
@@ -96,7 +97,7 @@ ctd <- ctd %>%
 
 ctd_cnames <- cnames
 
-save(file = "data/uvp6_associated_ctd_20251208.RData",
+save(file = "data/uvp6_associated_ctd_20251210.RData",
      ctd, ctd_profiles, uvp6_ctd_match, ctd_cnames)
 
 

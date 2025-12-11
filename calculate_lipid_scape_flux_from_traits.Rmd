@@ -335,8 +335,6 @@ ggplot(pgts_2map %>%
 ggsave("figures/biomass_mean_components_by_profile_group.png",
        width = 9, height = 5, units = "in", bg = "white")
 
-
-
 # # Plot biomass, total flux
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
@@ -350,7 +348,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "plasma", direction = -1,
                        name = "Biomass\n(gC m-2)") +
-  scale_shape_manual(values = c(21,22,23,24,21,25,22,23), guide = "none") +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05),
         legend.justification = c("left", "bottom"),
@@ -372,7 +370,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "plasma", direction = -1, 
                        name = "Lipid pump\n(gC m-2 y-1)") +
-  scale_shape_manual(values = c(21,22,23,24,21,25,22,23), guide = "none") +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05), 
         legend.justification = c("left", "bottom"),
@@ -396,7 +394,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "viridis", direction = -1, 
                        name = "Lipid fullness\n(% Total C)") +
-  scale_shape_manual(values = c(21,22,23,24,21,25,22,23), guide = "none") +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05), 
         legend.justification = c("left", "bottom"),
@@ -412,90 +410,47 @@ ggsave("figures/map_pgs_lipidfullness.png", width = 5, height = 6,
 ```{r}
 # Number of images in a profile/profile groups
 nimages <- profile_totals_5m %>% 
-  group_by(region.inuktitut, profile_group) %>% 
+  group_by(Cruise, region.inuktitut, profile_group) %>% 
   summarise(totalimages = sum(nimages), .groups = "drop")
 
 
 low_biomass <- profile_group_totals %>% 
-  filter(variable %in% c("Biomass", "Abundance")) %>%
+  filter(variable %in% c("Biomass")) %>%
   pivot_wider(names_from = variable, values_from = sum_value) %>% 
   arrange(Biomass) %>% 
-  left_join(nimages, by = join_by(region.inuktitut, profile_group))
+  left_join(nimages, by = join_by(Cruise, region.inuktitut, profile_group))
 
 ggplot(low_biomass, aes(x = totalimages, y = Biomass)) +
   geom_point() +
   xlab("# Calanus spp images in a profile_group")
 
-```
 
+# TODO check if profile group integration increases the values
+PGAVES <- profile_group_aves_5m %>% 
+  select(-c(sd_value, nprofiles)) %>% 
+  pivot_wider(names_from = "variable", values_from = mean_value)
 
-## V2: Integrate to 100 m bins first
-Note that the last bins are not averaged properly since sampled depths can vary a lot
-```{r}
-profile_group_aves_100m <- profile_totals_5m %>% 
-  # rename columns
-  rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
-         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
-         Total_C_Flux = tot_c_flux_gC_m2y_5m,
-         Diapause_Respiration = total_c_resp_gC_m2y_5m,
-         Mortality_Lipid = tot_c_lipid_mort_gC_m2y_5m,
-         Mortality_Structural = total_c_struc_mort_gC_m2y_5m) %>% 
-  pivot_longer(cols = c(Sampled_volume_m3, Abundance:Mortality_Lipid),
-               names_to = "variable", values_to = "value") %>% 
-  # Integrate to 100m bins per sample
-  group_by(region.inuktitut, profile_group, sample_id,
-           Cruise, temp_depth_bin, variable) %>% 
-  summarise(value_100m_sum = sum(value, na.rm = T),
-            n5mbins = n(), .groups = "drop") %>% 
-  # average by profile group at each 100m bin
+PTotals <- profile_totals_5m %>% 
+  select(sample_id, Depth_5m, profile_group, Cruise,
+         sample_volume = Sampled_volume_m3,
+         sample_biomass = biomass_gC_m2_5m, 
+         sample_c_flux = tot_c_flux_gC_m2y_5m,
+         sample_nimages = nimages) %>% 
+  left_join(PGAVES %>% 
+              select(profile_group, Cruise,Depth_5m,
+                     pg_volume = Sampled_volume_m3,
+                     pg_biomass = Biomass,
+                     pg_c_flux = Total_C_Flux,
+                     pg_nimages = nimages),
+            by = join_by(Depth_5m, profile_group, Cruise))
 
-  group_by(region.inuktitut, profile_group, Cruise, temp_depth_bin, variable) %>% 
-  summarise(mean_value = mean(value_100m_sum, na.rm = T),
-            mean_n5mbins = mean(n5mbins),
-            nprofiles = n(), .groups = "drop")
+ggplot(PTotals, aes(x = sample_biomass, y = pg_biomass)) +
+  geom_point() +
+  geom_abline()
 
-#  integrate to entire profile (m-2)
-profile_group_totals_v2 <- profile_group_aves_100m %>% 
-  group_by(region.inuktitut, profile_group, Cruise, variable) %>%
-  summarise(sum_value = sum(mean_value),
-            n100mbins = n(), .groups = "drop")
-  
-regional_averages_v2 <- profile_group_totals_v2 %>% 
-  group_by(region.inuktitut, variable) %>% 
-  summarise(region_mean = mean(sum_value),
-            region_sd = sd(sum_value),
-            npgs = n(), .groups = "drop")
-
-
-
-
-ggplot(regional_averages_v2 %>% 
-         filter(variable %in% c("Diapause_Respiration",
-                                "Mortality_Lipid","Mortality_Structural")), 
-       aes(x = region.inuktitut, y = region_mean, fill = variable)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = clrs) +
-  theme(legend.position = "bottom") +
-  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
-  coord_flip() + scale_x_discrete(limits = rev)
-
-# As box plot
-ggplot(profile_group_totals_v2 %>% 
-         filter(variable == "Total_C_Flux"),
-       aes(y = region.inuktitut, x = sum_value)) +
-  geom_boxplot(aes(color = region.inuktitut)) +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  scale_y_discrete(limits = rev) +
-  xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") 
-
-# Abundance and biomass
-ggplot(profile_group_totals_v2 %>% 
-         filter(variable == "Abundance"),
-       aes(y = region.inuktitut, x = sum_value)) +
-  geom_boxplot(aes(color = region.inuktitut)) +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  scale_y_discrete(limits = rev) +
-  xlab("Abundance (indiv m-2)") + ylab("Region") 
+ggplot(PTotals, aes(x = sample_c_flux, y = pg_c_flux)) +
+  geom_point() +
+  geom_abline()
 ```
 
 # 4. Vertical biomass profiles
@@ -605,6 +560,155 @@ ggsave("figures/vertical_biomass_by_region.png",
 save(profile_totals_5m, profile_group_totals, regional_averages,
      region_rename, uvp6_ctd_match, pg_meta,
      file = "data/lipidflux_calculations_20251210.RData")
+```
+
+# -- Different integration -
+
+## V2: Integrate directly to 5m bins per cruise-region
+```{r}
+region_cruise_aves_5m <- profile_totals_5m %>% 
+  # rename columns
+  rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
+         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
+         Total_C_Flux = tot_c_flux_gC_m2y_5m,
+         Diapause_Respiration = total_c_resp_gC_m2y_5m,
+         Mortality_Lipid = tot_c_lipid_mort_gC_m2y_5m,
+         Mortality_Structural = total_c_struc_mort_gC_m2y_5m) %>% 
+  pivot_longer(cols = Sampled_volume_m3:nimages,
+               names_to = "variable", values_to = "value") %>% 
+  # average by profile group at each 5m bin
+  group_by(region.inuktitut, Cruise, Depth_5m, variable) %>% 
+  summarise(mean_value = mean(value, na.rm = T),
+            sd_value = sd(value, na.rm = T),
+            nprofiles = n(), .groups = "drop")
+
+region_cruise_totals <- region_cruise_aves_5m %>% 
+  group_by(region.inuktitut, Cruise, variable) %>%
+  summarise(sum_value = sum(mean_value),
+            n5mbins = n(), .groups = "drop") %>% 
+  # adjust lipid fullness to average
+  mutate(mean_value = sum_value/n5mbins, sum_value)
+  
+regional_cruise_averages <- region_cruise_totals %>% 
+  group_by(region.inuktitut, variable) %>% 
+  summarise(region_mean = mean(sum_value),
+            region_sd = sd(sum_value),
+            npgs = n(), .groups = "drop")
+
+ 
+clrs <- rev(c("blue","black","hotpink"))
+
+# TODO Organize by region
+ggplot(regional_cruise_averages %>% 
+         filter(variable %in% c("Diapause_Respiration",
+                                "Mortality_Lipid","Mortality_Structural")), 
+       aes(x = region.inuktitut, y = region_mean, fill = variable)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "bottom") +
+  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+  coord_flip() + scale_x_discrete(limits = rev)
+
+
+# As box plot
+ggplot(region_cruise_totals %>% 
+         filter(variable == "Total_C_Flux"),
+       aes(y = region.inuktitut)) +
+  geom_boxplot(aes(x = sum_value, color = region.inuktitut)) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  # Add average values for the region
+  geom_point(data = regional_cruise_averages %>% 
+         filter(variable == "Total_C_Flux"),
+         aes(x = region_mean), shape = 17, size = 3, color = "black") +
+  geom_linerange(data = regional_cruise_averages %>% 
+         filter(variable == "Total_C_Flux"),
+         aes(xmin = region_mean - region_sd,
+                    xmax = region_mean + region_sd),
+                color = "black", linetype = "dashed") +
+  scale_y_discrete(limits = rev) +
+  scale_x_continuous(breaks = seq(0,14,2)) +
+  coord_cartesian(xlim = c(0, 15)) +
+  theme(legend.position = "none") +
+  xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") 
+
+# Abundance and biomass
+ggplot(region_cruise_totals %>% 
+         filter(variable == "Abundance"),
+       aes(y = region.inuktitut, x = sum_value)) +
+  geom_boxplot(aes(color = region.inuktitut)) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_y_discrete(limits = rev) +
+  xlab("Abundance (indiv m-2)") + ylab("Region") 
+```
+
+
+## V3: Integrate to 100 m bins first
+Note that the last bins are not averaged properly since sampled depths can vary a lot
+```{r}
+profile_group_aves_100m <- profile_totals_5m %>% 
+  # rename columns
+  rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
+         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
+         Total_C_Flux = tot_c_flux_gC_m2y_5m,
+         Diapause_Respiration = total_c_resp_gC_m2y_5m,
+         Mortality_Lipid = tot_c_lipid_mort_gC_m2y_5m,
+         Mortality_Structural = total_c_struc_mort_gC_m2y_5m) %>% 
+  pivot_longer(cols = c(Sampled_volume_m3, Abundance:Mortality_Lipid),
+               names_to = "variable", values_to = "value") %>% 
+  # Integrate to 100m bins per sample
+  group_by(region.inuktitut, profile_group, sample_id,
+           Cruise, temp_depth_bin, variable) %>% 
+  summarise(value_100m_sum = sum(value, na.rm = T),
+            n5mbins = n(), .groups = "drop") %>% 
+  # average by profile group at each 100m bin
+
+  group_by(region.inuktitut, profile_group, Cruise, temp_depth_bin, variable) %>% 
+  summarise(mean_value = mean(value_100m_sum, na.rm = T),
+            mean_n5mbins = mean(n5mbins),
+            nprofiles = n(), .groups = "drop")
+
+#  integrate to entire profile (m-2)
+profile_group_totals_v2 <- profile_group_aves_100m %>% 
+  group_by(region.inuktitut, profile_group, Cruise, variable) %>%
+  summarise(sum_value = sum(mean_value),
+            n100mbins = n(), .groups = "drop")
+  
+regional_averages_v2 <- profile_group_totals_v2 %>% 
+  group_by(region.inuktitut, variable) %>% 
+  summarise(region_mean = mean(sum_value),
+            region_sd = sd(sum_value),
+            npgs = n(), .groups = "drop")
+
+
+
+
+ggplot(regional_averages_v2 %>% 
+         filter(variable %in% c("Diapause_Respiration",
+                                "Mortality_Lipid","Mortality_Structural")), 
+       aes(x = region.inuktitut, y = region_mean, fill = variable)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "bottom") +
+  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+  coord_flip() + scale_x_discrete(limits = rev)
+
+# As box plot
+ggplot(profile_group_totals_v2 %>% 
+         filter(variable == "Total_C_Flux"),
+       aes(y = region.inuktitut, x = sum_value)) +
+  geom_boxplot(aes(color = region.inuktitut)) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_y_discrete(limits = rev) +
+  xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") 
+
+# Abundance and biomass
+ggplot(profile_group_totals_v2 %>% 
+         filter(variable == "Abundance"),
+       aes(y = region.inuktitut, x = sum_value)) +
+  geom_boxplot(aes(color = region.inuktitut)) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_y_discrete(limits = rev) +
+  xlab("Abundance (indiv m-2)") + ylab("Region") 
 ```
 
 

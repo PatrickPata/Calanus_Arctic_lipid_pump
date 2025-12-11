@@ -12,48 +12,152 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-load("data/uvp6_profile_carbon_concentration.RData")
-load("data/pocFlux_estimates_24sc_2025 11 24.RData")
+load("data/lipidflux_calculations_20251210.RData")
+load("data/pocFlux_estimates_23sc_2025 12 10.RData")
+
+
+`%notin%` <- Negate(`%in%`)
 ```
 
-# Compare stations
+# TODO Group POC flux by profile groups
 ```{r}
-# Lipid flux is sum of all components
-df_lipid_flux <- carbexp_tarling_samples %>% 
-  distinct(sample_id, maxdepth, tot_c_flux)
+pocFlux.pgs <- pocFlux %>% 
+  left_join(profile_totals_5m %>% 
+              distinct(sample_id, profile_group, region.inuktitut, Cruise),
+            by = "sample_id") %>% 
+  filter(!is.na(profile_group)) %>% 
+  
+  # average by profile group
+  group_by(Cruise, Depth_5m, profile_group, region.inuktitut) %>% 
+  summarise(mean_volume_L = mean(Sampled_volume_L, na.rm = T),
+            total_volume_L = sum(Sampled_volume_L, na.rm = T),
+            mean_model_flux = mean(ModelFlux, na.rm = T),
+            mean_flux_err = mean(fluxErr, na.rm = T),
+            nprofiles = n(), .groups = "drop")
 
-# POC flux, get flux at reference_depth +- 10 m average
+# Average by 100 m bins
+pocFlux.pgs_100m <- pocFlux.pgs %>% 
+  # filter(mean_model_flux < 500) %>%  # TODO verify
+  mutate(depth100 = floor(Depth_5m/100)*100+100) %>% 
+  group_by(Cruise, depth100, profile_group, region.inuktitut) %>% 
+  summarise(mean_model_flux = mean(mean_model_flux),
+            mean_flux_err = mean(mean_flux_err),
+            .groups = "drop") %>% 
+  mutate(cr_pgs = paste0(Cruise,profile_group))
+
+# plot flux per region...
+ggplot(pocFlux.pgs_100m, aes(x = as.factor(depth100),
+                        y = mean_model_flux)) +
+  geom_boxplot() +
+  facet_wrap(~region.inuktitut, scales = "free") +
+  coord_flip() + scale_x_discrete(limits = rev) +
+  ylab("POC Flux (mg C m-2 d-1)")
+
+ggplot(pocFlux.pgs_100m, aes(x = as.factor(depth100),
+                        y = mean_model_flux,
+                        group = cr_pgs)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
+  coord_flip() + scale_x_discrete(limits = rev) +
+  scale_y_log10() +
+  ylab("POC Flux (mg C m-2 d-1)")
+
+
+```
+
+# Calculate regional flux
+```{r}
+
+# POC flux, get average flux at depth range of 200-300 m
 # values in mg C m-2 d-1
-reference_depth <- 200
-df_poc_flux <- pocFlux %>% 
-  filter(Depth_5m >= (reference_depth-10) & Depth_5m <= (reference_depth+10)) %>% 
-  group_by(sample_id) %>% 
-  summarise(poc_model = mean(ModelFlux, na.rm = T),
-            poc_error = mean(fluxErr, na.rm = T),
+df_poc_flux <- pocFlux.pgs %>% 
+  filter(Depth_5m >= 200 & Depth_5m <= 300) %>% 
+  group_by(Cruise, region.inuktitut, profile_group) %>% 
+  summarise(poc_model = mean(mean_model_flux, na.rm = T),
+            poc_error = mean(mean_flux_err, na.rm = T),
             .groups = "drop") %>% 
   # Convert to annual flux... 
   # TODO temporary and should not simply be *365 because of interannual variability
   # mutate(poc_model = poc_model * 365 / 1000,
   #        poc_error = poc_error * 365 / 1000) %>% 
   # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
-  mutate(poc_model = (poc_model * 123 / 1000) + (poc_model/2 * 242 / 1000),
-         poc_error = (poc_error * 123 / 1000) + (poc_error/2 * 242 / 1000)) %>%
-  # exclude really high POC flux values
-  filter(poc_model < 750)
+  mutate(poc_model = (poc_model * 123 / 1000) + (poc_model/4 * 242 / 1000),
+         poc_error = (poc_error * 123 / 1000) + (poc_error/4 * 242 / 1000))
+
+
+ggplot(df_poc_flux, aes(x = region.inuktitut,
+                        y = poc_model)) +
+  geom_boxplot() +
+  coord_flip() +
+  ylab("POC Flux (g C m-2 y-1)")
+```
+
 
 # Combined data frames
+```{r}
+df_poc_flux_region <- df_poc_flux %>% 
+  group_by(region.inuktitut) %>% 
+  summarise(poc_model = mean(poc_model),
+            poc_error = mean(poc_error), 
+            .groups = "drop")
+  
 # Only the samples at depth >200 m are included
-flux_comparison <- df_poc_flux %>% 
-  left_join(df_lipid_flux, by = "sample_id")
+flux_comparison <- regional_averages %>%
+  filter(variable == "Total_C_Flux") %>% 
+  left_join(df_poc_flux_region, by = join_by(region.inuktitut))
 
 ggplot(flux_comparison, 
-       aes(x = poc_model, y = tot_c_flux, color = maxdepth)) +
+       aes(x = poc_model, y = region_mean, color = region.inuktitut)) +
   geom_errorbar(aes(xmin = poc_model-poc_error,
                     xmax = poc_model+poc_error)) +
+  geom_errorbar(aes(ymin = region_mean-region_sd,
+                    ymax = region_mean+region_sd)) +
   geom_point() +
   geom_abline() +
-  scale_color_viridis_c() +
-  scale_x_log10() + scale_y_log10() +
-  xlab("Gravity Pump") + ylab("Lipid Pump")
+  scale_x_continuous(breaks = seq(0,40,2)) +
+  scale_y_continuous(breaks = seq(0,40,2)) +
+  # scale_x_log10() + 
+  # scale_y_log10() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  ylab("Lipid Pump (g C m-2 y-1)")
+
+ggsave("figures/lipid_gravity_comparison2.png",
+       width = 5, height = 5, units = "in", bg = "white")
+```
+
+# With historical POC flux from literature
+```{r}
+sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
+  # Remove the anomalously high value for Mackenzie shelf
+  filter(Daily_Flux != 7000) %>% 
+  filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
+                                  "100-120POC","120POC",
+                                  "MaxTPOC","MeanTPOC"))
+
+# Annual averages
+sedTrap_annual <- sedTrap %>% 
+  mutate(Annual_Flux = as.numeric(Annual_Flux)) %>% 
+  filter(!is.na(Annual_Flux)) %>% 
+  group_by(RefID, AreaCode) %>% 
+  summarise(flux_mean = mean(Annual_Flux, na.rm = T),
+            flux_sd = sd(Annual_Flux, na.rm = T),
+            min = min(Annual_Flux),
+            max = max(Annual_Flux),
+            n = n(), .groups = "drop")
+
+ggplot(sedTrap, 
+       aes(x = Depth_m, y = Daily_Flux)) +
+  geom_point(aes(color = VarCode, shape = Area),
+             size = 3, alpha = 0.8) +
+  coord_flip() +
+  scale_x_reverse() +
+  ylab("POC flux (mg C m-2 d-1)") +
+  xlab("Depth (m)") 
+
+
+
 ```
 

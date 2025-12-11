@@ -156,8 +156,8 @@ indiv_traits <- segmented.images %>%
                        ctd_filename, profile_group, region),
             by = join_by(Site, Cruise)) %>% 
   
-  # Exclude the images from Ungava bay since no CTD data and lone region for analysis
-  filter(region != "Ungava Bay") %>% 
+  # Exclude the images from excluded region
+  filter(!is.na(region)) %>% 
   
   # Assign 100 m depth bin
   mutate(temp_depth_bin = floor(object_depth_max/100)*100) 

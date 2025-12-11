@@ -31,7 +31,7 @@ ctd.5a <- read.csv(file_2024_leg5a) %>%
 cnames <- read.csv(paste0(fol, "ctd_column_names_2024_leg5a.csv"))
 colnames(ctd.5a) <- cnames$annotated_name
 
-# Add additional info to 2024 leg5 a data
+# Add additional info to 2024 leg5a data
 ctd.5a <- ctd.5a %>% 
   mutate(cruise_name = "2024_05_AS",
          platform_name = "Amundsen", platform_id = 7510846) %>% 
@@ -63,11 +63,6 @@ uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
   # filter(!(region %in% c("Ungava Bay", "St Lawrence"))) 
   filter(!is.na(region))
 
-# # Assign by cast number? - Same station multiple casts do not have associated CTD
-# AB <- left_join(uvp6_profiles, ctd_profiles,
-#                 join_by(cruise_name, cast_number)) %>% 
-#                 # join_by(Site == station))
-#   relocate(platform_name, station.x, station.y)
 
 # Assign by station name?
 uvp6_ctd_match <- left_join(uvp6_profiles, ctd_profiles,

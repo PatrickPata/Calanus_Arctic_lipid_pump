@@ -18,6 +18,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggOceanMaps)
 library(ggrepel)
+`%notin%` <- Negate(`%in%`)
 ```
 
 # 1. Load station data from Excel
@@ -66,42 +67,129 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
                                        sample_stationid)) %>% 
   mutate(sample_stationid_ed = if_else(sample_id == "de_bb2_float",
                                        "de_bb2_float", sample_stationid_ed)) %>% 
-  
-  
   left_join(stns_meta, 
             by = join_by(sample_cruise, 
                          sample_stationid_ed == sample_stationid))
 
 # 26 stations have no bottom depth information
-nodepth <- Amund_UVP6_meta %>% 
-  filter(is.na(bottom_depth_m))
+Amund_UVP6_meta %>% 
+  filter(is.na(bottom_depth_m)) %>% 
+  nrow()
 ```
 
-# 3. Match stations
+# 3. Additional curation of the metadata files
+```{r}
+# Load the list of images for analysis
+load("data/uvp6_images_calculated_traits_20251210.RData")
+
+# The volume sampled in each UVP profile and region names/color
+load("data/UVP6_sample_volume_5m_20251211.RData")
+
+
+# Samples with calanus spp images
+valid_profiles <- indiv_traits %>% 
+  # filter(source %in% c("RF Calanus spp", "CNN segmentation",
+  #                      "Manual segmentation")) %>% 
+  group_by(sample_id, profile_group, region, region.inuktitut) %>% 
+  summarise(nCalanusImages = n(), .groups = "drop")
+
+# Retain only the sample_ids used in the analysis
+volumes.df <- volumes.df %>% 
+  filter(sample_id %in% valid_profiles$sample_id)
+
+# Add the min and max 5m depth bins of the UVP6 cast and add to the metadata
+volumes.sum <- volumes.df %>% 
+  group_by(sample_id) %>% 
+  summarise(min5mDepth = min(Depth_5m),
+            max5mDepth = max(Depth_5m),
+            totalProfileVolume_m3 = sum(Sampled_volume_m3),
+            n5mbins = n(), .groups = "drop") 
+
+Amund_UVP6_meta <- valid_profiles %>% 
+  left_join(Amund_UVP6_meta, by = "sample_id") %>% 
+  left_join(volumes.sum, by = "sample_id") %>% 
+  select(-object_id)
+
+
+# # Check which profiles do not sample the entire bottom depth
+# ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
+#   geom_point(aes(color = sample_cruise)) +
+#   geom_abline()
+
+# # How many images in total per profile?
+# plot_grid(
+# ggplot(valid_profiles, aes(x = nCalanusImages)) +
+#   geom_histogram(binwidth = 10) +
+#   ggtitle("Images per profile"),
+# 
+# ggplot(valid_profiles %>% 
+#          group_by(profile_group) %>% 
+#          summarise(nCalanusImages = sum(nCalanusImages)), aes(x = nCalanusImages)) +
+#   geom_histogram() +
+#   ggtitle("Images per profile-group") )
+# ggsave("figures/image_count_profiles_2.png",
+#        width = 8, height = 4, units = "in", bg = "white")
+
+# ## Check image counts between Calanus spp and Copepoda > 3mm
+# AA <- indiv_traits %>% 
+#   mutate(source2 = if_else(source %in% c("RF Calanus spp", "CNN segmentation",
+#                        "Manual segmentation"), 
+#                        "Calanus","Copepoda3mm") ) %>% 
+#    group_by(Cruise, sample_id, profile_group, region, region.inuktitut, source2) %>% 
+#   summarise(nimages = n(), .groups = "drop") %>% 
+#   pivot_wider(names_from = source2, values_from = nimages,
+#               values_fill = 0)
+# 
+# ggplot(AA, aes(x = Calanus, y = Copepoda3mm,
+#                color = region.inuktitut,
+#                shape = Cruise)) +
+#   geom_point() +
+#   geom_abline() +
+#   scale_color_manual(values = unique(region_rename$region.color),
+#                      name = "Region") +
+#   ggtitle("Number of images per UVP6 profile")
+# 
+# ggsave("figures/image_count_profiles.png",
+#        width = 8, height = 5, units = "in", bg = "white")
+```
+
+
+## Prepare metadata of profile groups and export
+```{r}
+# Calculate profile group centroids
+pg_meta <- Amund_UVP6_meta %>% 
+  mutate(uvp6_date = lubridate::ymd_hms(paste(object_date, object_time))) %>% 
+  group_by(sample_cruise, region.inuktitut, region, profile_group) %>% 
+  summarise(longitude = mean(object_lon),
+            latitude = mean(object_lat),
+            date = mean(uvp6_date),
+            min_bottom_depth = min(bottom_depth_m),
+            min_cast_depth = min(maxSampleDepth),
+            max_bottom_depth = max(bottom_depth_m),
+            max_cast_depth = max(maxSampleDepth),
+            nprofiles = n(),
+            .groups = "drop") %>% 
+  arrange(region.inuktitut, latitude) %>% 
+  group_by(region) %>% 
+  mutate(total_profiles = sum(nprofiles)) %>% 
+  ungroup()
+
+# Number of profiles and profile groups by region
+pg_meta %>% 
+  group_by(region, region.inuktitut) %>% 
+  summarise(n_profilegroups = n(),
+            n_profiles = sum(nprofiles),
+            .groups = "drop")
+
+
+# *** Export the metadata file including the volumes ***
+save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta,
+     file = "data/UVP6_Calanus_metadata_20251211.RData")
+```
+
+
+## Get profile summaries from excel file instead
 ```{r, eval=FALSE}
-ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
-  geom_point(aes(color = sample_cruise)) +
-  geom_abline()
-
-# Check samples with max tow depth not within 100 m of bottom depth
-
-tocheck_depth <- Amund_UVP6_meta %>% 
-  filter(maxSampleDepth > bottom_depth_m + 100 |
-           maxSampleDepth < bottom_depth_m - 100 |
-           is.na(bottom_depth_m)) %>% 
-  mutate(perc_diff = maxSampleDepth / bottom_depth_m * 100) %>% 
-  relocate(sample_cruise, sample_stationid, 
-           maxSampleDepth, bottom_depth_m, perc_diff)
-
-ggplot(tocheck_depth, aes(x = maxSampleDepth, y = bottom_depth_m)) +
-  geom_point(aes(color = sample_cruise)) +
-  geom_abline() 
-
-# TODO figure out what to do with these samples
-```
-
-# 4. Plot profile groups
-```{r, width = 12}
 region_rename <- data.frame(
   region = c("Baffin Bay", "Baffin Shelf", 
              "Davis Strait", "Lancaster Sound",
@@ -131,7 +219,7 @@ region_rename <- data.frame(
 
 clrs <- unique(region_rename$region.color)
 
-# TODO temporary and need to delete
+# Use the profile lists instead of metadata?
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
   mutate(Year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
@@ -139,28 +227,33 @@ profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
   left_join(region_rename, by = "region") %>% 
   # Add month and year
   mutate(Month = month(`yyyy-mm-dd hh:mm`, label = T),
-         DOY = yday(`yyyy-mm-dd hh:mm`))
+         DOY = yday(`yyyy-mm-dd hh:mm`)) %>% 
+  rename(sample_id = Profile, 
+         sample_cruise = Cruise,
+         sample_stationid = Site) %>% 
+  filter(sample_id %in% Amund_UVP6_meta$sample_id)
   
-update_profile_groups <- profiles_list %>% 
-  group_by(cruise_name, profile_group, region.inuktitut) %>% 
-  count() 
 
 # Number of profiles and profile groups by region
-update_profile_groups %>% 
+profiles_list %>% 
+  group_by(cruise_name, profile_group, region.inuktitut) %>% 
+  count() %>% 
   group_by(region.inuktitut) %>% 
   summarise(n_profilegroups = n(),
             n_profiles = sum(n),
             .groups = "drop")
-# TODO plot all 7 cruises, same color-symbol per profile_group [ label sampling period]
-# TODO set bottom depth as max and mean+-sd
+```
 
 
+# 4. Plot profile groups
+```{r, width = 12}
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
-  ggspatial::geom_spatial_point(data = profiles_list,
-                                aes(x = Longitude, y = Latitude, 
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat, 
                                     shape = Year,
                                     color = region.inuktitut),
                                 size = 3, alpha = 0.7) +
@@ -173,19 +266,17 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.box.background = element_rect(fill = "white", color = "black")) +
   guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5))
 
-ggsave("figures/samples_map_by_region_v2.png", width = 6, height = 8,
+ggsave("figures/samples_map_by_region.png", width = 6, height = 8,
        units = "in", bg = "white")
-```
 
-# 5. Temporal plots
-```{r}
+
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  #bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
-  ggspatial::geom_spatial_point(data = profiles_list,
-                                aes(x = Longitude, y = Latitude, 
-                                    shape = Month,
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta,
+                                aes(x = object_lon, y = object_lat, 
+                                    shape = Month_Name,
                                     fill = DOY),
                                 size = 3, alpha = 0.7) +
   theme(axis.title = element_blank(),
@@ -193,19 +284,15 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   scale_fill_viridis_c(option = "turbo", direction = -1,
                        breaks = c(182, 213, 244, 274),
                        labels = c("Jul 1","Aug 1","Sep 1","Oct 1")) +
-  scale_shape_manual(values = c(21,22,23,24)) +
+  scale_shape_manual(values = c(21,22,23,24), name = "Month") +
   facet_wrap(~Year)
 
 ggsave("figures/samples_map_by_dates_v2.png", width = 13, height = 6,
        units = "in", bg = "white")
 
-ggplot(profiles_list, aes(x = DOY, y = Year,
-                          color = region.inuktitut)) +
-  geom_point(alpha = 0.7) +
-  scale_color_manual(values = clrs)
 
 # Number of casts per month by region
-ggplot(profiles_list, aes(x = Month, fill = region.inuktitut)) +
+ggplot(Amund_UVP6_meta, aes(x = Month_Name, fill = region.inuktitut)) +
   geom_histogram(stat = "count", position = "stack") +
   scale_fill_manual(values = clrs, name = "Region") +
   theme(legend.position = "right",
@@ -215,7 +302,7 @@ ggplot(profiles_list, aes(x = Month, fill = region.inuktitut)) +
 ggsave("figures/sample_dist_by_month.png",
        width = 9, height = 4, units = "in", bg = "white")
 
-ggplot(profiles_list, aes(x = Year, fill = region.inuktitut)) +
+ggplot(Amund_UVP6_meta, aes(x = as.factor(Year), fill = region.inuktitut)) +
   geom_histogram(stat = "count", position = "stack") +
   scale_fill_manual(values = clrs, name = "Region") +
   ylab("N UVP6 profiles") 
@@ -225,7 +312,7 @@ ggplot(profiles_list, aes(x = Year, fill = region.inuktitut)) +
 
 
 
-# 6. Inspect profiles for organizing profile_groups
+# 5. Inspect profiles for organizing profile_groups
 ## 2021 Dark Edge
 ```{r, eval=FALSE}
 df_subset <- Amund_UVP6_meta %>% 

@@ -463,6 +463,7 @@ UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
 UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:8]
 # Get midpoints of size bins
 UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:8] + UVP6_sizebins_width/2 
+
 ```
 
 ## Calculate flux
@@ -532,5 +533,93 @@ poc_flux_annual_500 <- poc_flux_annual %>%
 # Group by
 ```
 
+# Prepare sample volumes
+```{r}
+# Add region info
+region_rename <- data.frame(
+  region = c("Baffin Bay", "Baffin Shelf", 
+             "Davis Strait", "Lancaster Sound",
+             "North Water Polynya", "Labrador Shelf", 
+              "Nares Strait"),
+  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
+                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+                       "Tallurutiup Imanga\n(Lancaster Sound)",
+                       "Pikialasorsuaq\n(North Water Polynya)", 
+                       "Nunatsiavut Shelf\n(Labrador Shelf)",
+                       "Sarvarjuaq\n(Nares Strait)"),
+  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
+                   "deeppink1","blue1", "sienna2")) %>% 
+  # order regions as factors by latitude
+  mutate(region.inuktitut = factor(
+    region.inuktitut,
+    levels = c("Sarvarjuaq\n(Nares Strait)",
+               "Pikialasorsuaq\n(North Water Polynya)", 
+               "Tallurutiup Imanga\n(Lancaster Sound)",
+               "Sannirutiup Imavik\n(Baffin Bay)", 
+               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+               "Nunatsiavut Shelf\n(Labrador Shelf)"
+    ))) %>% 
+  arrange(region.inuktitut)
 
+volumes.df <- uvp6_reduced %>% 
+  distinct(sample_id, Depth_5m, Sampled_volume_L)  %>% 
+  mutate(Sampled_volume_m3 = Sampled_volume_L * 0.001)
+
+save(volumes.df, region_rename,
+     file = "data/UVP6_sample_volume_5m_20251211.RData")
+
+```
+
+## Volumes check
+```{r}
+df <- data.frame(depth = seq(5,50,5),
+                image = c(1,1,0,1,2,0,0,3,1,0),
+                volume_L = c(30,50,60,70,70,50,60,70,80,100)) %>% 
+  mutate(abundance_L = image / volume_L) %>% 
+  mutate(abundance_m3 = image / (volume_L * 0.001),
+         abundance_m2 = abundance_m3 * 5)
+
+# Averaging 2 profiles per 5m bins
+df.profile <- data.frame(depth = seq(5,50,5),
+                 image_a = c(1,1,0,1,2,0,0,3,1,0),
+                 volume_L_a = c(30,50,60,70,70,50,60,70,80,100),
+                 image_b = c(0,0,1,1,5,1,0,0,2,1),
+                 volume_L_b = c(40,30,20,120,50,30,30,50,70,70)) %>% 
+  mutate(image_sum = image_a + image_b,
+         volume_sum = volume_L_a + volume_L_b) %>% 
+  mutate(abundance_L = image_sum / volume_sum) %>% 
+  mutate(abundance_m3 = image_sum / (volume_sum * 0.001),
+         abundance_m2 = abundance_m3 * 5)
+
+# if only considering positive instances
+df.profile.v2 <- df.profile %>% 
+  select(depth, image_a, volume_L_a, image_b, volume_L_b) %>% 
+  # Set volume to zero if no image found in the bin
+  mutate(volume_L_a = if_else(image_a == 0, 0, volume_L_a),
+         volume_L_b = if_else(image_b == 0, 0, volume_L_b)) %>% 
+  mutate(image_sum = image_a + image_b,
+         volume_sum = volume_L_a + volume_L_b) %>% 
+  mutate(abundance_L = image_sum / volume_sum) %>% 
+  mutate(abundance_m3_v2 = image_sum / (volume_sum * 0.001),
+         abundance_m2_v2 = abundance_m3_v2 * 5)
+# compare 2 methods of averaging
+df.compare <- df.profile %>% 
+  left_join(df.profile.v2 %>% 
+              select(depth, abundance_m3_v2, abundance_m2_v2))
+
+colSums(df.compare, na.rm = T)
+
+# Check effect of vertical binning
+df25 <- df %>% 
+  mutate(depth25 = floor(depth/25)*25+25) %>% 
+  group_by(depth25) %>% 
+  summarise(image = sum(image),
+            volume_L = sum(volume_L), 
+            n5mbins = n(), .groups = "drop") %>% 
+  mutate(abundance_L = image / volume_L) %>% 
+  mutate(abundance_m3 = image / (volume_L * 0.001),
+         abundance_m2 = abundance_m3 * 25)
+```
 

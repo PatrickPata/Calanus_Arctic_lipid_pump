@@ -74,3 +74,35 @@ save(file = "data/UVP6_ECOPART_Data_20251121.RData",
 # df1a <- read_par_tsv("2021_Leg5/all_particles/export_detailed_20251120_16_43_PAR_Aggregated")
 # df1b <- read_par_tsv("2021_Leg5/living_particles/export_detailed_20251104_23_01_PAR_Aggregated")
 # all.equal(df1a,df1b)
+
+
+## Organize the reduced ECOPART results instead
+
+read_par_tsv_reduced <- function(filename, fol = "C:/Sync/UVP6_Data/Ecopart/") {
+  cnames <- read.csv('data/Ecopart_PAR_file_column_names_reduced.csv')
+  
+  df_ed <- read.table(paste0(fol, filename, ".tsv"),  
+                      header = FALSE, skip = 1)
+  colnames(df_ed) <- cnames$AnnotatedColumnName
+  
+  df_ed <- df_ed %>%
+    select(c(sample_id:Sampled_volume_L,
+             concentration_128_256_um:concentration_16_mm,
+             biovolume_128_256_um_mm3L:biovolume_164_mm_mm3L))
+}
+
+
+
+df1 <- read_par_tsv_reduced("2021_Leg5/reduced/export_reduced_20250311_16_52_PAR_Aggregated")
+df2 <- read_par_tsv_reduced("2023_Leg2/reduced/export_reduced_20250311_16_40_PAR_Aggregated")
+df3 <- read_par_tsv_reduced("2024_Leg4/reduced/export_reduced_20251210_21_15_PAR_Aggregated") 
+df4 <- read_par_tsv_reduced("2024_Leg235/reduced/export_detailed_20251103_19_57_PAR_Aggregated") 
+
+uvp6_PAR_reduced <- bind_rows(df1, df2, df3, df4)
+rm(df1, df2, df3, df4)
+
+
+save(file = "data/UVP6_ECOPART_Data_reduced_20251210.RData",
+     uvp6_PAR_reduced, uvp6_profiles)
+
+

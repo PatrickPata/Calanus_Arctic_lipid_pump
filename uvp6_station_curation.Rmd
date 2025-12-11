@@ -106,17 +106,16 @@ region_rename <- data.frame(
   region = c("Baffin Bay", "Baffin Shelf", 
              "Davis Strait", "Lancaster Sound",
              "North Water Polynya", "Labrador Shelf", 
-             "Greenland Shelf", "Nares Strait"),
+              "Nares Strait"),
   region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
                        "Qikiqtaaluk Shelf\n(Baffin Shelf)",
                        "Qikiqtaaluup Ikinga\n(Davis Strait)", 
                        "Tallurutiup Imanga\n(Lancaster Sound)",
                        "Pikialasorsuaq\n(North Water Polynya)", 
                        "Nunatsiavut Shelf\n(Labrador Shelf)",
-                       "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
                        "Sarvarjuaq\n(Nares Strait)"),
   region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
-                   "deeppink1","red","blue1", "sienna2")) %>% 
+                   "deeppink1","blue1", "sienna2")) %>% 
   # order regions as factors by latitude
   mutate(region.inuktitut = factor(
     region.inuktitut,
@@ -126,7 +125,6 @@ region_rename <- data.frame(
                "Sannirutiup Imavik\n(Baffin Bay)", 
                "Qikiqtaaluup Ikinga\n(Davis Strait)", 
                "Qikiqtaaluk Shelf\n(Baffin Shelf)",
-               "Kalaallit Nunaat Shelf\n(Greenland Shelf)", 
                "Nunatsiavut Shelf\n(Labrador Shelf)"
     ))) %>% 
   arrange(region.inuktitut)
@@ -137,7 +135,7 @@ clrs <- unique(region_rename$region.color)
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
   mutate(Year = as.factor(year(`yyyy-mm-dd hh:mm`))) %>% 
-  filter(!(region %in% c("Ungava Bay", "St Lawrence"))) %>% 
+  filter(!is.na(region)) %>% 
   left_join(region_rename, by = "region") %>% 
   # Add month and year
   mutate(Month = month(`yyyy-mm-dd hh:mm`, label = T),
@@ -198,8 +196,8 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   scale_shape_manual(values = c(21,22,23,24)) +
   facet_wrap(~Year)
 
-# ggsave("figures/samples_map_by_dates_v2.png", width = 13, height = 6,
-#        units = "in", bg = "white")
+ggsave("figures/samples_map_by_dates_v2.png", width = 13, height = 6,
+       units = "in", bg = "white")
 
 ggplot(profiles_list, aes(x = DOY, y = Year,
                           color = region.inuktitut)) +
@@ -403,7 +401,7 @@ df_subset <- df_subset %>%
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         # limits = c(-70,-55,50,62), rotate = T,
-        limits = c(-70,-55,62,70), rotate = T,
+        limits = c(-65,-55,52,57), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,
@@ -433,12 +431,13 @@ ggplot(df_subset,
        aes(x = sample_id, y = maxSampleDepth, color = object_date)) +
   geom_errorbar(aes(ymin = 0, ymax = maxSampleDepth)) +
   geom_point() +
-  geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
+  # geom_point(aes(y = bottom_depth_m), color = "red", shape = 4) +
   scale_color_viridis_c() +
   # scale_y_reverse() +
   theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1),
         legend.position = "none") 
 ```
+
 
 
 ## 2024 Leg 3
@@ -549,8 +548,8 @@ df_subset <- df_subset %>%
                             levels = df_subset$sample_id))
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-95,-50,70,80), rotate = T,
-        # limits = c(-95,-50,50,70), rotate = T,
+        # limits = c(-95,-50,70,80), rotate = T,
+        limits = c(-95,-50,50,70), rotate = T,
         legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = df_subset,

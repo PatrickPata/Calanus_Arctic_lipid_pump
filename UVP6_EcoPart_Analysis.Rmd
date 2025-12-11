@@ -290,16 +290,14 @@ ggplot(pocFlux, aes(x = ModelFlux, y = Depth_5m)) +
 
 
 
-# Calculate flux for 80.6 um to 26mm (26 size classes)
+# Calculate flux for 128 um to 26mm (23 size classes)
 
 ## Preparations
 ```{r}
 sc.df <- uvp6_par_cnames %>% 
   filter(grepl("concentration", AnnotatedColumnName) == T) %>% 
-  filter(Lower_limit_um >= 50.80) %>% 
-  filter(Size_class_midpoint_mm > 0.073) %>% 
-  filter(Size_class_midpoint_mm >= 0.1445)
-
+  filter(Lower_limit_um >= 128) %>% 
+  filter(Lower_limit_um < 26000)
 # Get width of size bins
 UVP6_sizebins_width <- sc.df$Size_class_width_mm
 # Get midpoints of size bins
@@ -356,7 +354,7 @@ for (i in c(1:nrow(pocFlux))) {
   }
 }
 
-save(file = paste0("data/pocFlux_estimates_24sc_", 
+save(file = paste0("data/pocFlux_estimates_23sc_", 
                    format(Sys.time(), "%Y %m %d"),
                    ".RData"),
   pocFlux, sc.df)
@@ -438,6 +436,101 @@ ggplot(POC_selected, aes(x = max_5mbin_depth, y = ModelFlux)) +
 
 ## TODO: Apply the error propagations in plots (simply add the SD)
 
+# ** REDUCED PAR ** 
+## Read data
+```{r}
+# Load the file of reduced Particle concentrations for all profiles
+cnames <- read.csv('data/Ecopart_PAR_file_column_names_reduced.csv')
+
+filename <- "all_legs_reduced_84960/export_reduced_20251210_21_24_PAR_Aggregated"
+uvp6_reduced <- read.table(paste0("C:/Sync/UVP6_Data/Ecopart/", filename, ".tsv"),  
+                    header = FALSE, skip = 1) %>% 
+# Remove column 4 because it is time only 
+  select(-V4)
+colnames(uvp6_reduced) <- cnames$AnnotatedColumnName
+
+# Note volume is per liter
+uvp6_reduced <- uvp6_reduced %>%
+  select(c(sample_id:Sampled_volume_L,
+           concentration_128_256_um:concentration_16_mm))
+
+# Establish size bins
+UVP6_sizebins_edges_um <- c(128,256,512,1024,2048,4096,8192,16384,32768)
+UVP6_N_sizebins <- 8
+# Convert um to mm
+UVP6_sizebins_edges_mm <- UVP6_sizebins_edges_um * 0.001
+# Get width of size bins
+UVP6_sizebins_width <- UVP6_sizebins_edges_mm[1:8]
+# Get midpoints of size bins
+UVP6_sizebins_mid <- UVP6_sizebins_edges_mm[1:8] + UVP6_sizebins_width/2 
+```
+
+## Calculate flux
+```{r}
+nIterations <- 100 
+pocFlux_UVP6 <- uvp6_reduced %>% 
+  select(sample_id, project, datetime, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA,
+         fluxErr = NA)
+
+for (i in c(1:nrow(pocFlux_UVP6))) { #c(1:20)) { #
+  a_par <- uvp6_reduced[i, 7:14]
+  a_vol <- uvp6_reduced$Sampled_volume_L[i]
+  
+  # No model
+  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  
+  if(sum(observedN) > 0){
+    tryCatch( {
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      
+      pocFlux_UVP6$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl,
+                                                    UVP6_sizebins_mid)
+      pocFlux_UVP6$C1[i] <- trunc$C1
+      pocFlux_UVP6$alpha[i] <- trunc$alpha
+      pocFlux_UVP6$lambda[i] <- trunc$lambda
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+  } 
+
+  # Add the random samples function for sample volume error
+  simulatedNbl <- generateRandomSamplesOfParticleNumber(a_par, a_vol,
+                                                        N_sizebins = UVP6_N_sizebins)
+  fluxIter <- rep(NA, nIterations)
+  for (iIter in seq_len(nIterations)) {
+    if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
+      fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ], UVP6_sizebins_mid)
+    }
+  }
+  pocFlux_UVP6$fluxErr[i] <- sd(fluxIter, na.rm = TRUE)
+}
+```
+
+## Analyze flux per region
+```{r}
+# Annual integration to gC m-2 y-1 from mg C m-2 d-1
+poc_flux_annual <- pocFlux_UVP6 %>% 
+  mutate(poc_model = (ModelFlux * 123 / 1000) + (ModelFlux/4 * 242 / 1000),
+         poc_error = (fluxErr * 123 / 1000) + (fluxErr/4 * 242 / 1000)) 
+
+
+# POC flux, get flux at reference_depth +- 10 m average
+# values in mg C m-2 d-1
+reference_depth <- 500
+poc_flux_annual_500 <- poc_flux_annual %>% 
+  filter(Depth_5m >= (reference_depth-10) & Depth_5m <= (reference_depth+10)) %>% 
+  group_by(sample_id, project) %>% 
+  summarise(poc_model = mean(poc_model, na.rm = T),
+            poc_error = mean(poc_error, na.rm = T),
+            .groups = "drop") %>% 
+  filter(poc_model < 500)
+
+# Group by
+```
 
 
 

@@ -183,10 +183,22 @@ Daily POC Flux: (mg C m-2 y-1)
 sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
   # Remove the anomalously high value for Mackenzie shelf
   filter(Daily_Flux != 7000) %>% 
-  mutate(Area = if_else(AreaCode == "NOW", "Baffin-NOW", "Other-Arctic")) %>% 
+  # mutate(Area = if_else(AreaCode == "NOW", "Baffin-NOW", "Other-Arctic")) %>% 
          # filter(Area == "Baffin-NOW") %>% 
-         filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
-                                  "100-120POC","120POC" ))
+  filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
+                                  "100-120POC","120POC",
+                                  "MaxTPOC","MeanTPOC"))
+
+# Annual averages
+sedTrap %>% 
+  mutate(Annual_Flux = as.numeric(Annual_Flux)) %>% 
+  filter(!is.na(Annual_Flux)) %>% 
+  group_by(RefID, AreaCode) %>% 
+  summarise(flux_mean = mean(Annual_Flux, na.rm = T),
+            flux_sd = sd(Annual_Flux, na.rm = T),
+            min = min(Annual_Flux),
+            max = max(Annual_Flux),
+            n = n(), .groups = "drop")
 
 ggplot(sedTrap, 
        aes(x = Depth_m, y = Daily_Flux)) +
@@ -867,6 +879,58 @@ ggplot(AA,
   theme(legend.position = "none") +
   ggtitle("Monthly mean POC flux at different depths")
 ```
+
+## Spatial plot
+```{r}
+uvp5_200 <- pocFlux %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  filter(Depth_5m >= 200 & Depth_5m <= 300) %>% 
+  group_by(sample_id, datetime) %>% 
+  summarise(poc_model = mean(ModelFlux, na.rm = T),
+            poc_mode_sd = sd(ModelFlux, na.rm = T),
+            nbins = n(),
+            .groups = "drop") %>% 
+  left_join(UVP5_CA_Arctic_meta, by = join_by(sample_id == Sample_id)) %>% 
+  filter(poc_model < 1000) %>% 
+  mutate(Region = if_else(Latitude > 65, "Arctic", "Subarctic"))
+
+ggplot(uvp5_200, aes(x = as.factor(Month), y = poc_model)) +
+  geom_boxplot() +
+  facet_wrap(~Region)
+
+# integrate annually by getting monthly mean then annual total
+uvp5_200_annual <- uvp5_200 %>% 
+  # mutate(poc_model = (poc_model * 365 / 1000) ) %>% 
+  group_by(Region, Month) %>% 
+  summarise(mean_flux = mean(poc_model),
+            sd_flux = sd(poc_model),
+            n = n(), .groups = "drop") %>% 
+  # for now get mean across months and multiply by 12
+  group_by(Region) %>% 
+  summarise(mean_flux = mean(mean_flux),
+            sd_flux = mean(sd_flux),
+            n = n(), .groups = "drop") %>% 
+  
+  mutate(poc_annual = (mean_flux * 365 / 1000),
+         poc_annual_sd = (sd_flux * 365 / 1000))
+
+
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-90,-50,50,85), rotate = T,
+        legends = FALSE) +
+  ggspatial::geom_spatial_point(data = uvp5_200_annual,
+                                aes(x = Longitude, y = Latitude, 
+                                    color = poc_model),
+                                size = 2, alpha = 0.8) +
+  scale_color_viridis_c() +
+  theme(axis.title = element_blank(),
+        legend.position = "right") +
+  guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)) 
+
+```
+
+
 
 ## Eventually combine the POC flux estimates for both UVP5 and UVP6 to make seasonal and regional summaries
 

@@ -48,8 +48,13 @@ calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
   
   # Only consider populated size classes and remove the ones that are not
   bad <- which(is.infinite(observedN_log10))
-  observedN_log10_good <- observedN_log10[-bad]
-  binMiddle_good <- binMiddle[-bad]
+  if(length(bad) > 0) {
+    observedN_log10_good <- observedN_log10[-bad]
+    binMiddle_good <- binMiddle[-bad]
+  } else {
+    observedN_log10_good <- observedN_log10
+    binMiddle_good <- binMiddle
+  }
   
   # Initial guess and bounds for model parameters
   # PP: Originally, x0 is c(40, 4, 0.1) but I changed it to c(10, 4, 0.1) to remove the error "Error in optim(par = x0, fn = function(x) { :  L-BFGS-B needs finite values of 'fn'"

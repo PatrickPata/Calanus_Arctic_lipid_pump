@@ -190,7 +190,7 @@ ggplot(profile_group_totals %>%
                 color = "black", linetype = "dashed") +
   scale_y_discrete(limits = rev) +
   scale_x_continuous(breaks = seq(0,14,2)) +
-  coord_cartesian(xlim = c(0, 15)) +
+  coord_cartesian(xlim = c(0, 14)) +
   theme(legend.position = "none") +
   xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") 
 
@@ -323,21 +323,7 @@ This uses the option 1 integration of averaging 5m intervals per profile group f
 Also separate Calanus spp vs Likely Copepoda > 3mm
 ```{r}
 # TODO Adjust for blanks in volume...
-biomass_vert_100m <- cope_carbon_5m %>% 
-  # Differentiate Calanus spp segmented images and large copepods
-  mutate(source2 = if_else(source %in% c("RF Calanus spp", "CNN segmentation",
-                       "Manual segmentation"), 
-                       "Calanus spp","Copepoda > 3mm") ) %>% 
-  # integrate to 5m bins
-  group_by(region.inuktitut, profile_group, Site, sample_cruise, sample_id,
-           Depth_5m, Sampled_volume_m3, 
-           temp_depth_bin, source2) %>% 
-  summarise(abundance_m2_5m = sum(abund_frac_5m),
-            biomass_gC_m2_5m = sum(abund_frac_5m * prosome_total_mgC) / 1000,
-            lipid_gC_m2_5m = sum(abund_frac_5m * waxester_mass_mgC) / 1000,
-            lipid_full_mean_5m = mean(lipid_fullness),
-            nimages = n(),
-            .groups = "drop") %>% 
+biomass_vert_100m <- profile_totals_5m %>% 
 
   # average by profile group at each 5m bin
   rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
@@ -345,14 +331,14 @@ biomass_vert_100m <- cope_carbon_5m %>%
   pivot_longer(cols = Abundance:Lipid_Fullness,
                names_to = "variable", values_to = "value") %>% 
   group_by(region.inuktitut, profile_group, sample_cruise, Depth_5m, variable,
-           temp_depth_bin, source2) %>% 
+           temp_depth_bin) %>% 
   summarise(mean_value = mean(value, na.rm = T),
             sd_value = sd(value, na.rm = T),
             nprofiles = n(), .groups = "drop") %>% 
 
   # integrate to concentrations in 100 m bins both (m2 and m3)
   group_by(region.inuktitut, profile_group, sample_cruise, variable,
-           temp_depth_bin, source2) %>% 
+           temp_depth_bin) %>% 
   summarise(value_total_m2 = sum(mean_value),
             value_mean_m3 = mean(mean_value/5),
             n5mbins = n(), .groups = "drop") %>% 
@@ -364,61 +350,50 @@ biomass_vert_100m <- cope_carbon_5m %>%
 
 
 biomass_vert_region <- biomass_vert_100m %>% 
-  group_by(region.inuktitut, variable, temp_depth_bin, source2) %>% 
+  group_by(region.inuktitut, variable, temp_depth_bin) %>% 
   summarise(region_mean_total_m2 = mean(value_total_m2),
             region_sd_total_m2  = sd(value_total_m2),
             region_mean_mean_m3 = mean(value_mean_m3),
             region_sd_mean_m3  = sd(value_mean_m3),
             npgs = n(), .groups = "drop")
 
+
+
 ggplot(biomass_vert_region %>% 
-         filter(variable == "Biomass"), 
+         filter(variable == "Lipids"),
        aes(x = temp_depth_bin, y = region_mean_mean_m3*1000,
                                 color = region.inuktitut)) +
-  geom_line() +
-  geom_point() +
-  coord_flip() +
-  scale_x_reverse(breaks = seq(0,2600,200)) +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  facet_wrap(~source2) +
-  theme(legend.position = "right") +
-  xlab("Depth (m)") + ylab("Biomass (mg m-3)")
-
-# ggsave("figures/vertical_biomass_by_source.png",
-#        width = 7, height = 5, units = "in", bg = "white")
-
-ggplot(biomass_vert_region %>% 
-         filter(variable == "Lipids") %>% 
-         filter(source2 == "Calanus spp"), 
-       aes(x = temp_depth_bin, y = region_mean_mean_m3*1000,
-                                color = region.inuktitut,
-           shape = source2)) +
   # geom_errorbar(aes(ymin = (region_mean_mean_m3-region_sd_mean_m3)*1000,
-  #                   ymax = (region_mean_mean_m3+region_sd_mean_m3)*1000)) +
+  #                   ymax = (region_mean_mean_m3+region_sd_mean_m3)*1000),
+  #               alpha = 0.3) +
   geom_line() +
   geom_point() +
   coord_flip() +
   scale_x_reverse(breaks = seq(0,2600,200)) +
   scale_color_manual(values = unique(region_rename$region.color)) +
   theme(legend.position = "none") +
-  xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)")
+  xlab("Depth (m)") + ylab("Lipid biomass (mg C m-3)") +
+  ggtitle("Average concentrations")
+
+ggsave("figures/vertical_lipid_biomass_concentration_by_region.png",
+       width = 3.5, height = 5, units = "in", bg = "white")
+
 
 # Distribution by region
 ggplot(biomass_vert_100m %>% 
-         filter(variable == "Lipids") %>% 
-         filter(source2 == "Calanus spp"),
+         filter(variable == "Lipids"),
        aes(x = depthBinLabel, y = value_mean_m3*1000,
            color = region.inuktitut)) +
   geom_boxplot() +
   coord_flip() +
   scale_x_discrete(limits = rev) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
   facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
   theme(legend.position = "none") +
   xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)")
 
-# ggsave("figures/vertical_biomass_by_region.png",
-#        width = 9, height = 7, units = "in", bg = "white")
+ggsave("figures/vertical_biomass_by_region.png",
+       width = 9, height = 7, units = "in", bg = "white")
 ```
 
 # 5. TODO Export results
@@ -432,6 +407,14 @@ save(profile_totals_5m, profile_group_totals, regional_averages,
 
 ## V2: Integrate directly to 5m bins per cruise-region
 ```{r}
+# TODO check if actually latitudinally ordered profiles
+# TODO find and exclude casts not 70%? of the bottom depth??
+# Then simply average all sites...
+AA <- Amund_UVP6_meta %>% 
+  mutate(castratio = maxSampleDepth / bottom_depth_m ) %>% 
+  arrange(-castratio)
+
+
 region_cruise_aves_5m <- profile_totals_5m %>% 
   # rename columns
   rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,

@@ -43,7 +43,7 @@ source("functions/lipid_pump_toolkit.R")
 ```
 
 
-# 2. Calculate the total carbon to be exported by each individual
+# 1. Calculate the total carbon to be exported by each individual
 This is the finest resolution for the data since the volume information is in 5m bins. There are about 1.7 segmented images (1-28 range) per 5m bin and about 9 images (1-96) per 100 m bins.
 ```{r}
 beta <- -0.001 # natural mortality rate (day-1)
@@ -117,8 +117,223 @@ prof_with_blank <- volumes.df %>%
 
 profile_totals_5m <- prof_with_blank 
 rm(prof_with_blank)
+```
+
+# 2. Per profile totals
+```{r}
+# TODO find and exclude casts not 70%? of the bottom depth??
+# Then simply average all sites...
+
+profile_sums_m2 <- profile_totals_5m %>% 
+  # rename columns
+  rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
+         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
+         Total_C_Flux = tot_c_flux_gC_m2y_5m,
+         Diapause_Respiration = total_c_resp_gC_m2y_5m,
+         Mortality_Lipid = tot_c_lipid_mort_gC_m2y_5m,
+         Mortality_Structural = total_c_struc_mort_gC_m2y_5m) %>% 
+  filter(Biomass > 0) %>% 
+  select(-c(Depth_5m, temp_depth_bin)) %>% 
+  # integrate vertically
+  group_by(region.inuktitut, profile_group, sample_cruise, sample_id) %>% 
+  summarise(across(Sampled_volume_L:nimages, \(x) sum(x, na.rm = T)),
+            n5mbins = n(),
+            .groups = "drop") %>% 
+  mutate(Lipid_Fullness = Lipid_Fullness / n5mbins) %>% 
+  # Add max depth sampled and bottom depth
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region,
+                     latitude = object_lat, longitude = object_lon,
+                     Year, Month_Name, DOY,
+                     maxSampleDepth, max5mDepth, bottom_depth_m),
+            by = "sample_id") %>% 
+  
+   # some profiles have no associated bottom depth but assume okay for now
+  # TODO get bottom depth for all profiles
+  mutate(bottom_depth_m = if_else(is.na(bottom_depth_m), 
+                                  maxSampleDepth, bottom_depth_m)) %>%
+  mutate(castratio = maxSampleDepth / bottom_depth_m ) %>% 
+  mutate(castratio = if_else(castratio > 1, 1, castratio)) %>% 
+  mutate(prop_flux = Total_C_Flux/Biomass)
+
+# Exclude profiles much shallower than bottom depth or with nimages < 10? & sample depth < 100m?
+to_exclude <- profile_sums_m2 %>% 
+  filter(nimages < 20 | castratio < 0.5 | maxSampleDepth < 100)
 
 
+# Regional averages (without profile grouping)
+regions_m2 <- profile_sums_m2 %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  group_by(region.inuktitut) %>% 
+  summarise(across(c(Abundance:nimages,maxSampleDepth,bottom_depth_m), 
+                   list(mean = mean, sd = sd)),
+            nprofiles = n(),
+            .groups = "drop") %>% 
+  relocate(nprofiles)
+
+# # Are there interannual differences? Not really
+# regions_year_m2 <- profile_sums_m2 %>% 
+#   filter(sample_id %notin% to_exclude$sample_id) %>% 
+#   group_by(region.inuktitut, Year) %>% 
+#   summarise(across(c(Abundance:nimages,maxSampleDepth,bottom_depth_m), 
+#                    list(mean = mean, sd = sd)),
+#             nprofiles = n(),
+#             .groups = "drop") %>% 
+#   relocate(nprofiles)
+
+# Organized by region and latitude
+flux_components <- profile_sums_m2 %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  select(sample_id, region.inuktitut, region, latitude,
+         Diapause_Respiration, Mortality_Structural, Mortality_Lipid, 
+         Total_C_Flux, Abundance, Biomass) %>% 
+  mutate(sample_id_2 = paste(region, row_number())) %>%
+  pivot_longer(cols = c(Diapause_Respiration:Mortality_Lipid),
+               names_to = "Component", values_to = "Flux") %>% 
+  arrange(-latitude) %>%
+  arrange(region.inuktitut) 
+flux_components <- flux_components %>% 
+  mutate(sample_id_2 = factor(sample_id_2, 
+                              levels = unique(flux_components$sample_id_2)))
+
+  
+```
+
+## Lipid distribution by depth
+```{r, fig.width=10}
+vert_concentration <- profile_totals_5m %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region,
+                     latitude = object_lat, longitude = object_lon,
+                     Year, Month_Name, DOY,
+                     maxSampleDepth, max5mDepth, bottom_depth_m),
+            by = "sample_id") %>% 
+  select(sample_id, Depth_5m, Sampled_volume_L, region, Year, bottom_depth_m,
+         nimages, region.inuktitut, sample_cruise, profile_group,
+         Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
+         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
+         Total_C_Flux = tot_c_flux_gC_m2y_5m) %>% 
+  filter(Biomass > 0) %>% 
+  # filter(sample_id %notin% to_exclude$sample_id) %>% 
+  # Convert to concentrations /m3
+  mutate(Abundance = Abundance/5,
+         Biomass = Biomass/5,
+         Lipids = Lipids/5) %>% 
+  mutate(region.year = paste(region, Year)) %>% 
+  arrange(bottom_depth_m)
+vert_concentration <- vert_concentration %>% 
+  mutate(sample_id = factor(sample_id,
+                            levels = unique(vert_concentration$sample_id)))
+
+ggplot(vert_concentration, aes(x = Depth_5m, y = sample_id,
+                               color = Total_C_Flux)) +
+  geom_point(aes(size = nimages), alpha = 0.8) +
+  coord_flip() +
+  geom_point(aes(x = bottom_depth_m), shape = 5, color = "red")+
+  scale_x_reverse() +
+  scale_color_viridis_c() +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~region.year, scales = "free", nrow = 3)
+
+# ggsave("figures/nimages_profile_c_flux_contrib.png",
+#        width = 18, height = 10, units = "in", bg = "white")
+```
+
+
+## Plot figures
+```{r}
+# Is total biomass related to depth?
+ggplot(profile_sums_m2, aes(x = Biomass, y = bottom_depth_m,
+                            color = castratio)) +
+  geom_point() +
+  scale_y_reverse() +
+  scale_color_viridis_c() +
+  geom_point(data = to_exclude, shape = 3, size = 2, color = "red") +
+  ylab("Bottom depth (m)") +
+  xlab("Biomass (g C m-2)") +
+  ggtitle("Profiles to exclude: <.5 cast ratio \nor <20 images or depth < 100m")
+
+ggsave("figures/sampling_depth_vs_biomass_100m.png",
+       width = 6, height = 4, units = "in", bg = "white")
+
+
+# spatial plot
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = profile_sums_m2 %>% 
+  filter(sample_id %notin% to_exclude$sample_id),
+                                aes(x = longitude, y = latitude,
+                                    shape = region,
+                                    fill = Total_C_Flux), color = "black",
+                                size = 3, alpha = 0.8) +
+  scale_fill_viridis_c(option = "plasma", direction = -1,
+                       name = "Lipid pump\n(gC m-2 y-1)") +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.05, 0.05),
+        legend.justification = c("left", "bottom"),
+        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black"))
+
+ggsave("figures/map_pgs_lipidpump_all_profiles_100m.png", width = 5, height = 6,
+       units = "in", bg = "white")
+
+
+
+ggplot(flux_components, 
+       aes(x = sample_id_2, y = Flux, fill = Component)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("hotpink","black","blue")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        # axis.text.x = element_blank(),
+        axis.text.x = element_text(angle = 90, size = 5, hjust = 1)
+        ) +
+  ylab("Lipid pump (g C m-2 y-1)") + xlab("Individual Profiles")
+
+ggsave("figures/lipid_pump_mean_components_by_profile_100m.png",
+       width = 9, height = 5, units = "in", bg = "white")
+
+# Plot regional averages
+ggplot(profile_sums_m2 %>% 
+         filter(sample_id %notin% to_exclude$sample_id),
+       aes(x = Total_C_Flux, y = region.inuktitut, color = region.inuktitut)) +
+  geom_boxplot() +
+  # Add average values for the region
+  geom_point(data = regions_m2,
+             aes(x = Total_C_Flux_mean, y = region.inuktitut),
+             shape = 17, size = 3, color = "black") + 
+  geom_linerange(data = regions_m2,
+                 aes(x = Total_C_Flux_mean,
+                     xmin = Total_C_Flux_mean - Total_C_Flux_sd,
+                     xmax = Total_C_Flux_mean + Total_C_Flux_sd,
+                     y = region.inuktitut),
+                 color = "black", linetype = "dashed") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_y_discrete(limits = rev) +
+  scale_x_continuous(breaks = seq(0,14,2)) +
+  coord_cartesian(xlim = c(0, 14)) +
+  theme(legend.position = "none") +
+  xlab("Lipid pump carbon flux (g C m-2 y-1)") + ylab("Region") 
+
+ggsave("figures/lipid_pump_totals_by_region_noprofile_groups_100m.png",
+       width = 7, height = 5, units = "in", bg = "white")
+
+# Abundance and biomass
+ggplot(profile_sums_m2 %>% 
+         filter(sample_id %notin% to_exclude$sample_id),
+       aes(x = Abundance, y = region.inuktitut, color = region.inuktitut)) +
+  geom_boxplot() +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_y_discrete(limits = rev) +
+  theme(legend.position = "none") +
+  xlab("Abundance (indiv m-2)") + ylab("Region") 
+
+# # Export results for profile totals
+save(profile_sums_m2, to_exclude, regions_m2, flux_components,
+     file = "data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
 ```
 
 
@@ -211,7 +426,8 @@ ggplot(profile_group_totals %>%
 ```{r}
 pgts_2map <- profile_group_totals %>% 
   left_join(pg_meta %>% select(-nprofiles)) %>%
-  arrange(region.inuktitut, latitude) %>% 
+  arrange(-latitude) %>% 
+  arrange(region.inuktitut) %>% 
   mutate(profile_group_cruise = paste0(profile_group, sample_cruise))
 pgts_2map <- pgts_2map %>% 
   mutate(profile_group_cruise = 
@@ -225,11 +441,12 @@ ggplot(pgts_2map %>%
   geom_bar(stat = "identity") +
   scale_fill_manual(values = clrs) +
   scale_x_discrete(labels = pg_meta$region) +
+  scale_y_continuous(expand = c(0,0)) +
   theme(legend.position = "bottom",
         # axis.text.x = element_blank(),
         axis.text.x = element_text(angle = 90, size = 5, hjust = 1)
         ) +
-  ylab("Lipid pump (gC m-2 y-1)") + xlab("Profile groups") 
+  ylab("Lipid pump (g C m-2 y-1)") + xlab("Profile groups")
 
 ggsave("figures/lipid_pump_mean_components_by_profile_group.png",
        width = 9, height = 5, units = "in", bg = "white")
@@ -240,10 +457,11 @@ ggplot(pgts_2map %>%
        aes(x = profile_group_cruise, y = sum_value), color = "black") +
   geom_bar(stat = "identity") +
   scale_x_discrete(labels = pg_meta$region) +
+  scale_y_continuous(expand = c(0,0)) +
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 90, size = 5, hjust = 1)
         ) +
-  ylab("Biomass (gC m-2)") + xlab("Profile groups") 
+  ylab("Biomass (g C m-2)") + xlab("Profile groups") 
 
 ggsave("figures/biomass_mean_components_by_profile_group.png",
        width = 9, height = 5, units = "in", bg = "white")
@@ -260,7 +478,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                     fill = sum_value), color = "black",
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "plasma", direction = -1,
-                       name = "Biomass\n(gC m-2)") +
+                       name = "Biomass\n(g C m-2)") +
   scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05),
@@ -282,7 +500,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                     fill = sum_value), color = "black",
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "plasma", direction = -1, 
-                       name = "Lipid pump\n(gC m-2 y-1)") +
+                       name = "Lipid pump\n(g C m-2 y-1)") +
   scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05), 
@@ -407,9 +625,7 @@ save(profile_totals_5m, profile_group_totals, regional_averages,
 
 ## V2: Integrate directly to 5m bins per cruise-region
 ```{r}
-# TODO check if actually latitudinally ordered profiles
-# TODO find and exclude casts not 70%? of the bottom depth??
-# Then simply average all sites...
+
 AA <- Amund_UVP6_meta %>% 
   mutate(castratio = maxSampleDepth / bottom_depth_m ) %>% 
   arrange(-castratio)

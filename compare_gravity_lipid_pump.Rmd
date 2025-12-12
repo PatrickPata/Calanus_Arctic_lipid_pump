@@ -12,17 +12,26 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-load("data/lipidflux_calculations_20251211.RData")
+# load("data/lipidflux_calculations_20251211.RData")
 load("data/pocFlux_estimates_23sc_2025 12 10.RData")
 
+# If lipid flux is based on direct average of all profiles
+load("data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
+load("data/UVP6_Calanus_metadata_20251211.RData")
 
 `%notin%` <- Negate(`%in%`)
 ```
 
 # TODO Group POC flux by profile groups
 ```{r}
+
+# If lipid flux is based on direct average of all profiles
+profile_totals_5m <- profile_sums_m2 %>% 
+  filter(sample_id %notin% to_exclude$sample_id)
+
+
 pocFlux.pgs <- pocFlux %>% 
-  left_join(profile_totals_5m %>% 
+  left_join(profile_sums_m2 %>% 
               distinct(sample_id, profile_group, region.inuktitut, sample_cruise),
             by = "sample_id") %>% 
   filter(!is.na(profile_group)) %>% 
@@ -103,8 +112,11 @@ df_poc_flux_region <- df_poc_flux %>%
             .groups = "drop")
   
 # Only the samples at depth >200 m are included
-flux_comparison <- regional_averages %>%
-  filter(variable == "Total_C_Flux") %>% 
+flux_comparison <- regions_m2 %>% 
+  mutate(region_mean = Total_C_Flux_mean, 
+         region_sd = Total_C_Flux_sd) %>% 
+  # regional_averages %>%
+  # filter(variable == "Total_C_Flux") %>% 
   left_join(df_poc_flux_region, by = join_by(region.inuktitut))
 
 ggplot(flux_comparison, 
@@ -124,7 +136,7 @@ ggplot(flux_comparison,
   xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
   ylab("Lipid Pump (g C m-2 y-1)")
 
-ggsave("figures/lipid_gravity_comparison.png",
+ggsave("figures/lipid_gravity_comparison_allprofiles_100m.png",
        width = 5, height = 5, units = "in", bg = "white")
 ```
 

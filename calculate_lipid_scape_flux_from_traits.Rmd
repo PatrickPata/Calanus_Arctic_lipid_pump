@@ -213,20 +213,30 @@ vert_concentration <- profile_totals_5m %>%
          Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
          Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m,
          Total_C_Flux = tot_c_flux_gC_m2y_5m) %>% 
-  filter(Biomass > 0) %>% 
-  # filter(sample_id %notin% to_exclude$sample_id) %>% 
   # Convert to concentrations /m3
   mutate(Abundance = Abundance/5,
          Biomass = Biomass/5,
          Lipids = Lipids/5) %>% 
   mutate(region.year = paste(region, Year)) %>% 
-  arrange(bottom_depth_m)
+  # 25 m  bins??
+  mutate(Depth_25m = floor((Depth_5m-2.5) / 25) * 25 + 1) %>% 
+  group_by(sample_id, Depth_25m, bottom_depth_m, region.inuktitut, region.year) %>% 
+  summarise(Abundance = mean(Abundance),
+            Biomass = mean(Biomass),
+            Lipids = mean(Lipids),
+            Total_C_Flux = sum(Total_C_Flux),
+            nimages = sum(nimages), .groups = "drop") %>% 
+  
+  arrange(bottom_depth_m) %>% 
+  filter(Biomass > 0) 
+  # filter(sample_id %notin% to_exclude$sample_id) %>% 
+
 vert_concentration <- vert_concentration %>% 
   mutate(sample_id = factor(sample_id,
                             levels = unique(vert_concentration$sample_id)))
 
-ggplot(vert_concentration, aes(x = Depth_5m, y = sample_id,
-                               color = Total_C_Flux)) +
+ggplot(vert_concentration, aes(x = Depth_25m, y = sample_id,
+                               color = Lipids)) +
   geom_point(aes(size = nimages), alpha = 0.8) +
   coord_flip() +
   geom_point(aes(x = bottom_depth_m), shape = 5, color = "red")+
@@ -235,8 +245,8 @@ ggplot(vert_concentration, aes(x = Depth_5m, y = sample_id,
   theme(axis.text.x = element_blank()) +
   facet_wrap(~region.year, scales = "free", nrow = 3)
 
-# ggsave("figures/nimages_profile_c_flux_contrib.png",
-#        width = 18, height = 10, units = "in", bg = "white")
+ggsave("figures/nimages_profile_lipids_25mbins.png",
+       width = 18, height = 10, units = "in", bg = "white")
 ```
 
 

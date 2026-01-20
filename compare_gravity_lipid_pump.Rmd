@@ -22,6 +22,19 @@ load("data/UVP6_Calanus_metadata_20251211.RData")
 `%notin%` <- Negate(`%in%`)
 ```
 
+
+```{r}
+# Calculate average flux for General Baffin Bay area: (Baffin bay, shelf, NOW, Davis)
+AA <- profile_sums_m2 %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  filter(grepl("Baffin|Davis|North", region.inuktitut) == T)
+
+mean(AA$Total_C_Flux) * 7.7
+sd(AA$Total_C_Flux) *7.7
+
+```
+
+
 # TODO Group POC flux by profile groups
 ```{r}
 

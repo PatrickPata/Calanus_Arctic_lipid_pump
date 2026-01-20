@@ -98,6 +98,35 @@ ggplot(region_temp_profiles_100m,
 #        width = 6, height = 6, units = "in", bg = "white")
 ```
 
+# Calculate MLD
+```{r}
+mld.df <- ctd %>% 
+  filter(!is.na(sigt)) %>% 
+  group_by(filename, cast_number, station, region, region.inuktitut) %>% 
+  # Get MLD as 0.003 threshold
+  arrange(depth) %>% 
+  mutate(sigt_diff = diff(sigt)) %>% 
+  ungroup()
+
+
+sigt_profiles_100m <- mld.df %>% 
+  mutate(depth_bin = floor(pressure/100)*100) %>% 
+  group_by(filename, cruise_name, station, datetime, latitude, longitude,
+           region, region.inuktitut, region.color, depth_bin) %>% 
+  summarise(sigt.mean = mean(sigt, na.rm = T),
+            sigt.sd = sd(sigt, na.rm = T),
+            ndepths = n(), .groups = "drop")
+
+ggplot(sigt_profiles_100m, 
+       aes(x = depth_bin, y = sigt.mean, group = filename)) +
+  geom_line(aes(color = region.inuktitut), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(~cruise_name, scales = "free_y")
+
+```
+
+
 # Export the temperature data in 100 m bins
 ```{r, eval=FALSE}
 save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
@@ -108,7 +137,10 @@ save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
 
 # T-S plots of each region
 ```{r}
+library(oce)
 AA <- ctd
+AA <- mld.df %>% 
+  filter(filename == "AS_CTD_2023_02_033.csv.nc")
 
 df.oce <- oce::as.ctd(salinity = AA$psal,
                       temperature = AA$te90,
@@ -120,8 +152,61 @@ df.oce <- oce::as.ctd(salinity = AA$psal,
                       longitude = AA$longitude,
                       latitude = AA$latitude)
 
-
+plot(df.oce)
 oce::plotTS(df.oce)
+
+# # Calculate Mixed layer depth
+# df.oce <- oce::oceSetMetadata(df.oce, "MLD", 3)
+# df.oce[["MLD"]]
+
+
+calculate_mld <- function(pressure, density, reference_depth = 10, threshold = 0.03) {
+  # # ctd_profile <- arrange(ctd_profile, pressure)
+  # pressure <- ctd_profile$pressure
+  # density <- ctd_profile$sigt
+  
+  ii <- sort(pressure, index.return = T)
+  pressure <- pressure[ii$ix]
+  density <- density[ii$ix]
+  
+  # Find index of reference depth
+  ref_index <- max(which(pressure <= reference_depth))
+  if (length(ref_index) < 1) {
+    stop("No data near surface reference depth.")
+  }
+  
+  ref_density <- mean(density[ref_index])
+  mld_criterion <- ref_density + threshold
+
+  # Find density above threshold
+  mld_index <- which(density >= mld_criterion)[1]
+
+    
+  if (!is.na(mld_index)) {
+    return(pressure[mld_index])
+  } else {
+    # If no depth meets the criterion (e.g., fully mixed water column)
+    return(max(pressure, na.rm = TRUE))
+  }
+}
+
+ctd_mld <- ctd %>% 
+  group_by(filename) %>% 
+  mutate(MLD = calculate_mld(pressure, sigt)) %>% 
+  ungroup() %>% 
+  filter(pressure == MLD)
+
+ggplot(ctd_mld, aes(x = sigt, y = MLD,
+                    color = region.inuktitut)) +
+  geom_point() +
+  scale_color_manual(values = unique(region_rename$region.color))
+
+
+ggplot(ctd_mld, aes(x = sigt, y = MLD,
+                    color = region.inuktitut)) +
+  geom_point() +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  coord_cartesian(ylim = c(0,50))
 ```
 
 

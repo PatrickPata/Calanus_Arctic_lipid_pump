@@ -219,7 +219,7 @@ vert_concentration <- profile_totals_5m %>%
          Lipids = Lipids/5) %>% 
   mutate(region.year = paste(region, Year)) %>% 
   # 25 m  bins??
-  mutate(Depth_25m = floor((Depth_5m-2.5) / 25) * 25 + 1) %>% 
+  mutate(Depth_25m = floor((Depth_5m-2.5) / 25) * 25 + 25) %>% 
   group_by(sample_id, Depth_25m, bottom_depth_m, region.inuktitut, region.year) %>% 
   summarise(Abundance = mean(Abundance),
             Biomass = mean(Biomass),
@@ -227,15 +227,16 @@ vert_concentration <- profile_totals_5m %>%
             Total_C_Flux = sum(Total_C_Flux),
             nimages = sum(nimages), .groups = "drop") %>% 
   
-  arrange(bottom_depth_m) %>% 
-  filter(Biomass > 0) 
+  arrange(bottom_depth_m) 
+  # filter(Biomass > 0) 
   # filter(sample_id %notin% to_exclude$sample_id) %>% 
 
 vert_concentration <- vert_concentration %>% 
   mutate(sample_id = factor(sample_id,
                             levels = unique(vert_concentration$sample_id)))
 
-ggplot(vert_concentration, aes(x = Depth_25m, y = sample_id,
+ggplot(vert_concentration %>% 
+         filter(Biomass > 0), aes(x = Depth_25m, y = sample_id,
                                color = Lipids)) +
   geom_point(aes(size = nimages), alpha = 0.8) +
   coord_flip() +
@@ -245,9 +246,57 @@ ggplot(vert_concentration, aes(x = Depth_25m, y = sample_id,
   theme(axis.text.x = element_blank()) +
   facet_wrap(~region.year, scales = "free", nrow = 3)
 
-ggsave("figures/nimages_profile_lipids_25mbins.png",
-       width = 18, height = 10, units = "in", bg = "white")
+# ggsave("figures/nimages_profile_lipids_25mbins.png",
+#        width = 18, height = 10, units = "in", bg = "white")
 ```
+
+
+## Sample_id level variation in vertical lipid distribution
+```{r, eval = FALSE}
+# Group by Month
+AA <- vert_concentration %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, Month_Name, Year),
+            by = "sample_id") %>% 
+  # Average in 100 m depths
+  mutate(Depth_100m = floor((Depth_25m-25)/100)*100 + 100 ) %>% 
+  mutate(Depth_100m = as.factor(Depth_100m)) %>% 
+  group_by(sample_id, Month_Name, Depth_100m, region.inuktitut) %>% 
+  summarise(Abundance = mean(Abundance),
+            Lipids = mean(Lipids) * 1000, # g C to mg C
+            Total_C_Flux = sum(Total_C_Flux),
+            n = n(), .groups = "drop")
+
+ggplot(AA,
+       aes(x = Depth_100m, y = Lipids)) +
+  geom_boxplot(outliers = F) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)") +
+  facet_wrap(~Month_Name, scales = "free_x", nrow = 1) 
+
+ggsave("figures/Seasonal variation_lipid biomass.png",
+       width = 10, height = 5, units = "in", bg = "white")
+
+
+# Group by Region
+ggplot(AA,
+       aes(x = Depth_100m, y = Lipids,
+           color = region.inuktitut)) +
+  geom_boxplot(outliers = F) +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)") +
+  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) 
+
+
+ggsave("figures/vertical_biomass_by_region_sample_id_level.png",
+       width = 9, height = 7, units = "in", bg = "white")
+```
+
 
 
 ## Plot figures
@@ -279,7 +328,8 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                                     fill = Total_C_Flux), color = "black",
                                 size = 3, alpha = 0.8) +
   scale_fill_viridis_c(option = "plasma", direction = -1,
-                       name = "Lipid pump\n(gC m-2 y-1)") +
+                       name = "Lipid pump\n(gC m-2 y-1)",
+                       limits = c(0,12)) +
   scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
         legend.position = c(0.05, 0.05),
@@ -345,6 +395,7 @@ ggplot(profile_sums_m2 %>%
 save(profile_sums_m2, to_exclude, regions_m2, flux_components,
      file = "data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
 ```
+
 
 
 # 3. Spatial Integrations
@@ -419,7 +470,7 @@ ggplot(profile_group_totals %>%
   theme(legend.position = "none") +
   xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") 
 
-ggsave("figures/lipid_pump_totals_by_region.png",
+ggsave("figures/lipid_pump_totals_by_region_profile group.png",
        width = 7, height = 5, units = "in", bg = "white")
 
 # Abundance and biomass

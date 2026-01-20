@@ -254,6 +254,7 @@ save(indiv_traits,
 
 # 6. Compare CNN segmentations, manually annotated, and random forest
 ```{r}
+# load("data/uvp6_images_calculated_traits_20251210.RData")
 df_to_plot <- indiv_traits %>% 
   filter(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"))
 
@@ -372,7 +373,7 @@ plot_grid(
   
   nrow = 1)
 
-ggsave("figures/indiv_trait_distribution_20251208.png",
+ggsave("figures/indiv_trait_distribution_20251214.png",
        height = 7, width = 14, units = "in", bg = "white")
 
 ggplot(df_to_plot,
@@ -386,8 +387,8 @@ ggplot(df_to_plot,
       theme(legend.position = "right",
             axis.title.y = element_blank())
     
-# ggsave("figures/indiv_trait_distribution_forlabel.png",
-       # height = 3, width = 4, units = "in", bg = "white")
+# ggsave("figures/indiv_trait_distribution_forlabel_20251214.png",
+# height = 3, width = 4, units = "in", bg = "white")
 ```
 
 
@@ -408,9 +409,7 @@ loki.segmentations <- loki.segmentations %>%
 
 plot_grid(
   ggplot(indiv_traits %>% 
-           # filter(source != "LOKI segmented") %>% 
-           filter(grepl("side", object_annotation_category) == T | 
-                    source == "LOKI segmented"),
+           filter(source %in% c("CNN segmentation", "Manual segmentation")),
          aes(x = prosome_length_mm, 
              fill = source, color = source))+
     geom_density(alpha = 0.6) +
@@ -418,22 +417,20 @@ plot_grid(
     scale_color_manual(values = clrs, name = "Data source") +
     scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
     xlab("Prosome length (mm)") +
-    theme(legend.position = "bottom",
+    theme(legend.position = "none",
           axis.title.y = element_blank()),
   
   
   ggplot(indiv_traits %>% 
-           # filter(source != "LOKI segmented") %>% 
-           filter(grepl("side", object_annotation_category) == T | 
-                    source == "LOKI segmented"),
-         aes(x = waxester_carbon,
+           filter(source %in% c("CNN segmentation", "Manual segmentation")),
+         aes(x = waxester_mass_mgC,
              fill = source, color = source))+
     geom_density(alpha = 0.4) +
     scale_fill_manual(values = clrs, name = "Data source") +
     scale_color_manual(values = clrs, name = "Data source") +
     scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
     xlab("Wax ester carbon (mg C)") +
-    theme(legend.position = "bottom",
+    theme(legend.position = "none",
           axis.title.y = element_blank()), 
   
   # TODO plot LOKI as boxplots instead
@@ -479,11 +476,11 @@ ggplot(loki.segmentations,
   #   theme(legend.position = "bottom",
   #         axis.title.y = element_blank()), 
   
-  ncol = 2, align = "hv"
+  ncol = 2, align = "v"
 ) 
 
 
-# ggsave("figures/indiv_trait_distribution_LOKIdetails_20251126.png",
+# ggsave("figures/indiv_trait_distribution_LOKIdetails_20251214.png",
 #        height = 7, width = 14, units = "in", bg = "white")
 
 

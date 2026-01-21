@@ -65,7 +65,7 @@ cowplot::plot_grid(
 
 
 
-# TODO Filter to stations with multiple tows and maxDepth >= 250?
+# Filter to stations with multiple tows and maxDepth >= 250?
 hydrobios_to_get <- uvp_net_match %>%
   distinct(cruise_year, STATION_NAME, .keep_all = T) %>% 
   filter(nbins > 4) %>% 
@@ -74,7 +74,30 @@ hydrobios_to_get <- uvp_net_match %>%
   filter(!is.na(uvp_stn))
 
 
-# TODO Show in map
-ggplot(hydrobios_to_get, aes(x = LONGITUDE, y = LATITUDE, 
-                             color = as.factor(uvp_leg))) +
-  geom_point()
+# Show in map
+library(ggOceanMaps)
+`%notin%` <- Negate(`%in%`)
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-85,-52,65,83), rotate = T,
+        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = hydrobios_to_get,
+                                aes(x = LONGITUDE, y = LATITUDE,
+                                    shape = uvp_leg,
+                                    color = BOTTOM_DEPTH),
+                                size = 3, alpha = 0.8) +
+  scale_color_viridis_c(option = "plasma", direction = -1,
+                       name = "Bottom depth (m)") +
+  theme(axis.title = element_blank(),
+        legend.position = "right",
+        legend.box.background = element_rect(fill = "white", color = "black")) +
+  # Add not included stations
+  ggspatial::geom_spatial_point(data = hydrobios.meta %>% 
+                                  filter(STATION_NAME %notin% hydrobios_to_get$STATION_NAME),
+                                aes(x = LONGITUDE, y = LATITUDE), 
+                                color = "red", shape = 8,
+                                size = 2, alpha = 0.8) 
+
+ggsave("figures/hydrobios_stations.png",
+       width = 7, height = 7, units = "in", bg = "white")

@@ -181,6 +181,15 @@ pg_meta %>%
             n_profiles = sum(nprofiles),
             .groups = "drop")
 
+Amund_UVP6_meta %>% 
+  group_by(region.inuktitut, Month_Name) %>% 
+  count() %>% 
+  pivot_wider(names_from = Month_Name, values_from = n) %>% 
+  select(region.inuktitut, July, August, September, October)
+
+Amund_UVP6_meta %>% 
+  group_by(region.inuktitut, Year) %>% 
+  count()
 
 # *** Export the metadata file including the volumes ***
 save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta,

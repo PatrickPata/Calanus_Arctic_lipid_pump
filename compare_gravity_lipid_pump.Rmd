@@ -104,8 +104,10 @@ df_poc_flux <- pocFlux.pgs %>%
   # mutate(poc_model = poc_model * 365 / 1000,
   #        poc_error = poc_error * 365 / 1000) %>% 
   # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
-  mutate(poc_model = (poc_model * 123 / 1000) + (poc_model/4 * 242 / 1000),
-         poc_error = (poc_error * 123 / 1000) + (poc_error/4 * 242 / 1000))
+  
+# TODO actually change to 6 months (May-October) for full POC value
+  mutate(poc_model = (poc_model * 184 / 1000) + (poc_model/4 * 181 / 1000),
+         poc_error = (poc_error * 184 / 1000) + (poc_error/4 * 181 / 1000))
 
 
 ggplot(df_poc_flux, aes(x = region.inuktitut,
@@ -149,8 +151,8 @@ ggplot(flux_comparison,
   xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
   ylab("Lipid Pump (g C m-2 y-1)")
 
-ggsave("figures/lipid_gravity_comparison_allprofiles_100m.png",
-       width = 5, height = 5, units = "in", bg = "white")
+# ggsave("figures/lipid_gravity_comparison_allprofiles_100m_updated.png",
+#        width = 5, height = 5, units = "in", bg = "white")
 ```
 
 # With historical POC flux from literature

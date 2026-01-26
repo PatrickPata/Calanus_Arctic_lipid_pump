@@ -20,9 +20,11 @@ hydrobios.meta <- hydrobios %>%
   group_by(cruise_year, leg, STATION_NAME, 
            DEPLOYMENT_DATE_START, DEPLOYMENT_TIME_START, 
            BOTTOM_DEPTH, LATITUDE, LONGITUDE) %>% 
+  
   summarise(minDepth = min(MIN_SAMPLE_DEPTH),
             maxDepth = max(MAX_SAMPLE_DEPTH),
-            nbins = n(), .groups = "drop") 
+            n_nets = length(as.numeric(unlist(strsplit(SAMPLE_NETS, "\\+")))), 
+            .groups = "drop")  
 
 
 
@@ -68,10 +70,15 @@ cowplot::plot_grid(
 # Filter to stations with multiple tows and maxDepth >= 250?
 hydrobios_to_get <- uvp_net_match %>%
   distinct(cruise_year, STATION_NAME, .keep_all = T) %>% 
-  filter(nbins > 4) %>% 
-  filter(maxDepth >= 250) %>% 
+  # filter(n_nets > 4 | STATION_NAME == "TCA-BB2") %>%
+  # filter(maxDepth >= 200 | STATION_NAME == "TCA-BB2") %>% 
   # only with matching UVP cast
-  filter(!is.na(uvp_stn))
+  # filter(!is.na(uvp_stn)) %>% 
+  filter(STATION_NAME != "NB-02") %>% 
+  mutate(BOTTOM_DEPTH_2 = if_else(BOTTOM_DEPTH >500,
+                                  ">500", "<500")) %>% 
+  mutate(uvp_leg = if_else(is.na(uvp_leg),
+                           "no_uvp", uvp_leg))
 
 
 # Show in map
@@ -85,19 +92,26 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   ggspatial::geom_spatial_point(data = hydrobios_to_get,
                                 aes(x = LONGITUDE, y = LATITUDE,
                                     shape = uvp_leg,
-                                    color = BOTTOM_DEPTH),
-                                size = 3, alpha = 0.8) +
-  scale_color_viridis_c(option = "plasma", direction = -1,
-                       name = "Bottom depth (m)") +
+                                    color = BOTTOM_DEPTH_2),
+                                size = 4, alpha = 0.9) +
+  # scale_color_viridis_c(option = "plasma", direction = -1,
+  #                      name = "Bottom depth (m)") +
+  scale_color_manual(values = c("green3","blue"),
+                     name = "Bottom depth (m)") +
   theme(axis.title = element_blank(),
         legend.position = "right",
-        legend.box.background = element_rect(fill = "white", color = "black")) +
-  # Add not included stations
-  ggspatial::geom_spatial_point(data = hydrobios.meta %>% 
-                                  filter(STATION_NAME %notin% hydrobios_to_get$STATION_NAME),
-                                aes(x = LONGITUDE, y = LATITUDE), 
-                                color = "red", shape = 8,
-                                size = 2, alpha = 0.8) 
+        legend.box.background = element_rect(fill = "white", color = "black")) 
+  # # Add not included stations
+  # ggspatial::geom_spatial_point(data = hydrobios.meta %>% 
+  #                                 filter(STATION_NAME %notin% hydrobios_to_get$STATION_NAME),
+  #                               aes(x = LONGITUDE, y = LATITUDE), 
+  #                               color = "red", shape = 8,
+  #                               size = 2, alpha = 0.8) 
 
-ggsave("figures/hydrobios_stations.png",
+ggsave("figures/hydrobios_stations_55.png",
        width = 7, height = 7, units = "in", bg = "white")
+
+# Export the list of stations to request
+write.csv(hydrobios_to_get,
+          file = "tables/hydrobios_stations_request_55.csv",
+          row.names = F)

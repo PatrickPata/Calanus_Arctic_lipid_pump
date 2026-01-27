@@ -54,15 +54,15 @@ ggplot(calanus.size,
     theme(legend.position = "bottom",
           axis.title.y = element_blank(),
           axis.text.y = element_blank(),
-          axis.ticks.y = element_blank()) +
-  facet_wrap(~sizeType)
+          axis.ticks.y = element_blank()) 
 
 # Size at C4
 calanus.size %>% 
-  group_by(scientificName, lifeStage, sizeType) %>% 
+  group_by(scientificName, lifeStage) %>% 
   summarise(mean = mean(traitValue),
             sd = sd(traitValue),
             n = n(), .groups = "drop")
+
 ```
 
 
@@ -196,5 +196,64 @@ ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
   
 ```
 
+# Working section for Fig 3 subplots
+
+## Estimate lipid mass from LPDW 
+```{r}
+# TODO Add the Cavallo and Peck data table
+# Currently all based on Hebert et al. 2016
+calanus.lipids <- calanoid.level1.traitdata %>% 
+  filter(traitName == "lipidPDW") %>% 
+  filter(sizeAssocValue >= 0) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  mutate(lipidMass = (traitValue/100) * sizeAssocValue) %>% 
+  mutate(lipidMass_mgC = lipidMass * lambda) %>% 
+  select(scientificName, lifeStage, lipidMass, lipidMass_mgC,
+         lipidPDW = traitValue, dryWeight = sizeAssocValue,
+         primaryReference, secondaryReference) %>% 
+  filter(scientificName %in% c("Calanus hyperboreus", "Calanus glacialis", 
+                               "Calanus finmarchicus")) %>% 
+  mutate(scientificName = str_replace(scientificName, "Calanus", "C.")) %>% 
+  mutate(scientificName = paste(scientificName, "F"))
+
+calanus.size.edited <- calanus.size %>% 
+         mutate(lifeStage = if_else(lifeStage %in% c("male","female"),
+                                    "adult",lifeStage)) %>% 
+         mutate(lifeStage = if_else(lifeStage == "C5",
+                                    "CV",lifeStage)) %>% 
+         mutate(lifeStage = if_else(lifeStage == "C4",
+                                    "CIV",lifeStage)) %>% 
+         filter(lifeStage %notin% c("C1","C2","C3")) %>% 
+         mutate(scientificNameStage = paste(scientificName, lifeStage)) %>% 
+         mutate(scientificNameStage = str_replace(scientificNameStage,
+                                                  "Calanus", "C.")) %>% 
+         mutate(scientificNameStage = 
+                  factor(scientificNameStage,
+                         levels = c("C. hyperboreus adult",
+                                    "C. glacialis adult",
+                                    "C. glacialis CV", "C. glacialis CIV",
+                                    "C. finmarchicus adult",
+                                    "C. finmarchicus CV", "C. finmarchicus CIV")))
+
+ggplot(calanus.size.edited,
+       aes(x = traitValue, y = scientificNameStage,
+           color = scientificName))+
+  geom_boxplot() +
+  geom_point()+
+  scale_y_discrete(limits = rev) +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank(),
+        # axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) 
+
+save(file = "data/temporary_trait_database_subset_20260127.RData",
+     calanus.size.edited, calanus.lipids)
+
+```
+
+## 
+```{r}
+
+```
 
 

@@ -26,6 +26,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(cowplot)
 library(ggtext)
+library(randomForest)
 
 # The segmented images and morphological traits of calanoids
 load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
@@ -108,13 +109,13 @@ other.calanoid.images <- all.copepods.uvp6 %>%
 # Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
 other.calanoid.images$structural_carbon_mgC <- 
   predict(rf.model.prosome,
-          newdata = other.calanoid.images %>% 
-            select(Major:PerimMajor))
+                        newdata = other.calanoid.images %>% 
+                          select(Major:PerimMajor))
 
 other.calanoid.images$waxester_mass_mgC <- 
   predict(rf.model.lipid,
-          newdata = other.calanoid.images %>% 
-            select(Major:PerimMajor))
+                        newdata = other.calanoid.images %>% 
+                          select(Major:PerimMajor))
 
 # Calculate total carbon and lipid fullness
 
@@ -128,7 +129,37 @@ other.calanoid.images <- other.calanoid.images %>%
          source = if_else(object_annotation_category %in% 
                             c("Calanus","top-bottom<with visible lipid sac",
                               "side<with visible lipid sac"),
-                          "RF Calanus spp", source))
+                          "Random Forest", source))
+
+# Calculate the prosome length as the major axis multiplied by uvp resolution and scaled according to the major axis - segmented prosome length of images
+# 1. Get prosome length-major axis for manually segmented images
+# The Major_mm is typically larger than the prosome length of the segmented images
+major_prosome <- segmented.images %>% 
+  filter(source == "manual_segmentation") %>% 
+  select(object_id, Major, prosome_length_mm) %>% 
+  mutate(major_length_mm = Major * uvpRes)
+
+major_prosome_lm <- lm(prosome_length_mm ~ major_length_mm,
+                       data = major_prosome)
+
+# # Adj-R2 = 0.868, F-stat = 1.189e+4, df = 1807, pval < 0.001, Residual SE = 0.445
+# summary(major_prosome_lm)
+# 
+# ggplot(major_prosome %>% 
+#          mutate(calculated_mm = predict(major_prosome_lm)), 
+#        aes(x = major_length_mm, y = prosome_length_mm)) +
+#   geom_abline() +
+#   geom_point() +
+#   geom_smooth( method = "lm") +
+#   geom_point(aes(x = calculated_mm), color = "red")
+
+# 2. Calculate prosome length for RF-derived individuals
+other.calanoid.images <- other.calanoid.images %>% 
+  mutate(Major_mm = Major * uvpRes) %>% 
+  mutate(prosome_length_mm = predict(major_prosome_lm,
+                 newdata = other.calanoid.images))
+
+
 ```
 
 
@@ -145,7 +176,7 @@ indiv_traits <- segmented.images %>%
               select(object_id, object_annotation_category, source,
                      Site = sample_stationid, Cruise = sample_cruise,
                      sample_id, object_depth_max,
-                     Major, 
+                     Major, prosome_length_mm,
                      prosome_total_mgC, structural_carbon_mgC,
                      waxester_mass_mgC, lipid_fullness)) %>% 
   
@@ -236,8 +267,8 @@ indiv_traits <- indiv_traits %>%
          source = if_else(source == "manual_segmentation",
                           "Manual segmentation", source)) %>% 
   mutate(source = factor(source,
-                          levels = c("CNN segmentation", "Manual segmentation",
-                                     "RF Calanus spp",
+                          levels = c("Random Forest",
+                                     "CNN segmentation", "Manual segmentation",
                                      "RF Calanoida", "RF Copepoda")))
 
 ```
@@ -246,7 +277,7 @@ indiv_traits <- indiv_traits %>%
 The indiv_traits dataframe includes images of individuals classified as "Calanus spp" and were segmented manually or with CNN (or the RF predictions when the CNN was bad). It also includes the RF predicted structural and lipid carbon values for images with major axis length >3 mm and were validated and classified as Calanoida/Copepoda, which are likely to be Calanus spp.
 ```{r, eval=FALSE}
 save(indiv_traits, 
-     file = "data/uvp6_images_calculated_traits_20251210.RData")
+     file = "data/uvp6_images_calculated_traits_20260127.RData")
 ```
 
 
@@ -254,11 +285,11 @@ save(indiv_traits,
 
 # 6. Compare CNN segmentations, manually annotated, and random forest
 ```{r}
-# load("data/uvp6_images_calculated_traits_20251210.RData")
+# load("data/uvp6_images_calculated_traits_20260127.RData")
 df_to_plot <- indiv_traits %>% 
   filter(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"))
 
-clrs <- c("hotpink","gold1","blue2")
+clrs <- c("blue2","hotpink","gold1")
 
 plot_grid(
   # body length + wax ester carbon
@@ -373,8 +404,8 @@ plot_grid(
   
   nrow = 1)
 
-ggsave("figures/indiv_trait_distribution_20251214.png",
-       height = 7, width = 14, units = "in", bg = "white")
+# ggsave("figures/indiv_trait_distribution_20251214.png",
+#        height = 7, width = 14, units = "in", bg = "white")
 
 ggplot(df_to_plot,
            aes(x = diapauseDuration_day,
@@ -392,120 +423,16 @@ ggplot(df_to_plot,
 ```
 
 
-# TODO comparisons with LOKI and database
-
-### size distribution for LOKI
-```{r}
-loki.segmentations <- loki.segmentations %>% 
-  mutate(taxa = case_when(
-    object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "C. hyperboreus F",
-    object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CV",
-    object_annotation_category == "civstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CIV",
-    object_annotation_category == "female+lateral<Calanus glacialis" ~ "C. glacialis F",
-    object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "C. glacialis CV",
-    object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "C. glacialis CIV",
-    TRUE ~ object_annotation_category
-  ) )
-
-plot_grid(
-  ggplot(indiv_traits %>% 
-           filter(source %in% c("CNN segmentation", "Manual segmentation")),
-         aes(x = prosome_length_mm, 
-             fill = source, color = source))+
-    geom_density(alpha = 0.6) +
-    scale_fill_manual(values = clrs, name = "Data source") +
-    scale_color_manual(values = clrs, name = "Data source") +
-    scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
-    xlab("Prosome length (mm)") +
-    theme(legend.position = "none",
-          axis.title.y = element_blank()),
-  
-  
-  ggplot(indiv_traits %>% 
-           filter(source %in% c("CNN segmentation", "Manual segmentation")),
-         aes(x = waxester_mass_mgC,
-             fill = source, color = source))+
-    geom_density(alpha = 0.4) +
-    scale_fill_manual(values = clrs, name = "Data source") +
-    scale_color_manual(values = clrs, name = "Data source") +
-    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
-    xlab("Wax ester carbon (mg C)") +
-    theme(legend.position = "none",
-          axis.title.y = element_blank()), 
-  
-  # TODO plot LOKI as boxplots instead
-ggplot(loki.segmentations,
-         aes(x = prosome_length_mm, y = taxa,
-             color = taxa))+
-    geom_boxplot() +
-    scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
-    xlab("Prosome length (mm)") +
-    theme(legend.position = "bottom",
-          axis.title.y = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks.y = element_blank()),
-  ggplot(loki.segmentations,
-         aes(x = waxester_carbon, y = taxa,
-             color = taxa))+
-    geom_boxplot() +
-    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
-    xlab("Wax ester carbon (mg C)") +
-    theme(legend.position = "bottom",
-          axis.title.y = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks.y = element_blank()),
-
-  
-  # ggplot(loki.segmentations,
-  #        aes(x = prosome_length_mm, 
-  #            fill = taxa, color = taxa))+
-  #   geom_density(alpha = 0.6) +
-  #   # scale_fill_manual(values = clrs, name = "Data source") +
-  #   # scale_color_manual(values = clrs, name = "Data source") +
-  #   scale_x_log10(breaks = c(2:10), limits = c(1.5,10.5)) +
-  #   xlab("Prosome length (mm)") +
-  #   theme(legend.position = "bottom",
-  #         axis.title.y = element_blank()),
-  # 
-  # ggplot(loki.segmentations,
-  #        aes(x = waxester_carbon,
-  #            fill = taxa, color = taxa))+
-  #   geom_density(alpha = 0.4) +
-  #   scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
-  #   xlab("Wax ester carbon (mg C)") +
-  #   theme(legend.position = "bottom",
-  #         axis.title.y = element_blank()), 
-  
-  ncol = 2, align = "v"
-) 
 
 
-# ggsave("figures/indiv_trait_distribution_LOKIdetails_20251214.png",
-#        height = 7, width = 14, units = "in", bg = "white")
-
-
-```
-
-
+# Manuscript Fig 3
+Main Fig 3: Show results for prosome length (major axis length for RF), wax ester carbon. Show LOKI values per stage. Show literature values from database
 
 
 ## Get LOKI trait values
 - The lipid mass calculated for LOKI is using the same equation as the wax ester calculation (Vogedes et al. 2010).
 - In the LOKI calculations, the factor for converting lipid dry mass to carbon mass is 0.79, which is 0.016 lower than the value of lambda used here. So need to adjust values to make the estimates comparable?
 ```{r}
-# AA <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>%
-#   select(total_lipids_mg, total_lipids_ugC, lipid_volume_mm3,
-#          total_lipids_carbon_area, total_lipids_carbon_volume) %>%
-#   mutate(total_lipids_ugC_mgC = total_lipids_ugC / 1000) %>% 
-#   mutate(total_lipids_Jonas = lipid_volume_mm3 * 0.9 * 0.79)
-# 
-# ggplot(AA, aes(x = total_lipids_ugC_mgC, y = total_lipids_Jonas)) +
-#   geom_point() +
-#   geom_abline() +
-#   ylab("total_lipids_carbon_volume (mg C)") +
-#   xlab("total_lipids_ugC (converted to mg C)") +
-#   geom_smooth(method = "lm", color = "red")
-
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
  
 # match trait names
@@ -523,5 +450,241 @@ loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ec
          total_carbon, lf_carbon) %>% 
   mutate(source = "LOKI segmented")
 
-# TODO Adjust lipid dry mass? (mulyiply by (lambda/0.79)
+
+loki.segmentations <- loki.segmentations %>% 
+  mutate(taxa = case_when(
+    object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "C. hyperboreus F",
+    object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CV",
+    object_annotation_category == "civstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CIV",
+    object_annotation_category == "female+lateral<Calanus glacialis" ~ "C. glacialis F",
+    object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "C. glacialis CV",
+    object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "C. glacialis CIV",
+    TRUE ~ object_annotation_category
+  ) )
+
 ```
+
+## Get Trait Database values
+```{r}
+
+```
+
+
+
+## Fig 3
+### size distribution for LOKI
+```{r, fig.width=8, fig.height=6}
+df_to_plot <- indiv_traits %>% 
+  filter(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"))
+
+plot_grid(
+plot_grid(
+  
+  ggplot(df_to_plot,
+         aes(x = prosome_length_mm, fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    scale_x_log10(breaks = 2:10, limits = c(1.6, 10)) +
+    xlab("Prosome length (mm)") +
+    ylab("# Individuals") +
+    theme(legend.position = c(0.75, 0.75),
+          # axis.title.y = element_text(hjust = 1),
+          legend.background = element_rect(fill = "white", color = "black"),
+          legend.key = element_blank()),
+  
+  ggplot(loki.segmentations,
+         aes(x = prosome_length_mm, y = taxa,
+             color = taxa))+
+    geom_boxplot() +
+    scale_x_log10(breaks = c(2:10), limits = c(1.6,10)) +
+    xlab("Prosome length (mm)") +
+    ylab("Segmented\nLOKI images") +
+    theme(legend.position = "none",
+          axis.text.y = element_text(face = "bold.italic", 
+                                     hjust = 0,
+                                     vjust = -1,
+                                     size = 12,
+                                     margin = ggplot2::margin(r = -115)),
+          axis.ticks.y = element_blank()),
+  
+  ggplot(calanus.size.edited,
+         aes(x = traitValue, y = scientificNameStage,
+             color = scientificNameStage))+
+    geom_boxplot() +
+    scale_x_log10(breaks = c(2:10), limits = c(1.6,10)) +
+    xlab("Body length (mm)") +
+    ylab("Trait Database") +
+    scale_y_discrete(limits = rev) +
+    theme(legend.position = "none",
+          axis.text.y = element_text(face = "bold.italic", 
+                                     hjust = 0,
+                                     vjust = -1,
+                                     size = 12,
+                                     margin = ggplot2::margin(r = -125)),
+          axis.ticks.y = element_blank()),
+  
+   ncol = 1, align = "v", labels = c("a","d", "g"),
+  rel_heights = c(2,1,1)
+),
+  
+  
+plot_grid(
+  
+    ggplot(df_to_plot,
+         aes(x = waxester_mass_mgC, fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+    xlab("Wax ester carbon (mg C)") +
+    ylab("# Individuals") +
+    theme(legend.position = "none",
+          axis.title.y = element_blank()),
+
+  ggplot(loki.segmentations,
+         aes(x = waxester_carbon, y = taxa,
+             color = taxa))+
+    geom_boxplot() +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+    xlab("Wax ester carbon (mg C)") +
+    theme(legend.position = "none",
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.title.y = element_blank()),
+  
+  
+  ggplot(calanus.lipids,
+         aes(x = lipidMass_mgC, y = scientificName,
+             color = scientificName))+
+    geom_boxplot() +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5)) +
+    xlab("Wax ester carbon (mg C)") +
+    theme(legend.position = "none",
+          axis.text.y = element_text(face = "bold.italic", 
+                                     hjust = 0,
+                                     vjust = -1,
+                                     size = 12,
+                                     margin = ggplot2::margin(r = -115)),
+          axis.ticks.y = element_blank(),
+          axis.title.y = element_blank()),
+  
+  
+
+   ncol = 1, align = "v", labels = c("b","e","h"),
+  rel_heights = c(2,1, 1)
+),
+
+plot_grid(
+  # lipid content
+  ggplot(df_to_plot,
+         aes(x = lipid_fullness,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    xlab("Lipid fullness (% total carbon)") +
+    scale_x_continuous(breaks = c(30,40,50,60,70,80,90), limits = c(25, 95)) +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none",
+          axis.title.y = element_blank()),
+  
+  ggplot(loki.segmentations,
+         aes(x = lf_carbon, y = taxa,
+             color = taxa))+
+    geom_boxplot() +
+    xlab("Lipid fullness (% total carbon)") +
+    scale_x_continuous(breaks = c(30,40,50,60,70,80,90), limits = c(25, 95)) +
+    theme(legend.position = "none",
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.title.y = element_blank()),
+  
+  
+  ggplot(calanus.lipids,
+         aes(x = lipidPDW, y = scientificName,
+             color = scientificName))+
+    geom_boxplot() +
+    scale_x_continuous(breaks = c(30,40,50,60,70,80,90), limits = c(25, 95)) +
+    xlab("Lipid fullness (% total carbon)") +
+    theme(legend.position = "none",
+          axis.text.y = element_text(face = "bold.italic", 
+                                     hjust = 0,
+                                     vjust = -1,
+                                     size = 12,
+                                     margin = ggplot2::margin(r = -115)),
+          axis.ticks.y = element_blank(),
+          axis.title.y = element_blank()),
+  
+   ncol = 1, align = "v", labels = c("c","f","i"),
+  rel_heights = c(2,1, 1)
+),
+
+
+nrow = 1, rel_widths = c(1.2, 1, 1) )
+
+
+ggsave("figures/Fig3_20270127.png",
+       height = 8, width = 12, units = "in", bg = "white")
+
+
+```
+
+
+
+## Supp Fig: Total/structural carbon, lipid fullness, diapause respiration, potential diapause duration
+```{r}
+# carbon weight + respiration rate
+plot_grid(
+  
+  ggplot(df_to_plot,
+         aes(x = prosome_total_mgC,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    scale_x_log10(breaks = c(0.1,0.3,0.5,1,2,3,5), limit = c(0.15, 7.8)) +
+    xlab("Structural carbon weight (mg C)") +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_color_manual(values = clrs, name = "Data source") +
+    theme(legend.position = "none",
+          axis.title.y = element_blank()),
+  
+  
+  ggplot(df_to_plot,
+         aes(x = respirationRate_ugCday,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    scale_x_log10(breaks = c(0.5,1,2,3,5,8,10)) +
+    # xlab(expression("Diapause respiration rate (" * mu * "g C day"^-1 * ")")) +
+    xlab("Diapause respiration rate (\u03bcg C day⁻¹)")+
+    # xlab(expression("Diapause respiration rate (ug C day-1)")) +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none",
+          axis.title.y = element_blank(),
+          axis.title.x = element_markdown()),
+  
+  
+  ggplot(df_to_plot,
+         aes(x = diapauseDuration_day,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    xlab("Potential diapause duration (day)") +
+    geom_vline(xintercept = 240, color = "black", size = 1, linetype = "dashed") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    scale_x_continuous(limits = c(50,450)) +
+    theme(legend.position = "none",
+          axis.title.y = element_blank()),
+  
+  
+  ncol = 1,  align = "hv" #,rel_heights = c(2, 8, 8), labels = c("c","","f")
+)
+
+
+  
+  
+ggsave("figures/Fig3_supp_20270127.png",
+       height = 8, width = 5, units = "in", bg = "white")
+
+```
+
+

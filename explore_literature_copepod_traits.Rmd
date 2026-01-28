@@ -198,6 +198,59 @@ ggplot(calanoids.cpww, aes(y = scientificName, x = mean)) +
 
 # Working section for Fig 3 subplots
 
+## Organizing with the Cavallo and Peck 2020 dataset
+```{r}
+# load("data/Cavallo2020_lipid_data_temp.RData")
+# calanus.cavallo <- Cavallo.long %>% 
+#   filter(verbatimScientificName %in% c("Calanus hyperboreus", "Calanus glacialis", 
+#                                "Calanus finmarchicus")) %>% 
+#   filter(verbatimTraitName %in% c("wax ester (µg/individual)",
+#                                   "total lipid (µg/individual)")) %>% 
+#   select(-verbatimTraitUnit) %>% 
+#   pivot_wider(names_from = verbatimTraitName,
+#               values_from = verbatimTraitValue)
+
+
+df.cav <- readxl::read_xlsx("C:/Users/patri/OneDrive - Université Laval/New_Trait_Data_For_Database/Cavallo Peck Lipids/ICES_Supplementary_Tables_ed.xlsx",
+                             sheet = "Supp. Table 1", skip = 1) %>% 
+  
+  filter(Species %in% c("Calanus hyperboreus", "Calanus glacialis", 
+                               "Calanus finmarchicus")) %>% 
+  filter(!is.na(`WE (% TL)`)) %>% 
+  mutate(`WE (% TL)` = as.numeric(`WE (% TL)`)) %>% 
+  
+  # Convert WE ug to carbon, WE%DW
+  rename(TL_ug =  `TL (µg/individual)`) %>% 
+  mutate(WE_ug = TL_ug * (`WE (% TL)` / 100)) %>% 
+  mutate(WE_perc_DW = `WE (% TL)`/100 * `TL (% DW)` /100) %>% 
+  filter(!is.na(WE_ug)) %>% 
+  
+  relocate(Species, Stage, Sex, TL_ug, WE_ug, WE_perc_DW)
+
+```
+
+## Organizing the Durazzano and Titocci 2026 dataset
+```{r}
+# The raw data table
+df.dur <- read.csv("C:/Users/patri/OneDrive - Université Laval/New_Trait_Data_For_Database/Durazzano_holoplankton_Arctic_traits/Dataset_marine_holoplankton_Arctic.csv", sep = ";") %>% 
+  filter(acceptedNameUsage %in% c("Calanus hyperboreus", "Calanus glacialis", 
+                               "Calanus finmarchicus")) %>% 
+  filter(!is.na(waxEstersContent)) %>% 
+  filter(!is.na(lipidContent)) %>% 
+  filter(waxEstersContent_bibliographicCitation != "https://doi.org/10.1093/icesjms/fsaa070") %>% 
+  
+# TODO calculate WE in mg from WE%TL , TL%DW, and DW  
+  mutate(TL_ug = dryWeight * (lipidContent / 100) / 1000) %>% 
+  mutate(WE_ug = TL_ug * (waxEstersContent / 100)) %>% 
+  mutate(WE_perc_DW = (waxEstersContent / 100) * (lipidContent / 100)) %>% 
+  
+  relocate(acceptedNameUsage, lifeStage, TL_ug, WE_ug, WE_perc_DW)
+  
+# TODO Convert content in % to carbon weight
+
+```
+
+
 ## Estimate lipid mass from LPDW 
 ```{r}
 # TODO Add the Cavallo and Peck data table
@@ -215,6 +268,9 @@ calanus.lipids <- calanoid.level1.traitdata %>%
                                "Calanus finmarchicus")) %>% 
   mutate(scientificName = str_replace(scientificName, "Calanus", "C.")) %>% 
   mutate(scientificName = paste(scientificName, "F"))
+
+# TODO add the cavallo and Durazzano data
+
 
 calanus.size.edited <- calanus.size %>% 
          mutate(lifeStage = if_else(lifeStage %in% c("male","female"),
@@ -248,11 +304,6 @@ ggplot(calanus.size.edited,
 
 save(file = "data/temporary_trait_database_subset_20260127.RData",
      calanus.size.edited, calanus.lipids)
-
-```
-
-## 
-```{r}
 
 ```
 

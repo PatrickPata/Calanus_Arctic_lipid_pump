@@ -28,6 +28,10 @@ library(cowplot)
 library(ggtext)
 library(randomForest)
 
+# Profiles metadata to get list of excluded stations
+load("data/UVP6_Calanus_metadata_20260129.RData")
+rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
+
 # The segmented images and morphological traits of calanoids
 load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 
@@ -36,6 +40,7 @@ load("data/ctd_temperature_100m_averages.RData")
 
 # The random forest model
 load("functions/random_forest_carbon_trait_models.RData")
+
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
@@ -187,8 +192,10 @@ indiv_traits <- segmented.images %>%
                        ctd_filename, profile_group, region),
             by = join_by(Site, Cruise)) %>% 
   
+  # TODO check sample exclusions here
   # Exclude the images from excluded region
   filter(!is.na(region)) %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
   
   # Assign 100 m depth bin
   mutate(temp_depth_bin = floor(object_depth_max/100)*100) 
@@ -277,6 +284,11 @@ indiv_traits <- indiv_traits %>%
   mutate(taxa = if_else(object_annotation_category == "Calanoida",
                         "Calanoida", taxa)) %>% 
   mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")))
+
+indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  group_by( source) %>% 
+  count()
 
 ```
 

@@ -34,7 +34,7 @@ library(cowplot)
 load("data/uvp6_images_calculated_traits_20260129.RData")
 
 # <- Profiles metadata with regions and dataframe of volumes at 5m bins
-load("data/UVP6_Calanus_metadata_20251211.RData")
+load("data/UVP6_Calanus_metadata_20260129.RData")
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
@@ -49,6 +49,9 @@ This is the finest resolution for the data since the volume information is in 5m
 beta <- -0.001 # natural mortality rate (day-1)
 
 cope_carbon_5m <- indiv_traits %>% 
+  # Supposedly excluded in indiv_traits, but here to make sure
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+
   rename(sample_cruise = Cruise) %>% 
   
   # Add column of the volume sampled in 5m depth bins
@@ -83,9 +86,8 @@ cope_carbon_5m <- indiv_traits %>%
 
 # Total values in 5m bins. This is the minimum value given that volume is in 5m bins. All values are concentration by area (m2) for a 5m water parcel, except of lipid fullness which is the average. To get the concentration by volume (m3), divide by 5m.
 profile_totals_5m <- cope_carbon_5m %>% 
-  # # Only consider all calanus spp, regardless of source?
-  # filter(source %in% c("RF Calanus spp", "CNN segmentation",
-  #                      "Manual segmentation")) %>% 
+  # Only consider all calanus spp, regardless of source?
+  filter(taxa == "Calanus") %>% 
   # integrate to 5m bins
   group_by(region.inuktitut, profile_group, Site, sample_cruise, sample_id,
            Depth_5m, Sampled_volume_m3, temp_depth_bin) %>% 
@@ -116,14 +118,14 @@ prof_with_blank <- volumes.df %>%
   filter(!is.na(region.inuktitut))
 
 profile_totals_5m <- prof_with_blank 
+
 rm(prof_with_blank)
 ```
 
 # 2. Per profile totals
 ```{r}
-# TODO find and exclude casts not 70%? of the bottom depth??
-# Then simply average all sites...
-
+# Get total values integrated over the entire sampled depth 
+#  (note that there are profiles much shallower than their bottom depth)
 profile_sums_m2 <- profile_totals_5m %>% 
   # rename columns
   rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
@@ -147,18 +149,17 @@ profile_sums_m2 <- profile_totals_5m %>%
                      Year, Month_Name, DOY,
                      maxSampleDepth, max5mDepth, bottom_depth_m),
             by = "sample_id") %>% 
-  
-   # some profiles have no associated bottom depth but assume okay for now
-  # TODO get bottom depth for all profiles
-  mutate(bottom_depth_m = if_else(is.na(bottom_depth_m), 
-                                  maxSampleDepth, bottom_depth_m)) %>%
-  mutate(castratio = maxSampleDepth / bottom_depth_m ) %>% 
-  mutate(castratio = if_else(castratio > 1, 1, castratio)) %>% 
+  # Calculate % sampled of bottom depth
+  mutate(castratio = maxSampleDepth / bottom_depth_m) %>% 
   mutate(prop_flux = Total_C_Flux/Biomass)
 
-# Exclude profiles much shallower than bottom depth or with nimages < 10? & sample depth < 100m?
-to_exclude <- profile_sums_m2 %>% 
-  filter(nimages < 20 | castratio < 0.5 | maxSampleDepth < 100)
+# # Number of images per profile
+# ggplot(profile_sums_m2, aes(nimages)) +
+#   geom_histogram(binwidth = 5) +
+#   scale_x_continuous(breaks = seq(0,200,10))
+# 
+# ggplot(profile_sums_m2, aes(x = nimages, y = Total_C_Flux)) +
+#   geom_point(aes(color = bottom_depth_m))
 
 
 # Regional averages (without profile grouping)
@@ -276,8 +277,8 @@ ggplot(AA,
   xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)") +
   facet_wrap(~Month_Name, scales = "free_x", nrow = 1) 
 
-ggsave("figures/Seasonal variation_lipid biomass.png",
-       width = 10, height = 5, units = "in", bg = "white")
+# ggsave("figures/Seasonal variation_lipid biomass.png",
+#        width = 10, height = 5, units = "in", bg = "white")
 
 
 # Group by Region
@@ -293,8 +294,8 @@ ggplot(AA,
   facet_wrap(~region.inuktitut, scales = "free", nrow = 2) 
 
 
-ggsave("figures/vertical_biomass_by_region_sample_id_level.png",
-       width = 9, height = 7, units = "in", bg = "white")
+# ggsave("figures/vertical_biomass_by_region_sample_id_level.png",
+#        width = 9, height = 7, units = "in", bg = "white")
 ```
 
 
@@ -307,13 +308,9 @@ ggplot(profile_sums_m2, aes(x = Biomass, y = bottom_depth_m,
   geom_point() +
   scale_y_reverse() +
   scale_color_viridis_c() +
-  geom_point(data = to_exclude, shape = 3, size = 2, color = "red") +
   ylab("Bottom depth (m)") +
-  xlab("Biomass (g C m-2)") +
-  ggtitle("Profiles to exclude: <.5 cast ratio \nor <20 images or depth < 100m")
+  xlab("Biomass (g C m-2)") 
 
-ggsave("figures/sampling_depth_vs_biomass_100m.png",
-       width = 6, height = 4, units = "in", bg = "white")
 
 
 # spatial plot
@@ -337,8 +334,8 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.margin = ggplot2::margin(6,6,6,6),
         legend.box.background = element_rect(fill = "white", color = "black"))
 
-ggsave("figures/map_pgs_lipidpump_all_profiles_100m.png", width = 5, height = 6,
-       units = "in", bg = "white")
+# ggsave("figures/map_pgs_lipidpump_all_profiles_100m.png", width = 5, height = 6,
+#        units = "in", bg = "white")
 
 
 
@@ -353,8 +350,8 @@ ggplot(flux_components,
         ) +
   ylab("Lipid pump (g C m-2 y-1)") + xlab("Individual Profiles")
 
-ggsave("figures/lipid_pump_mean_components_by_profile_100m.png",
-       width = 9, height = 5, units = "in", bg = "white")
+# ggsave("figures/lipid_pump_mean_components_by_profile_100m.png",
+#        width = 9, height = 5, units = "in", bg = "white")
 
 # Plot regional averages
 ggplot(profile_sums_m2 %>% 
@@ -378,8 +375,8 @@ ggplot(profile_sums_m2 %>%
   theme(legend.position = "none") +
   xlab("Lipid pump carbon flux (g C m-2 y-1)") + ylab("Region") 
 
-ggsave("figures/lipid_pump_totals_by_region_noprofile_groups_100m.png",
-       width = 7, height = 5, units = "in", bg = "white")
+# ggsave("figures/lipid_pump_totals_by_region_noprofile_groups_100m.png",
+#        width = 7, height = 5, units = "in", bg = "white")
 
 # Abundance and biomass
 ggplot(profile_sums_m2 %>% 
@@ -390,10 +387,10 @@ ggplot(profile_sums_m2 %>%
   scale_y_discrete(limits = rev) +
   theme(legend.position = "none") +
   xlab("Abundance (indiv m-2)") + ylab("Region") 
-
-# # Export results for profile totals
-save(profile_sums_m2, to_exclude, regions_m2, flux_components,
-     file = "data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
+# 
+# # # Export results for profile totals
+# save(profile_sums_m2, to_exclude, regions_m2, flux_components,
+#      file = "data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
 ```
 
 
@@ -679,7 +676,7 @@ ggsave("figures/vertical_biomass_by_region.png",
 ```{r}
 save(profile_totals_5m, profile_group_totals, regional_averages,
      region_rename, pg_meta,
-     file = "data/lipidflux_calculations_20251211.RData")
+     file = "data/lipidflux_calculations_20260129.RData")
 ```
 
 # -- Different integration -

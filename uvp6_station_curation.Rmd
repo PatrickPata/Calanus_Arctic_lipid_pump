@@ -18,6 +18,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggOceanMaps)
 library(ggrepel)
+library(cowplot)
 `%notin%` <- Negate(`%in%`)
 ```
 
@@ -69,15 +70,22 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
                                        "de_bb2_float", sample_stationid_ed)) %>% 
   left_join(stns_meta, 
             by = join_by(sample_cruise, 
-                         sample_stationid_ed == sample_stationid))
+                         sample_stationid_ed == sample_stationid)) %>% 
+    # For profiles with no assigned bottom dpeth, use the max sampling depth
+  mutate(bottom_depth_m = if_else(is.na(bottom_depth_m), 
+                                  maxSampleDepth, bottom_depth_m)) %>%
+  # Correct the bottom depth for am_leg5_TCA_T3_03_01
+  mutate(bottom_depth_m = if_else(sample_id == "am_leg5_TCA_T3_03_01", 
+                                  maxSampleDepth, bottom_depth_m)) %>%
+  # Cast ratio
+  mutate(castratio = maxSampleDepth / bottom_depth_m ) %>% 
+  mutate(castratio = if_else(castratio > 1, 1, castratio)) 
 
-# 26 stations have no bottom depth information
-Amund_UVP6_meta %>% 
-  filter(is.na(bottom_depth_m)) %>% 
-  nrow()
+
 ```
 
 # 3. Additional curation of the metadata files
+## Select profiles with segmented images
 ```{r}
 # Load the list of images for analysis
 load("data/uvp6_images_calculated_traits_20251210.RData")
@@ -85,8 +93,7 @@ load("data/uvp6_images_calculated_traits_20251210.RData")
 # The volume sampled in each UVP profile and region names/color
 load("data/UVP6_sample_volume_5m_20251211.RData")
 
-
-# Samples with calanus spp images
+# Samples with segmented Calanus spp images
 valid_profiles <- indiv_traits %>% 
   # filter(source %in% c("RF Calanus spp", "CNN segmentation",
   #                      "Manual segmentation")) %>% 
@@ -105,56 +112,74 @@ volumes.sum <- volumes.df %>%
             totalProfileVolume_m3 = sum(Sampled_volume_m3),
             n5mbins = n(), .groups = "drop") 
 
+# Filter the samples with segmented Calanus images
 Amund_UVP6_meta <- valid_profiles %>% 
   left_join(Amund_UVP6_meta, by = "sample_id") %>% 
   left_join(volumes.sum, by = "sample_id") %>% 
-  select(-object_id)
+  select(-object_id) 
+
+# Check the distribution of NCalanusImages per sampling year
+ggplot(Amund_UVP6_meta, aes(x = nCalanusImages, color = as.factor(Year))) +
+  geom_density()
 
 
-# # Check which profiles do not sample the entire bottom depth
-# ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
-#   geom_point(aes(color = sample_cruise)) +
-#   geom_abline()
+# Check which profiles do not sample the entire bottom depth
+ggplot(Amund_UVP6_meta, aes(x = maxSampleDepth, y = bottom_depth_m)) +
+  geom_point(aes(color = sample_cruise)) +
+  geom_abline()
 
 # # How many images in total per profile?
-# plot_grid(
-# ggplot(valid_profiles, aes(x = nCalanusImages)) +
-#   geom_histogram(binwidth = 10) +
-#   ggtitle("Images per profile"),
-# 
-# ggplot(valid_profiles %>% 
-#          group_by(profile_group) %>% 
-#          summarise(nCalanusImages = sum(nCalanusImages)), aes(x = nCalanusImages)) +
-#   geom_histogram() +
-#   ggtitle("Images per profile-group") )
+plot_grid(
+ggplot(valid_profiles, aes(x = nCalanusImages)) +
+  geom_histogram(binwidth = 10) +
+  ggtitle("Images per profile"),
+
+ggplot(valid_profiles %>%
+         group_by(profile_group) %>%
+         summarise(nCalanusImages = sum(nCalanusImages)), aes(x = nCalanusImages)) +
+  geom_histogram() +
+  ggtitle("Images per profile-group") )
 # ggsave("figures/image_count_profiles_2.png",
 #        width = 8, height = 4, units = "in", bg = "white")
 
 # ## Check image counts between Calanus spp and Copepoda > 3mm
-# AA <- indiv_traits %>% 
-#   mutate(source2 = if_else(source %in% c("RF Calanus spp", "CNN segmentation",
-#                        "Manual segmentation"), 
-#                        "Calanus","Copepoda3mm") ) %>% 
-#    group_by(Cruise, sample_id, profile_group, region, region.inuktitut, source2) %>% 
-#   summarise(nimages = n(), .groups = "drop") %>% 
-#   pivot_wider(names_from = source2, values_from = nimages,
-#               values_fill = 0)
-# 
-# ggplot(AA, aes(x = Calanus, y = Copepoda3mm,
-#                color = region.inuktitut,
-#                shape = Cruise)) +
-#   geom_point() +
-#   geom_abline() +
-#   scale_color_manual(values = unique(region_rename$region.color),
-#                      name = "Region") +
-#   ggtitle("Number of images per UVP6 profile")
-# 
+AA <- indiv_traits %>%
+  mutate(source2 = if_else(source %in% c("RF Calanus spp", "CNN segmentation",
+                       "Manual segmentation"),
+                       "Calanus","Copepoda3mm") ) %>%
+  mutate(Cruise = if_else(grepl("am_", Cruise) == T, "amundsen2024", Cruise)) %>% 
+   group_by(Cruise, sample_id, profile_group, region, region.inuktitut, source2) %>%
+  summarise(nimages = n(), .groups = "drop") %>%
+  pivot_wider(names_from = source2, values_from = nimages,
+              values_fill = 0)
+
+ggplot(AA, aes(x = Calanus, y = Copepoda3mm,
+               color = region.inuktitut,
+               shape = Cruise)) +
+  geom_point() +
+  geom_abline() +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  ggtitle("Number of images per UVP6 profile")
+
 # ggsave("figures/image_count_profiles.png",
 #        width = 8, height = 5, units = "in", bg = "white")
 ```
 
+## Filter profiles based on depth and N images
+```{r}
+# Exclude profiles 
+# TODO verify this filter
+to_exclude <- Amund_UVP6_meta %>% 
+  filter(bottom_depth_m < 100 | nCalanusImages < 10 |
+           castratio < 0.5) 
 
-## Prepare metadata of profile groups and export
+# number of images not used 
+sum(to_exclude$nCalanusImages)
+```
+
+
+# 4. Prepare metadata of profile groups and export
 ```{r}
 # Calculate profile group centroids
 pg_meta <- Amund_UVP6_meta %>% 
@@ -182,23 +207,24 @@ pg_meta %>%
             .groups = "drop")
 
 Amund_UVP6_meta %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
   group_by(region.inuktitut, Month_Name) %>% 
   count() %>% 
   pivot_wider(names_from = Month_Name, values_from = n) %>% 
   select(region.inuktitut, July, August, September, October)
 
 Amund_UVP6_meta %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
   group_by(region.inuktitut, Year) %>% 
   count()
 
 # *** Export the metadata file including the volumes ***
-save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta,
-     file = "data/UVP6_Calanus_metadata_20251211.RData")
+save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta, to_exclude,
+     file = "data/UVP6_Calanus_metadata_20260129.RData")
 ```
-
-
-## Get profile summaries from excel file instead
-```{r, eval=FALSE}
+# 5. Figure 2 Map
+```{r, fig.width=6}
+# load("data/UVP6_Calanus_metadata_20260129.RData")
 region_rename <- data.frame(
   region = c("Baffin Bay", "Baffin Shelf", 
              "Davis Strait", "Lancaster Sound",
@@ -228,6 +254,54 @@ region_rename <- data.frame(
 
 clrs <- unique(region_rename$region.color)
 
+p <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "#eeeac4",  bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(sample_id %notin% to_exclude$sample_id) %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat, 
+                                    shape = Year,
+                                    color = region.inuktitut),
+                                size = 3, alpha = 0.7) +
+  scale_color_manual(values = clrs, name = "Region") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12),
+        legend.key.spacing.y = unit(0.2, "cm"),
+        legend.position = c(0.025, 0.025),
+        legend.justification = c("left", "bottom"),
+        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black")) 
+
+# 1) Make a version that shows ONLY the fill legend (from basemap)
+fill_leg <- cowplot::get_legend(
+  p + theme(legend.position = "right") +
+    guides(colour = "none", color  = "none", shape  = "none") )
+
+# 2) Make the main plot with NO fill legend (keep your bottom-left legend)
+p_main <- p + guides(fill = "none")
+
+# 3) Overlay the extracted fill legend into the upper-right corner
+p_final <- cowplot::ggdraw(p_main) +
+  cowplot::draw_grob(
+    fill_leg,
+    x = 0.77, y = 0.65,   # position (0–1)
+    width = 0.26, height = 0.26
+  )
+
+p_final
+
+ggsave("figures/Fig2_samples_map_by_region_289.png", width = 6, height = 8,
+       units = "in", bg = "white")
+```
+
+
+# -- old scripts --
+
+## Get profile summaries from excel file instead
+```{r, eval=FALSE}
+
 # Use the profile lists instead of metadata?
 profiles_list <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
@@ -254,7 +328,7 @@ profiles_list %>%
 ```
 
 
-# 4. Plot profile groups
+#  Plot profile groups
 ```{r, width = 12}
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
@@ -321,7 +395,7 @@ ggplot(Amund_UVP6_meta, aes(x = as.factor(Year), fill = region.inuktitut)) +
 
 
 
-# 5. Inspect profiles for organizing profile_groups
+#  Inspect profiles for organizing profile_groups
 ## 2021 Dark Edge
 ```{r, eval=FALSE}
 df_subset <- Amund_UVP6_meta %>% 

@@ -42,7 +42,7 @@ lambda <- (36*12) / (36*12 + 2*36 + 2*16)
 # If density asssumed as 1, the value below is the Carbon % Wet weight
 # 0.09 is the average for all calanoid copepod species
 # 0.0766 is the average for calanoid copepod species except lipid sac forming species
-prosomeWW2C <- 0.07666 # 0.07666
+prosomeWW2C <- 0.09 # 0.07666
 
 
 # inner join to retain only images that have both segmentations

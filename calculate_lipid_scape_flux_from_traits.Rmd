@@ -31,7 +31,7 @@ library(tidyverse)
 library(cowplot)
 
 # The calculated trait values
-load("data/uvp6_images_calculated_traits_20251210.RData")
+load("data/uvp6_images_calculated_traits_20260129.RData")
 
 # <- Profiles metadata with regions and dataframe of volumes at 5m bins
 load("data/UVP6_Calanus_metadata_20251211.RData")

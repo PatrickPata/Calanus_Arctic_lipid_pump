@@ -208,7 +208,6 @@ ggplot(manual.segmented.images, aes(x = Area, y = prosome.pixels)) +
 
 # Further curation of the automated lipid segmentations
 ```{r}
-
 # *** EXCLUDE EXTRAPOLATIONS ***
 # Many of these are also categorized as bad images
 to_exclude_by_size <- segmented.images %>% 
@@ -249,7 +248,7 @@ all.copepods.uvp6 <- all.copepods.uvp6 %>%
 
 
 # Export data
-```{r}
+```{r, eval=FALSE}
 Amund_UVP6_meta <- Amund_UVP6_meta %>% 
   select(-c(twilight.x, twilight.y)) %>% 
     mutate(Month_Name = month(object_date, label = TRUE, abbr = FALSE))
@@ -415,6 +414,7 @@ ggplot(res.lipid.crop, aes(x = waxester_mass_mg_predicted,
 # ... should be all true, since most are validated except 2023 data.
 # The classification model of lipid sac is not that good with cant segment at ~30% of images for the 2021 and 2024 data, and 45% of imags for the 2023 data. The model is probably not reliable overall since the 2021 and 20
 df.CNN.seg %>% 
+  # mutate(filename = paste0(object_id,".png")) %>% 
   mutate(year = if_else(grepl("2021", filename) == T,
                           "2021", "2024")) %>% 
   mutate(year = if_else(grepl("2023", filename) == T,
@@ -466,11 +466,12 @@ fol2 <- "C:/Sync/UVP6_Data/lipid_predictions_20251123/bad_segmentations/"
 
 # List file names of images inside the folder
 bad.images.files <- list.files(fol2)
-bad.images.files <- str_remove(bad.images.files, "_overlapRGB")
+bad.images.files <- str_remove(bad.images.files, "_overlapRGB.png")
 
 # Subset the CNN output for all bad images
 bad.images <- df.CNN.seg %>% 
-  filter(filename %in% bad.images.files)
+  filter(object_id %in% bad.images.files)
+  # filter(filename %in% bad.images.files)
 
 # How many were classified as no lipid sac? 251 out of 350
 bad.images %>% 

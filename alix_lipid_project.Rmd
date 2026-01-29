@@ -67,7 +67,7 @@ ggsave(filename = "station_map.png",
 
 # Prepare data
 ```{r}
-load("data/Amund_UVP6_20251031.RData")
+# load("data/Amund_UVP6_20251031.RData")
 
 theme_set(theme_bw())
 `%notin%` <- Negate(`%in%`)
@@ -152,8 +152,24 @@ df.top<- read_tsv(
   filter(img_rank == 100) %>% 
   select(-img_rank)
 
+# Contains the volumes.df from EcoPart
+load("data/UVP6_Calanus_metadata_20251211.RData")
+
 # combine
-df.metadata <- bind_rows(df.side, df.top)
+df.metadata <- bind_rows(df.side, df.top) %>% 
+  rename(object_depth = object_depth_max) %>% 
+  # rename some of the morpho traits
+  
+  # Assign the volume of water filtered from the 5m depth bins of Ecopart
+  mutate(Depth_5m = floor(object_depth/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  relocate(Depth_5m,Sampled_volume_L, Sampled_volume_m3,
+           .after = object_depth)
+
+# Export to csv
+write.csv(df.metadata,
+          file = "C:/Sync/UVP6_Data/Alix_Amundsen_Leg5/UVP6_Calanus_metadata_20260129.csv",
+          row.names = F)
 
 rm(df, df.side, df.top)
 ```

@@ -40,8 +40,577 @@ theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 source("functions/lipid_pump_toolkit.R")
 
+clrs <- rev(c("blue","black","hotpink"))
+
 ```
 
+# Double checking
+## Simple integration of abundance and biomass
+Get everything to 5m bins first so that the sampled_volume is not repeated, then total over 100 m bins.
+```{r, fig.height = 6}
+# TODO Figure out how to include mortality since individuals have different diapause durations
+
+# In each 5m bin, per taxa, per profile, get abundance and biomass
+AA <- indiv_traits %>% 
+  # Add column of the volume sampled in 5m depth bins
+  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  
+  # Calculate total abundance and biomass per bin
+  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = n(),
+         biomass_mgC = sum(prosome_total_mgC),
+         structural_mgC = sum(structural_carbon_mgC),
+         waxester_mgC = sum(waxester_mass_mgC),
+         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
+         .groups = "drop") 
+  
+  # # Calculate concentration by 5m bin first (Not needed because analysis is in 100m resolution)
+  # mutate(abundance_m3 = abundance / Sampled_volume_m3,
+  #        biomass_mg_m3 = biomass_mgC / Sampled_volume_m3)
+
+# when calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
+BB <-  volumes.df %>% 
+  filter(sample_id %in% indiv_traits$sample_id) %>% 
+  # Repeat it 3 times for each taxa
+  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
+  select(-Sampled_volume_L) %>% 
+  left_join(AA, 
+            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# Calculate 100 m bin totals
+CC <- BB %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins)) %>% 
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+
+# Calculate total m2 abundance and biomass per taxa-sample
+DD <- CC %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC) / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            .groups = "drop")
+
+
+# TODO Check total respiration flux
+EE <- DD %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
+            by = "sample_id")
+
+EE.aves <- EE %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:respired_C_gC_m2,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop")
+
+plot_grid(
+  ggplot(EE %>% 
+           filter(taxa == "Calanus"),
+         aes(y = region.inuktitut)) +
+    geom_boxplot(aes(x = respired_C_gC_m2, color = region.inuktitut)) +
+    scale_color_manual(values = unique(region_rename$region.color)) +
+     # Add average values for the region
+    geom_point(data = EE.aves %>% 
+           filter(taxa == "Calanus"),
+               aes(x = respired_C_gC_m2_mean), shape = 17, size = 3, color = "black") +
+    geom_linerange(data = EE.aves %>% 
+                     filter(taxa == "Calanus"),
+                   aes(xmin = respired_C_gC_m2_mean - respired_C_gC_m2_sd,
+                       xmax = respired_C_gC_m2_mean + respired_C_gC_m2_sd),
+                   color = "black", linetype = "dashed") +
+    scale_y_discrete(limits = rev) +
+    scale_x_continuous(breaks = seq(0,13,2)) +
+    coord_cartesian(xlim = c(0, 10)) +
+    theme(legend.position = "none") +
+    xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region"),
+  
+  ggplot(EE.aves,
+       aes(x = region.inuktitut, y = respired_C_gC_m2_mean, fill = taxa)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "bottom") +
+  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+  coord_flip() + scale_x_discrete(limits = rev),
+  ncol = 1, labels = "auto"
+)
+  
+# Note that when combining concentrations across taxa, simply add since the same volume of water was sampled
+```
+
+## Mortality  - applied to population level
+```{r}
+beta <- -0.001 # natural mortality rate (day-1)
+
+# If based on 100m bin abundance, need to average the diapause duration
+# Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality rate for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day)) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean)) %>% 
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+CC_v2 <- CC %>% 
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost to mortality
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  # NAs are zeros
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# Calculate profile totals
+DD_v2 <- CC_v2 %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC) / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  mutate(fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2) 
+
+# Plot
+
+# TODO Check total respiration flux
+EE_v2 <- DD_v2 %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
+            by = "sample_id")
+
+EE.aves <- EE_v2 %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:total_gC_flux_m2,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop")
+
+# Lengthen to plot flux components
+EE.aves_components <- EE.aves %>% 
+  select(taxa, region.inuktitut, region, 
+         `diapause respiration` = respired_C_gC_m2_mean, 
+         `mortality structural` = structural_gC_m2_mort_mean, 
+         `moratlity storage` = waxester_gC_m2_mort_mean) %>% 
+  pivot_longer(cols = c(`diapause respiration`, 
+                        `mortality structural`, `moratlity storage`),
+               names_to = "Component", values_to = "Cflux")
+
+plot_grid(
+    ggplot(EE_v2 %>% 
+           filter(taxa == "Calanus"),
+         aes(y = region.inuktitut)) +
+    geom_boxplot(aes(x = total_gC_flux_m2, color = region.inuktitut)) +
+    scale_color_manual(values = unique(region_rename$region.color)) +
+     # Add average values for the region
+    geom_point(data = EE.aves %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_mean), shape = 17, size = 3, color = "black") +
+    geom_linerange(data = EE.aves %>% 
+                     filter(taxa == "Calanus"),
+                   aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd,
+                       xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
+                   color = "black", linetype = "dashed") +
+    scale_y_discrete(limits = rev) +
+    scale_x_continuous(breaks = seq(0,13,2)) +
+    coord_cartesian(xlim = c(0, 10)) +
+    theme(legend.position = "none") +
+    xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region"),
+  
+
+  ggplot(EE.aves_components %>% 
+           filter(taxa == "Calanus"),
+       aes(x = region.inuktitut, y = Cflux, fill = Component)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "bottom") +
+  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+  coord_flip() + scale_x_discrete(limits = rev),
+  ncol = 1, labels = "auto"
+)
+```
+
+
+## Regional total C flux comparisons
+(Part 1 because only respiration flux is available)
+```{r, fig.width= 8}
+df  <- EE %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(region_set = case_when(
+    region %in% c("Labrador Shelf","Lancaster Sound","Nares Strait") ~ "Group 1",
+    region %in% c("Baffin Bay","Baffin Shelf", 
+                  "Davis Strait","North Water Polynya") ~ "Group 2"
+  ))
+
+
+# Abundance & Biomass similar
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW] [Baffin sehlf - Lancaster]
+kruskal.test(abundance_m2 ~ region, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$abundance_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# Carbon flux
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW], [Baffin sehlf - Lancaster]
+kruskal.test(respired_C_gC_m2 ~ region, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$respired_C_gC_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+# separate Baffin Bay/Shelf, Davis, NOW from rest
+
+# Explore distributions
+plot_grid(
+  ggplot(df, aes(x = abundance_m2, color = region.inuktitut)) +
+    geom_density() +
+    scale_x_log10() +
+    scale_color_manual(values = region_rename$region.color) +
+    theme(legend.position = "none") +
+    facet_wrap(~region_set, ncol = 1),
+  ggplot(df, aes(x = respired_C_gC_m2, color = region.inuktitut)) +
+    geom_density() +
+    scale_x_log10() +
+    scale_color_manual(values = region_rename$region.color) +
+    facet_wrap(~region_set, ncol = 1),
+  rel_widths = c(1,1.6)
+)
+
+```
+
+
+### Compare years if any bias in %validated
+```{r}
+
+# Abundance & Biomass similar
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW] [Baffin sehlf - Lancaster]
+kruskal.test(abundance_m2 ~ Year, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$abundance_m2,
+                     g = df$Year,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# Carbon flux
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW], [Baffin sehlf - Lancaster]
+kruskal.test(respired_C_gC_m2 ~ Year, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$respired_C_gC_m2,
+                     g = df$Year,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+plot_grid(
+  ggplot(df, aes(x = abundance_m2, color = as.factor(Year)))+
+    geom_density() +
+    scale_x_log10() +
+    theme(legend.position = "none") +
+    facet_wrap(~region_set, ncol = 1),
+  ggplot(df, aes(x = respired_C_gC_m2, color = as.factor(Year))) +
+    geom_density() +
+    scale_x_log10() +
+    facet_wrap(~region_set, ncol = 1),
+  rel_widths = c(1,1.6)
+)
+
+
+```
+
+
+## Average vertical profiles per region and 100 m bin
+```{r}
+region_100m_aves <- CC %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, Year, bottom_depth_m),
+            by = "sample_id") %>% 
+  group_by(taxa, region.inuktitut, Depth_100m) %>% 
+  # TODO Should this be weighted averages by number of 5m bins per 100m bin?
+  summarise(nprofiles = n(),
+            abundance_m3_mean = mean(abundance_m3),
+            abundance_m3_sd = sd(abundance_m3),
+            biomass_mgC_m3_mean = mean(biomass_mgC_m3),
+            biomass_mgC_m3_sd = sd(biomass_mgC_m3),
+            respired_C_mean = mean(respired_C_gC_m2),
+            respired_C_sd = sd(respired_C_gC_m2),
+            .groups = "drop")
+
+
+ggplot(region_100m_aves, aes(x = Depth_100m, y = biomass_mgC_m3_mean, fill = taxa)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "none") +
+  facet_wrap(~region.inuktitut, scale = "free",
+             nrow = 2)
+
+ggplot(region_100m_aves, aes(x = Depth_100m, y = abundance_m3_mean, fill = taxa)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "none") +
+  facet_wrap(~region.inuktitut, scale = "free",
+             nrow = 2)
+
+```
+
+
+# Size profiles
+## Regional differences is just comparing distributions of size and lipid fullness
+```{r}
+size.prof <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(temperature = temperature_kelvin - 273.15) %>% 
+  group_by(region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(c(prosome_total_mgC, lipid_fullness,
+                     respirationRate_ugCday, temperature),
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE))
+
+# TODO statistical comparison
+ggplot(indiv_traits %>% 
+  filter(taxa == "Calanus"), aes(sample = log10(prosome_total_mgC))) +
+  qqplotr::stat_qq_point() + # Adds the data points
+  qqplotr::stat_qq_line() +  # Adds the reference line
+  labs(title = "log10(biomass)",
+       x = "Theoretical Normal Quantiles",
+       y = "Sample Quantiles (MPG)") +
+  theme_minimal()
+
+
+df <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  left_join(distinct(Amund_UVP6_meta, sample_id, Year))
+
+# p = 0.01 difference in lipid fullness between regions, no difference in means
+summary( aov(lipid_fullness ~ region, data = df) )
+kruskal.test(lipid_fullness ~ region, data = df) # p = 0.01, no difference in distributions
+
+# difference in total carbon (same results for prosome length and total diapause respiration for the year)
+kruskal.test(prosome_total_mgC ~ region, data = df) # p < 0.001, diff distributions
+res.dunn <- dunn.test::dunn.test(x = df$prosome_total_mgC,
+                     g = df$region,
+                     kw = F, list = T, table = T,
+                     method = "bh")
+# No sig diff: [Baffin Bay-Lancaster-Nares] [Baffin Shelf-Davis Strait] [Labrador-NOW]
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+# FOR daily respiration rate, the pattern is different
+kruskal.test(respirationRate_ugCday ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$respirationRate_ugCday,
+                     g = df$region,
+                     kw = F, list = T, table = T,
+                     method = "bh")
+# No sig diff: [Baffin Bay-Baffin Shelf-Labrador], [Nares-NOW]
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+
+df <- df %>% 
+  mutate(region_set = case_when(
+    region %in% c("Baffin Bay","Lancaster Sound","Nares Strait") ~ "Biomass 1",
+    region %in% c("Baffin Shelf", "Davis Strait") ~ "Biomass 2",
+    region %in% c("Labrador Shelf","North Water Polynya") ~ "Biomass 3"
+  )) %>% 
+  mutate(region_set2 = case_when(
+    region %in% c("Baffin Bay","Baffin Shelf","Labrador Shelf") ~ "Respiration 1",
+    region %in% c("North Water Polynya", "Nares Strait") ~ "Respiration 2",
+    region %in% c("Lancaster Sound","Davis Strait") ~ "Sig Diff"
+  ))
+
+size.prof <- size.prof %>% 
+  left_join(distinct(df, region, region_set, region_set2))
+
+
+
+
+ggplot(df, aes(x = prosome_total_mgC, color = region.inuktitut)) +
+  geom_density() +
+  scale_x_log10() +
+    # Mean
+  geom_vline(data = size.prof,
+             aes(xintercept = prosome_total_mgC_mean, color = region.inuktitut),
+             linetype = "solid", linewidth = 1) +
+  # Median
+  geom_vline(data = size.prof,
+             aes(xintercept = prosome_total_mgC_median, color = region.inuktitut),
+             linetype = "dashed", linewidth = 1) +
+
+  facet_wrap(~region_set, ncol = 1)
+
+ggplot(df, aes(x = lipid_fullness, color = region.inuktitut)) +
+  geom_density() +
+  
+  geom_vline(data = size.prof,
+             aes(xintercept = lipid_fullness_mean, color = region.inuktitut)) 
+
+ggplot(df, aes(x = temperature_kelvin-273.15, color = region.inuktitut)) +
+  geom_density() +
+  facet_wrap(~region_set, ncol = 1)
+
+# FOR daily respiration rate, the pattern is different
+ggplot(df, aes(x = respirationRate_ugCday, color = region.inuktitut)) +
+  geom_density() +
+    # Mean
+  geom_vline(data = size.prof,
+             aes(xintercept = respirationRate_ugCday_mean, color = region.inuktitut),
+             linetype = "solid", linewidth = 1) +
+  # Median
+  geom_vline(data = size.prof,
+             aes(xintercept = respirationRate_ugCday_mean, color = region.inuktitut),
+             linetype = "dashed", linewidth = 1) +
+  scale_x_log10() +
+  facet_wrap(~region_set2, ncol = 1)
+```
+
+### Compare years
+```{r}
+
+# Abundance & Biomass similar
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW] [Baffin sehlf - Lancaster]
+kruskal.test(prosome_total_mgC ~ Year, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$prosome_total_mgC,
+                     g = df$Year,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# Carbon flux
+# No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW], [Baffin sehlf - Lancaster]
+kruskal.test(respirationRate_ugCday ~ Year, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$respirationRate_ugCday,
+                     g = df$Year,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+plot_grid(
+  ggplot(df, aes(x = prosome_total_mgC, color = as.factor(Year)))+
+    geom_density() +
+    scale_x_log10() +
+    theme(legend.position = "none"),
+  ggplot(df, aes(x = respirationRate_ugCday, color = as.factor(Year))) +
+    geom_density() +
+    scale_x_log10(),
+  rel_widths = c(1,1.6)
+)
+
+
+```
+
+## Depth differences?
+Variation in body size with depth (in 100 m bins?)
+```{r}
+df <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  # establish 100 m depth bins?
+  mutate( depth_bin = cut(
+    object_depth_max,
+    breaks = c(0, 50, 100, 200, 500, 1000, Inf),
+    labels = c("0–50", "50–100", "100–200", "200–500", "500–1000", "1000+"),
+    right = FALSE,
+    ordered_result = TRUE ))
+
+# Size: O
+kruskal.test(prosome_length_mm ~ depth_bin, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$prosome_length_mm,
+                     g = df$depth_bin,
+                     kw = F, list = T, table = T,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# Size, Daily respiration rate: Only 500-100 & 1000+ are not sig diff
+# Total indiv diapause resp: [500-1000, 1000+] [0-50, 100-200]
+# Lipid fullness: 500-1000+ are different from 0-200/500, slightly more full deeper but not that much
+kruskal.test(diapause_resp_by_indiv_ugC ~ depth_bin, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$lipid_fullness,
+                     g = df$depth_bin,
+                     kw = F, list = T, table = T,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+ggplot(df, aes(x = lipid_fullness, color = depth_bin)) +
+  geom_density() 
+
+ggplot(df, aes(x = prosome_total_mgC, color = depth_bin)) +
+  geom_density() +
+  scale_x_log10() 
+
+ggplot(df, aes(x = respirationRate_ugCday, color = depth_bin)) +
+  geom_density() +
+  scale_x_log10() 
+
+```
+
+
+
+# --- 2025 scripts ----
 
 # 1. Calculate the total carbon to be exported by each individual
 This is the finest resolution for the data since the volume information is in 5m bins. There are about 1.7 segmented images (1-28 range) per 5m bin and about 9 images (1-96) per 100 m bins.
@@ -87,9 +656,9 @@ cope_carbon_5m <- indiv_traits %>%
 # Total values in 5m bins. This is the minimum value given that volume is in 5m bins. All values are concentration by area (m2) for a 5m water parcel, except of lipid fullness which is the average. To get the concentration by volume (m3), divide by 5m.
 profile_totals_5m <- cope_carbon_5m %>% 
   # Only consider all calanus spp, regardless of source?
-  filter(taxa == "Calanus") %>% 
+  # filter(taxa == "Calanus") %>% 
   # integrate to 5m bins
-  group_by(region.inuktitut, profile_group, Site, sample_cruise, sample_id,
+  group_by(taxa, region.inuktitut, profile_group, Site, sample_cruise, sample_id,
            Depth_5m, Sampled_volume_m3, temp_depth_bin) %>% 
   summarise(abundance_m2_5m = sum(abund_frac_5m),
             biomass_gC_m2_5m = sum(abund_frac_5m * prosome_total_mgC) / 1000,
@@ -104,12 +673,15 @@ profile_totals_5m <- cope_carbon_5m %>%
             .groups = "drop")
 
 prof_with_blank <- volumes.df %>% 
+  # Repeat it 3 times for each taxa
+   tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
   left_join(profile_totals_5m %>% 
-              select(sample_id, Depth_5m, Sampled_volume_m3,
+              select(taxa, sample_id, Depth_5m, Sampled_volume_m3,
                      temp_depth_bin,
                      abundance_m2_5m:nimages),
-            by = join_by(sample_id, Depth_5m, Sampled_volume_m3)) %>% 
+            by = join_by(taxa, sample_id, Depth_5m, Sampled_volume_m3)) %>% 
 # replace NA with 0
+  # TODO OKAY ERROR HERE
   mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
   # add metadata
   left_join(profile_totals_5m %>% 
@@ -121,6 +693,53 @@ profile_totals_5m <- prof_with_blank
 
 rm(prof_with_blank)
 ```
+
+## Vertical profiles of all 3 taxa
+```{r}
+biomass_vert_100m_all <- profile_totals_5m %>% 
+  select(-profile_group) %>% 
+  
+  rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
+         Lipids = lipid_gC_m2_5m, Lipid_Fullness = lipid_full_mean_5m) %>% 
+  pivot_longer(cols = Abundance:Lipid_Fullness,
+               names_to = "variable", values_to = "value") %>% 
+
+  
+  # integrate to concentrations in 100 m bins both (m2 and m3)
+  group_by(taxa, region.inuktitut, sample_id, sample_cruise, variable,
+           temp_depth_bin) %>% 
+  summarise(value_total_m2 = sum(value),
+            value_mean_m3 = mean(value/5),
+            n5mbins = n(), .groups = "drop") %>% 
+  
+  # Adjust depth bin point to 50m midpoints
+  mutate(temp_depth_bin = temp_depth_bin + 50) %>% 
+  mutate(depthBinLabel = factor(temp_depth_bin+50, 
+                                   levels = seq(0,2500,100))) %>% 
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")))
+
+
+AA <- biomass_vert_100m_all %>% 
+  filter(variable %in% c("Biomass")) %>% 
+  filter(sample_id == "amundsen2023_e5_1")
+  # filter(sample_id == "am_leg5_TCA_T3_17_02")
+
+ggplot(AA, aes(x = depthBinLabel, y = value_total_m2, fill = taxa)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  ggtitle(unique(AA$sample_id))
+
+ggplot(AA, aes(x = depthBinLabel, y = value_mean_m3, fill = taxa)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  ggtitle(unique(AA$sample_id))
+
+```
+
+
+
 # Fig 4 calculate vertical biomass and abundance profiles in 100 m
 Per profile, calculate concentrations per 100 m bins, then average between profiles per region. 
 - Should the averaging be weighted by total % of the 100 m bin sampled?
@@ -129,7 +748,9 @@ The ideal validation of this is to compare with the net profiles.
 
 ## V1 Calculate all Calanus in 100 m bins first, then average all profiles in region
 ```{r}
-biomass_vert_100m <- profile_totals_5m %>% 
+# TODO make sure to filter which taxa are included
+biomass_vert_100m_calanus <- profile_totals_5m %>% 
+  filter(taxa == "Calanus") %>% 
   select(-profile_group) %>% 
   
   rename(Abundance = abundance_m2_5m, Biomass = biomass_gC_m2_5m,
@@ -138,7 +759,7 @@ biomass_vert_100m <- profile_totals_5m %>%
                names_to = "variable", values_to = "value") %>% 
   
   # integrate to concentrations in 100 m bins both (m2 and m3)
-  group_by(region.inuktitut, sample_id, sample_cruise, variable,
+  group_by(taxa, region.inuktitut, sample_id, sample_cruise, variable,
            temp_depth_bin) %>% 
   summarise(value_total_m2 = sum(value),
             value_mean_m3 = mean(value/5),
@@ -150,7 +771,7 @@ biomass_vert_100m <- profile_totals_5m %>%
                                    levels = seq(0,2500,100)))
 
 
-biomass_vert_region <- biomass_vert_100m %>% 
+biomass_vert_region <- biomass_vert_100m_calanus %>% 
   group_by(region.inuktitut, variable, temp_depth_bin) %>% 
   summarise(region_mean_total_m2 = mean(value_total_m2),
             region_sd_total_m2  = sd(value_total_m2),
@@ -158,7 +779,13 @@ biomass_vert_region <- biomass_vert_100m %>%
             region_sd_mean_m3  = sd(value_mean_m3),
             npgs = n(), .groups = "drop")
 
-
+biomass_vert_region_all <- biomass_vert_100m_all %>% 
+  group_by(region.inuktitut, variable, temp_depth_bin) %>% 
+  summarise(region_mean_total_m2 = mean(value_total_m2),
+            region_sd_total_m2  = sd(value_total_m2),
+            region_mean_mean_m3 = mean(value_mean_m3),
+            region_sd_mean_m3  = sd(value_mean_m3),
+            npgs = n(), .groups = "drop")
 
 ggplot(biomass_vert_region %>% 
          filter(variable == "Lipids"),
@@ -176,9 +803,21 @@ ggplot(biomass_vert_region %>%
   xlab("Depth (m)") + ylab("Lipid biomass (mg C m-3)") +
   ggtitle("Average concentrations")
 
+ggplot(biomass_vert_region_all %>% 
+         filter(variable == "Lipids"),
+       aes(x = temp_depth_bin, y = region_mean_mean_m3*1000,
+                                color = region.inuktitut)) +
+  geom_line() +
+  geom_point() +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2600,200)) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Lipid biomass (mg C m-3)") +
+  ggtitle("Average concentrations")
 
-ggsave("figures/Fig4_vertical_lipid_biomass_concentration_by_region.png",
-       width = 3.5, height = 5, units = "in", bg = "white")
+# ggsave("figures/Fig4_vertical_lipid_biomass_concentration_by_region.png",
+#        width = 3.5, height = 5, units = "in", bg = "white")
 
 
 # Distribution by region
@@ -194,12 +833,40 @@ ggplot(biomass_vert_100m %>%
   theme(legend.position = "none") +
   xlab("Depth (m)") + ylab("Lipid biomass (mg m-3)")
 
-ggsave("figures/Fig4_supp_vertical_biomass_by_region.png",
-       width = 9, height = 7, units = "in", bg = "white")
+# ggsave("figures/Fig4_supp_vertical_biomass_by_region.png",
+#        width = 9, height = 7, units = "in", bg = "white")
 
+
+ggplot(biomass_vert_100m %>% 
+         filter(variable == "Abundance"),
+       aes(x = depthBinLabel, y = value_mean_m3*1000,
+           color = region.inuktitut)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Abundance (indiv m-3)")
+
+# Abundance vs Lipid biomass vs total C flux ( r - 0.89)
+AA <- biomass_vert_100m %>% 
+  select(-value_mean_m3) %>% 
+  filter(variable %in% c("Abundance", "Lipids", "tot_c_flux_gC_m2y_5m")) %>% 
+  pivot_wider(names_from = variable, values_from = value_total_m2)
+
+ggplot(AA, aes(x = Abundance, y = Lipids)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+  
 ```
 
 ## Do biomass with large Copepoda/Calanoida
+```{r}
+
+```
+
 
 # Fig 5. Calculate profile totals
 ```{r}

@@ -105,48 +105,189 @@ ggplot(region_temp_profiles_100m,
 #        width = 6, height = 6, units = "in", bg = "white")
 ```
 
-# Calculate MLD
-```{r}
-mld.df <- ctd %>% 
-  filter(!is.na(sigt)) %>% 
-  group_by(filename, cast_number, station, region, region.inuktitut) %>% 
-  # Get MLD as 0.003 threshold
-  arrange(depth) %>% 
-  mutate(sigt_diff = diff(sigt)) %>% 
-  ungroup()
-
-
-sigt_profiles_100m <- mld.df %>% 
-  mutate(depth_bin = floor(pressure/100)*100) %>% 
-  group_by(filename, cruise_name, station, datetime, latitude, longitude,
-           region, region.inuktitut, region.color, depth_bin) %>% 
-  summarise(sigt.mean = mean(sigt, na.rm = T),
-            sigt.sd = sd(sigt, na.rm = T),
-            ndepths = n(), .groups = "drop")
-
-ggplot(sigt_profiles_100m, 
-       aes(x = depth_bin, y = sigt.mean, group = filename)) +
-  geom_line(aes(color = region.inuktitut), alpha = 0.6) +
-  scale_x_reverse() +
-  coord_flip() +
-  facet_wrap(~cruise_name, scales = "free_y")
-
-```
-
 
 # Export the temperature data in 100 m bins
 ```{r, eval=FALSE}
 save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
-     uvp6_ctd_match,
+     uvp6_ctd_match, 
      file = "data/ctd_temperature_100m_averages_20260202.RData")
 ```
 
 
+# Calculate MLD
+```{r, eval=FALSE}
+mld.df <- ctd %>% 
+  select(filename, cast_number, station, region, pressure, sigt) %>% 
+  filter(!is.na(sigt)) %>% 
+  group_by(filename, cast_number, station, region) %>% 
+  # Get MLD as 0.003 threshold
+  arrange(pressure) %>% 
+  mutate(
+    sigt_ref = mean(sigt[pressure <= 5], na.rm = TRUE),
+    delta_sigt = sigt - sigt_ref
+  ) %>% 
+  summarise(
+    mld = if (any(delta_sigt >= 0.003, na.rm = TRUE)) {
+      pressure[which(delta_sigt >= 0.003)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+temp_thresh <- 0.2 
+
+mldT.df <- ctd %>% 
+  select(filename, cast_number, station, region, pressure, te90) %>% 
+  filter(!is.na(te90), !is.na(pressure)) %>% 
+  group_by(filename, cast_number, station, region) %>% 
+  arrange(pressure) %>% 
+  mutate(
+    temp_ref = mean(te90[pressure <= 5], na.rm = TRUE),
+    delta_temp = abs(te90 - temp_ref)
+  ) %>% 
+  summarise(
+    mld_temp = if (any(delta_temp >= temp_thresh, na.rm = TRUE)) {
+      pressure[which(delta_temp >= temp_thresh)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+# Upper 200 m  profiles
+ggplot(ctd %>% 
+  filter(pressure <= 200) , 
+       aes(x = pressure, y = sigt, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+ggplot(ctd %>% 
+  filter(pressure <= 200) , 
+       aes(x = pressure, y = te90, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+ggplot(ctd %>% 
+  filter(pressure <= 200) , 
+       aes(x = pressure, y = psal, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+ggplot(ctd %>% 
+  filter(pressure <= 200) , 
+       aes(x = pressure, y = flor, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+ggplot(ctd, 
+       aes(x = pressure, y = ntra, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+```
+
+
+# Metadata table of regions
+```{r}
+load("data/ctd_temperature_100m_averages_20260202.RData")
+
+# Region metadata for sampling and bottom depth
+df.meta <- Amund_UVP6_meta %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  group_by(region, region.inuktitut) %>% 
+  summarise(n = n(),
+            DOY_mean = mean(DOY),
+            DOY_sd = sd(DOY),
+            bottom_depth_mean = mean(bottom_depth_m),
+            bottom_depth_sd = sd(bottom_depth_m),
+            sample_depth_mean = mean(maxSampleDepth),
+            sample_depth_sd = sd(maxSampleDepth),
+            castratio_mean = mean(castratio),
+            castratio_sd = sd(castratio),
+            nCalanus_mean = mean(nCalanusImages),
+            nCalanus_sd = sd(nCalanusImages),
+            .groups = "drop")
+
+
+# Average temperature above and below the mixed layer
+df.ctd.mld <- ctd %>% 
+  left_join(mld.df %>% 
+              select(filename, mld), by = "filename") %>% 
+    mutate( layer = case_when(
+      is.na(mld) ~ NA_character_,
+      pressure <= mld ~ "above_mld",
+      pressure >  mld ~ "below_mld") ) %>% 
+  # assign below mld for NA values
+  mutate(layer = if_else(is.na(layer), "below_mld", layer)) %>% 
+  group_by(filename, region, layer) %>% 
+  summarise(
+    mean_te90 = mean(te90, na.rm = TRUE),
+    mean_psal = mean(psal, na.rm = TRUE),
+    mean_sigt = mean(sigt, na.rm = TRUE),
+    mean_mld = mean(mld, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  group_by(region, layer) %>% 
+  summarise(
+    n_ctd = n(),
+    mld_mean = mean(mean_mld, na.rm = TRUE),
+    mld_sd = sd(mean_mld, na.rm = TRUE),
+    temp_mean = mean(mean_te90),
+    temp_sd = sd(mean_te90),
+    sali_mean = mean(mean_psal),
+    sali_sd = sd(mean_psal),
+    dens_mean = mean(mean_sigt),
+    dens_sd = sd(mean_sigt),
+    .groups = "drop"
+  )
+
+# Add only the bottom mld
+df.meta <- df.meta %>% 
+  left_join(df.ctd.mld %>% 
+              filter(layer == "below_mld") %>% 
+              select(-layer),
+            by = "region")
+
+ggplot(df.meta, aes(x = temp_mean, y = bottom_depth_mean,
+                    color = region.inuktitut)) +
+  geom_point(size = 3) +
+  scale_y_reverse() +
+  scale_color_manual(values = region_rename$region.color)
+
+df.meta.clean <- df.meta %>% 
+  mutate(
+    DOY = paste0(round(DOY_mean, 1), " \u00B1 ", round(DOY_sd, 1)),
+    bottom_depth_m = paste0(round(bottom_depth_mean, 1), " \u00B1 ", round(bottom_depth_sd, 1)),
+    sample_depth = paste0(round(sample_depth_mean, 1), " \u00B1 ", round(sample_depth_sd, 1)),
+    castratio = paste0(round(castratio_mean, 2), " \u00B1 ", round(castratio_sd, 2)),
+    nCalanus = paste0(round(nCalanus_mean, 1), " \u00B1 ", round(nCalanus_sd, 1)),
+    mld = paste0(round(mld_mean, 1), " \u00B1 ", round(mld_sd, 1)),
+    temp = paste0(round(temp_mean, 1), " \u00B1 ", round(temp_sd, 1)),
+    sali = paste0(round(sali_mean, 1), " \u00B1 ", round(sali_sd, 1)),
+    dens = paste0(round(dens_mean, 1), " \u00B1 ", round(dens_sd, 1))
+  ) %>% 
+  select(-c(DOY_mean:dens_sd))
+
+write.csv(df.meta.clean, file = "tables/supp_metadata_ctd_table.csv")
+```
+
+
+# -- Extra --
 # T-S plots of each region
 ```{r}
 library(oce)
-AA <- ctd
-AA <- mld.df %>% 
+AA <- ctd %>% 
+# AA <- mld.df %>% 
   filter(filename == "AS_CTD_2023_02_033.csv.nc")
 
 df.oce <- oce::as.ctd(salinity = AA$psal,
@@ -218,7 +359,6 @@ ggplot(ctd_mld, aes(x = sigt, y = MLD,
 
 
 
-# -- Extra --
 ## Plot simple depth profiles 
 ```{r}
 ggplot(ctd, aes(x = pressure, y = te90, group = filename)) +

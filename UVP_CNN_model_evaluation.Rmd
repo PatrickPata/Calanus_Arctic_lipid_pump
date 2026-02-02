@@ -74,6 +74,58 @@ calc_r2 <- function(x, y) {
 }
 ```
 
+## Get regression model to estimate SE of the CNN segmentation
+```{r}
+# For lipid sac
+df <- res.lipid.crop %>% 
+  select(lipid_pixels_annotated, lipid_pixels_predicted)
+
+reg_lipid <- lm(lipid_pixels_annotated ~ lipid_pixels_predicted,
+                data = df)
+lipid_pred_se <- predict(reg_lipid, se.fit = TRUE)
+summary(reg_lipid)
+
+df <- df %>%
+  mutate(
+    fitted = lipid_pred_se$fit,
+    se_mean = lipid_pred_se$se.fit
+  )
+
+ggplot(df, aes(x = lipid_pixels_annotated, y = lipid_pixels_predicted)) +
+  geom_abline() +
+  geom_point(alpha = 0.2) +
+  geom_errorbar(aes(ymin = lipid_pixels_predicted - se_mean,
+                ymax = lipid_pixels_predicted + se_mean)) +
+  geom_smooth(method = "lm")
+
+# prosome
+df <- res.prosome %>% 
+  select(prosome_pixels_annotated, prosome_pixels_predicted)
+
+reg_prosome <- lm(prosome_pixels_annotated ~ prosome_pixels_predicted,
+                data = df)
+prosome_pred_se <- predict(reg_prosome, se.fit = TRUE)
+summary(reg_prosome)
+
+df <- df %>%
+  mutate(
+    fitted = prosome_pred_se$fit,
+    se_mean = prosome_pred_se$se.fit
+  )
+mean(df$se_mean)
+
+ggplot(df, aes(x = prosome_pixels_annotated, y = prosome_pixels_predicted)) +
+  geom_abline() +
+  geom_point(alpha = 0.2) +
+  geom_errorbar(aes(ymin = prosome_pixels_predicted - se_mean,
+                ymax = prosome_pixels_predicted + se_mean)) +
+  geom_smooth(method = "lm")
+
+
+
+```
+
+
 # Train vs Test data
 
 ## Prosome results

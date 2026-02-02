@@ -266,6 +266,43 @@ plot(rf.model.lipid)
 #      file = "functions/random_forest_carbon_trait_models.RData")
 ```
 
+### Get SE of the predictions
+```{r, eval=FALSE}
+# Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
+prosome_predicted <-  predict(rf.model.prosome,
+               newdata = df.segmented %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+lipid_predicted <- predict(rf.model.lipid,
+               newdata = df.segmented %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+df <- df.segmented %>% 
+  select(structural_carbon_mgC, waxester_mass_mgC)
+df$structural_carbon_mgC_pred <- prosome_predicted$aggregate
+df$waxester_mass_mgC_pred <- lipid_predicted$aggregate
+
+# Row-wise standard error (SD across trees)
+df$structural_carbon_mgC_se <- apply(prosome_predicted$individual, 1, sd)
+df$waxester_mass_mgC_se <- apply(lipid_predicted$individual, 1, sd)
+
+ggplot(df, aes(x = structural_carbon_mgC, y = structural_carbon_mgC_pred)) +
+  geom_abline() +
+  geom_point() +
+  geom_smooth(method = "lm", se = T)
+
+mean(df$structural_carbon_mgC)
+mean(df$structural_carbon_mgC_pred)
+mean(df$structural_carbon_mgC_se)
+sd(df$structural_carbon_mgC_se)
+
+
+mean(df$waxester_mass_mgC)
+mean(df$waxester_mass_mgC_pred)
+mean(df$waxester_mass_mgC_se)
+sd(df$waxester_mass_mgC_se)
+```
+
 
 ### Get RMSE of random forest model
 ```{r, eval=FALSE}

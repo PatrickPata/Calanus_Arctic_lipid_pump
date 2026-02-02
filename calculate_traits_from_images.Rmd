@@ -99,6 +99,12 @@ segmented.images <- segmented.images %>%
   # Calculate lipid fullness as % carbon in lipid sac WE
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100)
 
+
+# TODO The regression models for the prosome and lipid predictions
+
+
+# TODO Calculate the uncertainty in segmentation of the prosome and lipid carbon
+
 ```
 
 # 2. RF for unsegmented images
@@ -112,18 +118,23 @@ other.calanoid.images <- all.copepods.uvp6 %>%
   filter(object_annotation_status == "validated")
 
 # Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
-other.calanoid.images$structural_carbon_mgC <- 
-  predict(rf.model.prosome,
-                        newdata = other.calanoid.images %>% 
-                          select(Major:PerimMajor))
+prosome_predicted <-  predict(rf.model.prosome,
+               newdata = other.calanoid.images %>% 
+                 select(Major:PerimMajor), predict.all = T)
 
-other.calanoid.images$waxester_mass_mgC <- 
-  predict(rf.model.lipid,
-                        newdata = other.calanoid.images %>% 
-                          select(Major:PerimMajor))
+lipid_predicted <- predict(rf.model.lipid,
+               newdata = other.calanoid.images %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+other.calanoid.images$structural_carbon_mgC <- prosome_predicted$aggregate
+other.calanoid.images$waxester_mass_mgC <- lipid_predicted$aggregate
+
+# # Row-wise standard error (SD across trees)
+# other.calanoid.images$structural_carbon_mgC_se <- apply(prosome_predicted$individual, 1, sd)
+# other.calanoid.images$waxester_mass_mgC_se <- apply(lipid_predicted$individual, 1, sd)
+
 
 # Calculate total carbon and lipid fullness
-
 other.calanoid.images <- other.calanoid.images %>% 
   mutate(prosome_total_mgC = structural_carbon_mgC + waxester_mass_mgC) %>% 
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100) %>% 
@@ -163,8 +174,6 @@ other.calanoid.images <- other.calanoid.images %>%
   mutate(Major_mm = Major * uvpRes) %>% 
   mutate(prosome_length_mm = predict(major_prosome_lm,
                  newdata = other.calanoid.images))
-
-
 ```
 
 
@@ -235,22 +244,28 @@ rm(temp_data_A, temp_data_B)
 
 
 # 4.Calculate diapause respiration rate, potential diapause duration, and total C respired
+In Maps et al. (2014) the values for b are 2.27 +- 0.37 10-7 and activation energy 0.6 +- 0.092.
+Use lower range of b = 2.27-0.37 and eV = 0.6-0.092, upper range of b = 2.27+0.37 eV = 0.6+0.092.
+Note that in Visser et al. (2017) and Tarling et al. (2022), b is rounded to 2.3*10^-7.
 ```{r}
+# Coefficients of the dormant/diapause respiration equation (Maps et al. 2014):
+bb <- 2.27# Metabolic constant (x 10-7)
+eV <- 0.6 # Activation energy
+bb_se <- 0.37 # Standard error of the metabolic constant
+eV_se <- 0.092 # Standard error of the activation energy
 # Adjust respiration rate based on temperature
+
 indiv_traits <- indiv_traits %>% 
   
   # Calculate diapause respiration rate and duration
   mutate(mass_ugC = structural_carbon_mgC * 1000,
          WE_ugC = waxester_mass_mgC * 1000) %>% 
   mutate(respirationRate_ugCday = 
-           (2.3*10^-7) * (mass_ugC^0.75) * 
-           exp(0.6 * (temperature_kelvin-273)/ 
-                 ((8.62*10^-5)*temperature_kelvin*273)) 
-         * 86400) %>% 
+           (bb*10^-7 ) * (mass_ugC^0.75) * 
+           exp(eV * (temperature_kelvin-273)/ 
+                 ((8.62*10^-5)*temperature_kelvin*273)) * 86400) %>% 
   mutate(diapauseDuration_day = 
            (0.8*WE_ugC)/(respirationRate_ugCday)) %>% 
-
-# At individual level, calculate the amount of carbon respired by each individual. Then calculate the abundance represented by each individual in every 5 m bin, then calculate the carbon respired and mortality of the 5m-bin fraction of the assemblage.
 
   # Cap the diapause duration capped to 240 days
   mutate(diapauseDuration_day_cap = if_else(diapauseDuration_day > 240,
@@ -261,6 +276,36 @@ indiv_traits <- indiv_traits %>%
   # mutate(percent_WE_respired = diapause_resp_by_indiv_ugC/WE_ugC * 100) %>% 
   select(-c(mass_ugC, WE_ugC, diapauseDuration_day_cap)) 
 
+
+# Add the minimum and maximum respiration based on standard error
+indiv_traits <- indiv_traits %>% 
+  mutate(mass_ugC = structural_carbon_mgC * 1000,
+         WE_ugC = waxester_mass_mgC * 1000) %>% 
+  # Indv respiration rate
+  mutate(respirationRate_ugCday_min  =
+           ((bb - bb_se)*10^-7 ) * (mass_ugC^0.75) * 
+           exp((eV - eV_se) * (temperature_kelvin-273)/ 
+                 ((8.62*10^-5)*temperature_kelvin*273)) * 86400) %>% 
+  mutate(respirationRate_ugCday_max  =
+           ((bb + bb_se)*10^-7 ) * (mass_ugC^0.75) * 
+           exp((eV + eV_se) * (temperature_kelvin-273)/ 
+                 ((8.62*10^-5)*temperature_kelvin*273)) * 86400) %>% 
+  # Diapause duration
+  mutate(diapauseDuration_day_min = 
+           (0.8*WE_ugC)/(respirationRate_ugCday_min)) %>% 
+  mutate(diapauseDuration_day_max = 
+           (0.8*WE_ugC)/(respirationRate_ugCday_max)) %>% 
+  # Cap the diapause duration capped to 240 days
+  mutate(diapauseDuration_day_cap_min = if_else(diapauseDuration_day_min > 240,
+                                                240, diapauseDuration_day_min)) %>% 
+  mutate(diapauseDuration_day_cap_max = if_else(diapauseDuration_day_max > 240,
+                                                240, diapauseDuration_day_max)) %>% 
+  # The total C respired for the entire duration of diapause by the individual (ug C)
+  mutate(diapause_resp_by_indiv_ugC_min = 
+           respirationRate_ugCday_min * diapauseDuration_day_cap_min) %>%  
+  mutate(diapause_resp_by_indiv_ugC_max = 
+           respirationRate_ugCday_max * diapauseDuration_day_cap_max) %>%  
+  select(-c(diapauseDuration_day_cap_min, diapauseDuration_day_cap_max))
 
 # Curate columns
 indiv_traits <- indiv_traits %>% 
@@ -289,14 +334,46 @@ indiv_traits %>%
   filter(taxa == "Calanus") %>% 
   group_by( source) %>% 
   count()
-
 ```
+
+## Check shift in min and max values for indiv resp, total respirated, and diapause duration
+```{r, eval=FALSE}
+df <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  select(object_id, respirationRate_ugCday,
+         diapauseDuration_day, diapause_resp_by_indiv_ugC,
+         respirationRate_ugCday_min:diapause_resp_by_indiv_ugC_max) %>% 
+  pivot_longer(cols = -object_id,
+    names_to = c("variable", "type"),
+    names_pattern = "^(.*?)(?:_(min|max))?$",
+    values_to = "value") %>% 
+  mutate(type = if_else(type == "", "mean", type)) %>% 
+  mutate(variable = if_else(variable == "respirationRate_ugCday",
+                            "indiv respiration", variable),
+         variable = if_else(variable == "diapauseDuration_day",
+                            "diapause duration", variable),
+         variable = if_else(variable == "diapause_resp_by_indiv_ugC",
+                            "total respiration", variable))
+
+df %>% 
+  filter(variable == "diapause duration") %>% 
+  filter(value > 240) %>% 
+  group_by(type) %>% 
+  summarise(n = n(),
+            nperc = n()/14449*100)
+
+# The minimum individual respiration will result in longer potential diapause duration (will be capped), while a higher individual respiration will result in a shorter diapause duration. Because most of the reserve carbon will be utilized during the diapause (i.e., few individuals (~20% for the mean) will have diapause duration higher than 240 days), there is not much change in the total respiration during the entire diapause period per individual. The min_respiration has more lower values, but the shape of the distributions do not change that much.
+ggplot(df, aes(x = value, color = type)) +
+  geom_density() +
+  facet_wrap(~variable, scales = "free")
+```
+
 
 # 5. Export trait data
 The indiv_traits dataframe includes images of individuals classified as "Calanus spp" and were segmented manually or with CNN (or the RF predictions when the CNN was bad). It also includes the RF predicted structural and lipid carbon values for images with major axis length >3 mm and were validated and classified as Calanoida/Copepoda, which are likely to be Calanus spp.
 ```{r, eval=FALSE}
 save(indiv_traits, 
-     file = "data/uvp6_images_calculated_traits_20260129.RData")
+     file = "data/uvp6_images_calculated_traits_20260201.RData")
 ```
 
 

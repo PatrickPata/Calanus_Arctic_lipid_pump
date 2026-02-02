@@ -183,6 +183,7 @@ sum(to_exclude$nCalanusImages)
 ```{r}
 # Calculate profile group centroids
 pg_meta <- Amund_UVP6_meta %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
   mutate(uvp6_date = lubridate::ymd_hms(paste(object_date, object_time))) %>% 
   group_by(sample_cruise, region.inuktitut, region, profile_group) %>% 
   summarise(longitude = mean(object_lon),

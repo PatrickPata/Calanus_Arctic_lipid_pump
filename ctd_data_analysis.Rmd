@@ -14,7 +14,10 @@ library(tidyverse)
 library(oce)
 `%notin%` <- Negate(`%in%`)
 
-load("data/uvp6_associated_ctd_20251210.RData")
+load("data/uvp6_associated_ctd_20260202.RData")
+
+# Amundsen metadata
+load("data/UVP6_Calanus_metadata_20260129.RData")
 
 colnames(ctd)
 
@@ -58,7 +61,11 @@ ctd <- ctd %>%
 # Calculate average temperature at 100 m depth intervals 
 ```{r}
 temp_profiles_100m <- ctd %>% 
-  mutate(depth_bin = floor(pressure/100)*100) %>% 
+  mutate(depth_bin = floor(pressure/100)*100)  %>% 
+  # # for upper 100 m, do 0-20, 20-60, 60-100
+  # mutate(depth_bin = if_else(pressure < 20, 0+10, depth_bin),
+  #        depth_bin = if_else(pressure >= 20 & pressure < 60, 40, depth_bin),
+  #        depth_bin = if_else(pressure >= 60 & pressure < 100, 80, depth_bin)) %>% 
   group_by(filename, cruise_name, station, datetime, latitude, longitude,
            region, region.inuktitut, region.color, depth_bin) %>% 
   summarise(temp.mean = mean(te90, na.rm = T),
@@ -88,13 +95,13 @@ ggplot(region_temp_profiles_100m,
   geom_point() +
   geom_line() +
   coord_flip() +
-  scale_x_reverse() +
+  scale_x_reverse(breaks = c(0, 50, seq(100,3000,100)), expand = c(0, 0)) +
   scale_color_manual(values = unique(region_rename$region.color),
                      name = "Region") +
   theme(legend.position = c(0.8, 0.3)) +
-  ylab("Temperatue") + xlab("Depth")
-
-# ggsave("figures/region_ave_temp_100m.png",
+  ylab("Temperature") + xlab("Depth")
+# 
+# ggsave("figures/Supp_region_ave_temp_100m.png",
 #        width = 6, height = 6, units = "in", bg = "white")
 ```
 
@@ -131,7 +138,7 @@ ggplot(sigt_profiles_100m,
 ```{r, eval=FALSE}
 save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
      uvp6_ctd_match,
-     file = "data/ctd_temperature_100m_averages.RData")
+     file = "data/ctd_temperature_100m_averages_20260202.RData")
 ```
 
 

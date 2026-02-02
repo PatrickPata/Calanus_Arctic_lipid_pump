@@ -36,7 +36,7 @@ rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
 load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 
 # The CTD data temperature and region names/color
-load("data/ctd_temperature_100m_averages.RData")
+load("data/ctd_temperature_100m_averages_20260202.RData")
 
 # The random forest model
 load("functions/random_forest_carbon_trait_models.RData")
@@ -373,7 +373,7 @@ ggplot(df, aes(x = value, color = type)) +
 The indiv_traits dataframe includes images of individuals classified as "Calanus spp" and were segmented manually or with CNN (or the RF predictions when the CNN was bad). It also includes the RF predicted structural and lipid carbon values for images with major axis length >3 mm and were validated and classified as Calanoida/Copepoda, which are likely to be Calanus spp.
 ```{r, eval=FALSE}
 save(indiv_traits, 
-     file = "data/uvp6_images_calculated_traits_20260201.RData")
+     file = "data/uvp6_images_calculated_traits_20260202.RData")
 ```
 
 
@@ -381,7 +381,7 @@ save(indiv_traits,
 
 # 6. Compare CNN segmentations, manually annotated, and random forest
 ```{r}
-# load("data/uvp6_images_calculated_traits_20260129.RData")
+# load("data/uvp6_images_calculated_traits_20260202.RData")
 df_to_plot <- indiv_traits %>% 
   filter(taxa == "Calanus")
 

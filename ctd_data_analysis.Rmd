@@ -197,6 +197,18 @@ ggplot(ctd,
 ```
 
 
+# Check cdom for the benthic nepheloid layer?
+```{r}
+ggplot(ctd, 
+       aes(x = pressure, y = cdom, group = filename)) +
+  geom_line(aes(color = cruise_name), alpha = 0.6) +
+  scale_x_reverse() +
+  coord_flip() + theme(legend.position = "none") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+```
+
+
 # Metadata table of regions
 ```{r}
 load("data/ctd_temperature_100m_averages_20260202.RData")

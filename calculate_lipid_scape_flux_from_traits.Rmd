@@ -229,6 +229,12 @@ df %>% group_by(region.inuktitut) %>%
             .groups = "drop")
 ```
 
+## Export for lipid vs gravity pump 
+```{r}
+save(df.100m, df.profile, df.region,
+     file = "data/profile_integrated_cflux_20260202.RData")
+```
+
 
 # 3. Vertical biomass profiles
 Plot biomass and abundance with the non-calanus images

@@ -16,28 +16,247 @@ knitr::opts_chunk$set(echo = TRUE)
 load("data/pocFlux_estimates_23sc_2025 12 10.RData")
 
 # If lipid flux is based on direct average of all profiles
-load("data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
-load("data/UVP6_Calanus_metadata_20251211.RData")
+# load("data/c_flux_all_profile_m2_integrated_20251212_100m.RData")
+load("data/profile_integrated_cflux_20260202.RData")
+
+load("data/UVP6_Calanus_metadata_20260129.RData")
 
 `%notin%` <- Negate(`%in%`)
 ```
 
-
+# POC flux averages
 ```{r}
-# Calculate average flux for General Baffin Bay area: (Baffin bay, shelf, NOW, Davis)
-AA <- profile_sums_m2 %>% 
-  filter(sample_id %notin% to_exclude$sample_id) %>% 
-  filter(grepl("Baffin|Davis|North", region.inuktitut) == T)
+# TODO Find a better way to exclude profiles with a clear benthic nepheloid layer in the epipelagic integration depth.
+# The cdom data from the CTD does not show this and there is not turbidity data.
 
-mean(AA$Total_C_Flux) * 7.7
-sd(AA$Total_C_Flux) *7.7
+#  Average POC flux for a selected depth range
+pocFlux.sub <- pocFlux %>% 
+  filter(sample_id %in% df.profile$sample_id) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              distinct(sample_id, region.inuktitut, region, Year, Month,
+                       bottom_depth_m, maxSampleDepth),
+            by = "sample_id")  %>% 
+  # consider only stations with at least 300m depth?
+  filter(bottom_depth_m >= 300) %>% 
+  # select a depth range to estimate flux from
+  filter(Depth_5m >= 200 & Depth_5m < 300) 
+
+# Look for the profiles with high POC at depth (potentially the benthic nepheloid layer )
+AA <- pocFlux.sub %>% 
+  mutate(dbin = if_else(Depth_5m < 220, "upper", "middle"),
+         dbin = if_else(Depth_5m > 280, "lower", dbin)) %>% 
+  group_by(region.inuktitut, sample_id, dbin) %>% 
+  summarise(meanFlux = mean(ModelFlux),
+            .groups = "drop") %>% 
+  pivot_wider(names_from = dbin, values_from = meanFlux) %>% 
+  filter((lower > (upper * 3)) | (upper > 300 & lower > 700))
+# Specific for the NOW profiles
+BB <- pocFlux.sub %>% 
+  filter(region == "North Water Polynya") %>% 
+  filter(Depth_5m >= 200 & Depth_5m < 300) %>% 
+  group_by(region.inuktitut, sample_id) %>% 
+  summarise(meanFlux = mean(ModelFlux),
+            .groups = "drop") %>% 
+  filter(meanFlux > 300)
+
+# Remove the potential profiles at BNL
+pocFlux.sub <- pocFlux.sub %>% 
+  filter(sample_id %notin% AA$sample_id) %>% 
+  filter(sample_id %notin% BB$sample_id)
+
+# Check profiles
+ggplot(pocFlux.sub, aes(x = Depth_5m, y = ModelFlux,
+                        group = sample_id)) +
+  geom_line() +
+  coord_flip() +
+  scale_x_reverse() +
+  facet_wrap(~region.inuktitut, scales = "free")
+
+
+pocFlux.ave <- pocFlux.sub %>% 
+  # calculate the total flux per profile
+  group_by(sample_id, region.inuktitut, Year, Month,
+           bottom_depth_m, maxSampleDepth) %>% 
+  summarise(n5mbins = n(),
+            poc_model = mean(ObsFlux, na.rm = T),
+            poc_error = mean(ModelFlux, na.rm = T),
+            .groups = "drop") %>% 
+  # Convert to annual flux... 
+  # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
+  
+  # Use the observations as the productive period which is6 months (May-October) for full POC value. Assume that the winter period has 1/4 of the flux of the productive period? ... or not include that at all.
+  mutate(poc_model_184 = (poc_model * 184 / 1000), 
+         poc_error_184 = (poc_error * 184 / 1000),
+         poc_model_365 = (poc_model * 184 / 1000) + (poc_model/4 * 181 / 1000),
+         poc_error_365 = (poc_error * 184 / 1000) + (poc_error/4 * 181 / 1000)) 
+
+
+
+# Pairwise matching of POC flux and lipid flux
+AA <- df.profile %>% 
+  # calculate the total C flux if Calanus spp + >3mm copepods
+  group_by(sample_id) %>% 
+  mutate(total_gC_flux_m2_3mm = sum(total_gC_flux_m2)) %>% 
+  ungroup() %>% 
+  filter(taxa == "Calanus") %>% 
+  filter(sample_id %in% pocFlux.ave$sample_id) %>% 
+  select(sample_id, total_gC_flux_m2, total_gC_flux_m2_3mm)
+
+pocFlux.ave <- pocFlux.ave %>% 
+  left_join(AA, by = join_by(sample_id))
+
+# Pairwise comparison
+ggplot(pocFlux.ave, 
+       aes(x = poc_model, y = total_gC_flux_m2, color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = poc_model-poc_error,
+                    xmax = poc_model+poc_error)) +
+  geom_point() +
+  geom_abline() +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  ylab("Lipid Pump (g C m-2 y-1)")
+
+
+# Distribution of the modeled POC flux out of 200-300m
+ggplot(pocFlux.ave, aes(x = region.inuktitut,
+                        y = poc_model_184)) +
+  geom_boxplot() +
+  coord_flip() +
+  ylab("POC Flux (g C m-2 y-1)")
+
+
+# Region-average comparison
+pocFlux.region <- pocFlux.ave %>% 
+  group_by(region.inuktitut) %>% 
+  summarise(poc_model_184_mean = mean(poc_model_184),
+            poc_error_184_mean = mean(poc_error_184),
+            poc_model_184_sd = sd(poc_model_184),
+            poc_error_184_sd = sd(poc_error_184),
+            n = n(),
+            total_gC_flux_m2_mean = mean(total_gC_flux_m2),
+            total_gC_flux_m2_3mm_mean = mean(total_gC_flux_m2_3mm),
+            total_gC_flux_m2_sd = sd(total_gC_flux_m2),
+            total_gC_flux_m2_3mm_sd = sd(total_gC_flux_m2_3mm),
+            poc_model_365_mean = mean(poc_model_365),
+            poc_error_365_mean = mean(poc_error_365),
+            poc_model_365_sd = sd(poc_model_365),
+            poc_error_365_sd = sd(poc_error_365),
+            .groups = "drop")
+  
+  
+ggplot(pocFlux.region, 
+       aes(x = poc_model_184_mean, y = total_gC_flux_m2_mean, color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = poc_model_184_mean-poc_error_184_mean,
+                    xmax = poc_model_184_mean+poc_error_184_mean)) +
+  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
+                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
+                linetype = "dashed") +
+  geom_point(size = 5) +
+  geom_text(aes(label = n), color = "black") +
+  geom_abline() +
+  scale_x_continuous(breaks = seq(0,40,2)) +
+  scale_y_continuous(breaks = seq(0,40,1)) +
+  # scale_x_log10() +
+  # scale_y_log10() +
+  theme(legend.position = "right") +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  ylab("Lipid Pump (g C m-2 y-1)")
+
+ggsave("figures/Fig6_lipid_gravity_comparison_20260203.png",
+       width = 8, height = 5, units = "in", bg = "white")
+
+# TODO had subplot of historical gravity flux
+
+# TODO summary stats and sample sizes
+```
+
+## Version with >3mm copepods and also full 365 estimate
+```{r}
+
+ggplot(pocFlux.region, 
+       aes(x = poc_model_365_mean, y = total_gC_flux_m2_3mm_mean, color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = poc_model_365_mean-poc_error_365_mean,
+                    xmax = poc_model_365_mean+poc_error_365_mean)) +
+  geom_errorbar(aes(ymin = total_gC_flux_m2_3mm_mean-total_gC_flux_m2_3mm_sd,
+                    ymax = total_gC_flux_m2_3mm_mean+total_gC_flux_m2_3mm_sd),
+                linetype = "dashed") +
+  geom_point(size = 5) +
+  geom_abline() +
+  scale_x_continuous(breaks = seq(0,40,2)) +
+  scale_y_continuous(breaks = seq(0,40,2)) +
+  # scale_x_log10() +
+  # scale_y_log10() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  ylab("Lipid Pump (g C m-2 y-1)")
+```
+
+
+## To check...
+There are profiles in NOW that have high surface flux
+```{r}
+#  Average POC flux for a selected depth range
+pocFlux.sub <- pocFlux %>% 
+  filter(sample_id %in% df.profile$sample_id) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              distinct(sample_id, region.inuktitut, region, Year, Month,
+                       bottom_depth_m, maxSampleDepth),
+            by = "sample_id")  %>% 
+  filter(region == "North Water Polynya") %>% 
+  # consider only stations with at least 300m depth?
+  filter(bottom_depth_m >= 300) %>% 
+  # select a depth range to estimate flux from
+  filter( Depth_5m < 300) %>%
+  filter()
+
+# Look for the profiles with high POC at depth (potentially the benthic nepheloid layer )
+AA <- pocFlux.sub %>% 
+  filter(region == "North Water Polynya") %>% 
+  filter(Depth_5m >= 200 & Depth_5m < 300) %>% 
+  group_by(region.inuktitut, sample_id) %>% 
+  summarise(meanFlux = mean(ModelFlux),
+            .groups = "drop") %>% 
+  filter(meanFlux > 300)
+
+# Remove the potential profiles at BNL
+pocFlux.sub <- pocFlux.sub %>% 
+  filter(sample_id %notin% AA$sample_id)
+
+ggplot(pocFlux.sub %>% 
+         filter(Depth_5m > 200), aes(x = Depth_5m, y = ModelFlux,
+                        color = sample_id)) +
+  geom_line() +
+  coord_flip() +
+  scale_x_reverse() +
+  theme(legend.position = "none") +
+  facet_wrap(~region.inuktitut, scales = "free")
 
 ```
 
 
+# --- 2025 scripts ---
+
+```{r}
+# Calculate average flux for General Baffin Bay area: (Baffin bay, Davis) for Calanus only
+AA <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  filter(grepl("Baffin Bay|Davis", region.inuktitut) == T)
+
+mean(AA$total_gC_flux_m2)
+mean(AA$total_gC_flux_m2) * 7.7
+sd(AA$total_gC_flux_m2) *7.7
+
+```
+
 # TODO Group POC flux by profile groups
 ```{r}
-
 # If lipid flux is based on direct average of all profiles
 profile_totals_5m <- profile_sums_m2 %>% 
   filter(sample_id %notin% to_exclude$sample_id)

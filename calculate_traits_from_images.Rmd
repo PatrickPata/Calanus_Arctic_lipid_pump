@@ -36,6 +36,7 @@ rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
 load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 
 # The CTD data temperature and region names/color
+# load("data/ctd_temperature_100m_averages.RData") # old ctd match
 load("data/ctd_temperature_100m_averages_20260202.RData")
 
 # The random forest model
@@ -194,21 +195,20 @@ indiv_traits <- segmented.images %>%
                      prosome_total_mgC, structural_carbon_mgC,
                      waxester_mass_mgC, lipid_fullness)) %>% 
   
+  filter(sample_id %notin% to_exclude$sample_id) %>% 
+  # Assign 100 m depth bin
+  mutate(temp_depth_bin = floor(object_depth_max/100)*100) %>% 
+  
   # Add the ctd temperature data for the depth where individual was captured
   # Assign the ctd file name for the profiles
   left_join(uvp6_ctd_match %>% 
-              distinct(Site, Cruise,
+              distinct(sample_id,
                        ctd_filename, profile_group, region),
-            by = join_by(Site, Cruise)) %>% 
+            by = join_by(sample_id)) %>% 
   
-  # TODO check sample exclusions here
   # Exclude the images from excluded region
-  filter(!is.na(region)) %>% 
-  filter(sample_id %notin% to_exclude$sample_id) %>% 
-  
-  # Assign 100 m depth bin
-  mutate(temp_depth_bin = floor(object_depth_max/100)*100) 
-  
+  filter(!is.na(region))
+
 # Join the temperature data based on the filename and temp_depth_bin
 
 # Could return NA temperature when the image depth is a bit lower than the max CTD data (e.g. 701m image when CTD goes until 600-700m bin) ... for now use the regional average
@@ -221,7 +221,8 @@ temp_data_A <- indiv_traits %>%
             by = join_by(ctd_filename, temp_depth_bin)) %>% 
   filter(!is.na(temperature_degC))
 
-# profiles with no matching temperature data, use the regional averages for the depth layer
+# profiles with no matching temperature data, use the regional averages for the depth layer 
+# n = 403
 temp_data_B <- indiv_traits %>% 
   filter(object_id %notin% temp_data_A$object_id) %>% 
   left_join(region_temp_profiles_100m %>% 
@@ -595,9 +596,10 @@ load("data/temporary_trait_database_subset_20260129.RData")
 ```
 
 
-## Fig 3
-### size distribution for LOKI
+## Fig 3 with size distribution for LOKI
 ```{r, fig.width=8, fig.height=6}
+clrs <- c("blue2","hotpink","gold1")
+
 df_to_plot <- indiv_traits %>% 
   filter(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"))
 
@@ -746,8 +748,8 @@ plot_grid(
 nrow = 1, rel_widths = c(1.2, 1, 1) )
 
 
-ggsave("figures/Fig3_20270129.png",
-       height = 10, width = 12, units = "in", bg = "white")
+ggsave("figures/Fig3_20270202.png",
+       height = 10, width = 13, units = "in", bg = "white")
 
 
 ```
@@ -805,7 +807,7 @@ plot_grid(
 )
 
 
-ggsave("figures/Fig3_supp_20270127.png",
+ggsave("figures/Fig3_supp_20270202.png",
        height = 6, width = 6, units = "in", bg = "white")
 
 ```

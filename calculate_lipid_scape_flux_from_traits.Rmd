@@ -31,7 +31,7 @@ library(tidyverse)
 library(cowplot)
 
 # The calculated trait values
-load("data/uvp6_images_calculated_traits_20260201.RData")
+load("data/uvp6_images_calculated_traits_20260202.RData")
 
 # <- Profiles metadata with regions and dataframe of volumes at 5m bins
 load("data/UVP6_Calanus_metadata_20260129.RData")
@@ -41,7 +41,6 @@ theme_set(theme_bw() +
 source("functions/lipid_pump_toolkit.R")
 
 clrs <- rev(c("blue","black","hotpink"))
-
 ```
 
 # 2. Integrations: 100m bin and vertical profiles
@@ -153,9 +152,12 @@ df.profile <- df.100m %>%
             abundance_m2_mort = sum(abundance_m2_mort),
             total_gC_flux_m2 = sum(total_gC_flux_m2),
             .groups = "drop") %>% 
-  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
   mutate(fraction_dead = abundance_m2_mort / abundance_m2,
-         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2) %>% 
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
+         frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
+         frac_waxe_total = waxester_gC_m2_mort / total_gC_flux_m2) %>% 
   # Add metadata
   left_join(Amund_UVP6_meta %>% 
               select(sample_id, region.inuktitut, region, Year, Month, 
@@ -168,7 +170,7 @@ df.profile <- df.100m %>%
 df.region <- df.profile %>% 
   group_by(taxa, region.inuktitut, region) %>% 
   summarise(n = n(),
-            across(abundance_m2:fraction_C_flux,
+            across(abundance_m2:frac_waxe_total,
               list(mean = mean, sd = sd, median = median),
               na.rm = TRUE),
             .groups = "drop")
@@ -204,10 +206,261 @@ df.profile %>%
             n = n(), .groups = "drop") %>% 
   arrange(variable)
 
+# Average contributions ***
+# 1. fraction of the biomass contributed to C flux
+# 2. fraction of the total flux due to respiration, mortality
+df <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  select(fraction_C_flux, frac_resp_total,
+         frac_strut_total, frac_waxe_total,
+         region.inuktitut)
+
+summary(df %>% select(-region.inuktitut))
+sd(df$fraction_C_flux)
+sd(df$frac_resp_total)
+sd(df$frac_strut_total)
+sd(df$frac_waxe_total)
+
+# Are there regional differences in the fraction
+df %>% group_by(region.inuktitut) %>% 
+  summarise(n = n(),
+            frac_resp_mean = mean(frac_resp_total),
+            frac_resp_sd = sd(frac_resp_total),
+            .groups = "drop")
 ```
 
-# 3. Statistical comparison
-##  3.1 Regional total C flux comparisons
+
+# 3. Vertical biomass profiles
+Plot biomass and abundance with the non-calanus images
+The lipid biomass profile will be very similar to the biomass profile. Because the bin sizes are similar, the /m2 concentrations will also be similar to the /m3, just * 100m. Some differences would be due to the last depth bins usually not completely 100 m.
+
+## Fig 4. Biomass
+TODO Update with net data
+```{r, fig.height=8}
+biomass_vert_region <- df.100m %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
+            by = "sample_id") %>% 
+  group_by(taxa, region.inuktitut, Depth_100m) %>% 
+  summarise(nprofiles = n(),
+            across(Sampled_volume_m3:total_gC_flux_m2,
+              list(mean = mean, sd = sd),
+              na.rm = TRUE), 
+            .groups = "drop")  %>% 
+  select(taxa, region.inuktitut, Depth_100m, nprofiles,
+         abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
+         lipid_m3 = waxester_mgC_m3_mean) %>% 
+  # calculate total across all taxa
+  group_by(region.inuktitut, Depth_100m, nprofiles) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3), 
+         total_biomass_m3 = sum(biomass_m3),
+         total_lipid_m3 = sum(lipid_m3)) %>% 
+  ungroup() %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(Depth_100m = as.numeric(as.character(Depth_100m)) + 50) %>% 
+  left_join(region_rename %>% 
+              select(region.inuktitut, region.color), by = "region.inuktitut") %>% 
+  # Remove /n in the region name
+  mutate(region.inuktitut2 = str_replace(region.inuktitut, "\n", " ")) %>% 
+  # Relevel
+  mutate(region.inuktitut2 = factor(region.inuktitut2, 
+                                   levels = c("Sarvarjuaq (Nares Strait)",
+               "Pikialasorsuaq (North Water Polynya)", 
+               "Tallurutiup Imanga (Lancaster Sound)",
+               "Sannirutiup Imavik (Baffin Bay)", 
+               "Qikiqtaaluup Ikinga (Davis Strait)", 
+               "Qikiqtaaluk Shelf (Baffin Shelf)",
+               "Nunatsiavut Shelf (Labrador Shelf)")))
+
+g1 <- ggplot(biomass_vert_region,
+             aes(x = Depth_100m, y = biomass_m3,
+                 color = region.inuktitut2)) +
+  geom_line() +
+  geom_point() +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2400,200)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none") +
+    # theme(legend.position = c(0.65, 0.2),
+    #       legend.background = element_rect(fill = "white", color = "black"),
+    #       legend.key = element_blank()) +
+  xlab("Depth (m)") + ylab("Biomass (mg C m-3)")
+  
+g28 <- biomass_vert_region %>%
+  split(.$region.inuktitut2) %>%
+  
+  purrr::imap(~ {
+    ggplot(.x, aes(x = Depth_100m)) +
+      geom_bar(aes(y = total_biomass_m3),
+               stat = "identity", alpha = 0.5, fill = unique(.x$region.color)) +
+      geom_bar(aes(y = biomass_m3),
+               stat = "identity", fill = unique(.x$region.color)) +
+      coord_flip() +
+      scale_x_reverse(breaks = seq(0, 2400, 200), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+      theme(legend.position = "none") +
+      xlab("Depth (m)") +
+      ylab("Biomass (mg C m-3)") +
+      ggtitle(.y)
+  })
+
+all_plots <- c(list(g1), g28)
+
+cowplot::plot_grid(plotlist = all_plots, ncol = 2,
+                   labels = "auto")
+
+# ggsave("figures/Fig4_vertical_biomass_profiles_20260202.png",
+#        width = 10, height = 12, units = "in", bg = "white")
+```
+
+## Fig 4 Supp. Abundance Plot
+```{r, eval=FALSE}
+g1 <- ggplot(biomass_vert_region,
+             aes(x = Depth_100m, y = abundance_m3,
+                 color = region.inuktitut2)) +
+  geom_line() +
+  geom_point() +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2400,200)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Abundance (indiv m-3)")
+  
+g28 <- biomass_vert_region %>%
+  split(.$region.inuktitut2) %>%
+  
+  purrr::imap(~ {
+    ggplot(.x, aes(x = Depth_100m)) +
+      geom_bar(aes(y = total_abundance_m3),
+               stat = "identity", alpha = 0.5, fill = unique(.x$region.color)) +
+      geom_bar(aes(y = abundance_m3),
+               stat = "identity", fill = unique(.x$region.color)) +
+      coord_flip() +
+      scale_x_reverse(breaks = seq(0, 2400, 200), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+      theme(legend.position = "none") +
+      xlab("Depth (m)") +
+      ylab("Abundance (indiv m-3)") +
+      ggtitle(.y)
+  })
+
+all_plots <- c(list(g1), g28)
+
+cowplot::plot_grid(plotlist = all_plots, ncol = 2,
+                   labels = "auto")
+
+ggsave("figures/Fig4_vertical_abundance_profiles_20260202.png",
+       width = 10, height = 12, units = "in", bg = "white")
+
+
+# Abundance vs Lipid biomass vs total C flux ( r - 0.89)
+df <- df.100m %>% 
+  filter(taxa == "Calanus") %>% 
+  filter(abundance_m3 > 0)
+cor(df$abundance_m3, df$waxester_mgC_m3)
+
+
+```
+
+## 0-200, 200-500, 500+
+Aggregate abundance to depth bins (note that this is /m2). Calculate the % of the population that was found in a depth layer.
+```{r}
+df.profile.dbins <- df.100m %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(depth = as.numeric(as.character(Depth_100m))) %>% 
+  mutate(depth_bin = if_else(depth < 200, "0-200 m", "200-500 m"),
+         depth_bin = if_else(depth >= 500, "500+ m", depth_bin)) %>% 
+  group_by(depth_bin, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+
+
+ggplot(df.profile.dbins ,
+       aes(x = depth_bin, y = total_gC_flux_m2,
+           color = region.inuktitut)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Total Flux (gC m-2 y-1)")
+
+
+# calculate % of total flux per depth bin
+AA <- df.profile.dbins %>% 
+  # Only consider profiles with sampling depths > 200 m ?
+  filter(maxSampleDepth > 200) %>%
+  pivot_longer(cols = abundance_m2:total_gC_flux_m2, 
+               names_to = "variable", values_to = "value") %>% 
+  
+    group_by(sample_id, variable) %>% 
+  mutate(total_value = sum(value)) %>% 
+  ungroup() %>% 
+  mutate(perc_total = value/total_value * 100) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, maxSampleDepth, region.inuktitut)) %>% 
+  group_by(region.inuktitut, variable, depth_bin) %>% 
+  summarise(perc_mean = mean(perc_total),
+            perc_sd = sd(perc_total),
+            n = n(), .groups = "drop")
+
+# Table of % contributions to total biomass
+table_df <- AA %>% 
+  mutate( value = sprintf("%.1f ± %.1f (n = %d)",perc_mean, perc_sd, n)) %>%
+  select(variable, region.inuktitut, depth_bin, value) %>%
+  pivot_wider( names_from = depth_bin,
+               values_from = value) %>% 
+  arrange(variable)
+
+# write.csv(table_df, file = "tables/vertical_bins_perc_total.csv")
+
+AA %>% 
+  filter(variable == "biomass_gC_m2") %>% 
+  mutate( value = sprintf("%.1f ± %.1f (n = %d)",perc_mean, perc_sd, n)) %>%
+  select(region.inuktitut, depth_bin, value) %>%
+  pivot_wider( names_from = depth_bin,
+               values_from = value)
+```
+
+## Box plot version of the vertical profiles
+```{r}
+ggplot(df.100m %>% 
+         # Add metadata
+         left_join(Amund_UVP6_meta %>% 
+                     select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
+                   by = "sample_id") %>% 
+         filter(taxa == "Calanus"),
+       aes(x = Depth_100m, y = biomass_mgC_m3,
+           color = region.inuktitut)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev) +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Biomass (mg C m-3)")
+```
+
+
+# 4. Statistical comparison
+##  4.1 Regional total C flux comparisons
 ```{r, fig.width= 8}
 df <- df.profile %>% 
   filter(taxa == "Calanus") 
@@ -258,9 +511,68 @@ plot_grid(
   rel_widths = c(1,1.6)
 )
 
+
+# Difference in %contribution of respiration to total C flux
+kruskal.test(frac_resp_total ~ region, data = df) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = df$frac_resp_total,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
 ```
 
-## 3.2. Months & Years
+Maybe plot as histograms?
+```{r, eval = FALSE}
+x_lim <- range(df$total_gC_flux_m2, na.rm = TRUE)
+
+
+plots <- df %>%
+  split(.$region.inuktitut) %>%
+  imap(~ {
+    ggplot(.x, aes(x = total_gC_flux_m2)) +
+      geom_histogram(
+        bins = 30,
+        fill = region_cols[.y],
+        color = "black"
+      ) +
+      annotate(
+        "text",
+        x = Inf, y = Inf,
+        label = .y,
+        hjust = 1.05, vjust = 1.2,
+        size = 4,
+        fontface = "bold"
+      ) +
+      scale_x_continuous(limits = x_lim) +
+      theme_minimal() +
+      theme(
+        plot.margin = ggplot2::margin(5, 10, 5, 10),
+        axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_blank()
+      )
+  })
+
+plots[[length(plots)]] <-
+  plots[[length(plots)]] +
+  theme(
+    axis.text.x  = element_text(),
+    axis.ticks.x = element_line()
+  ) +
+  xlab("Total g C flux (m⁻²)")
+
+
+cowplot::plot_grid(
+  plotlist = plots,
+  ncol = 1,
+  align = "v"
+)
+```
+
+## 4.2. Months & Years
 ```{r}
 df <- df.profile %>% 
   filter(taxa == "Calanus") 
@@ -329,7 +641,7 @@ plot_grid(
 ```
 
 
-## 3.3. Size profile-Region
+## 4.3. Size profile-Region
  Regional differences is just comparing distributions of size and lipid fullness
 ```{r}
 size.prof <- indiv_traits %>% 
@@ -438,7 +750,7 @@ ggplot(df, aes(x = respirationRate_ugCday, color = region.inuktitut)) +
   facet_wrap(~region_set2, ncol = 1)
 ```
 
-## 3.4. Size profile-Compare years
+## 4.4. Size profile-Compare years
 ```{r}
 # Abundance & Biomass similar
 # No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW] [Baffin sehlf - Lancaster]
@@ -472,7 +784,7 @@ plot_grid(
 )
 ```
 
-## 3.5. Size profile-Depth
+## 4.5. Size profile-Depth
 Variation in body size with depth (in 100 m bins?)
 ```{r}
 df <- indiv_traits %>% 
@@ -518,82 +830,20 @@ ggplot(df, aes(x = respirationRate_ugCday, color = depth_bin)) +
 
 ```
 
-# Fig 4. Vertical biomass profiles
-Plot with the non-calanus images
-## TODO plot all >3mm copepods and Calanus
-## TODO Update with net data
-```{r}
-biomass_vert_region <- df.100m %>% 
-  # Add metadata
-  left_join(Amund_UVP6_meta %>% 
-              select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
-            by = "sample_id") %>% 
-  group_by(taxa, region.inuktitut, Depth_100m) %>% 
-  summarise(nprofiles = n(),
-            across(Sampled_volume_m3:total_gC_flux_m2,
-              list(mean = mean, sd = sd),
-              na.rm = TRUE), 
-            .groups = "drop") 
-
-
-ggplot(biomass_vert_region %>% 
-         filter(taxa == "Calanus") %>% 
-  mutate(Depth_100m = as.numeric(as.character(Depth_100m))),
-       aes(x = Depth_100m, y = biomass_mgC_m3_mean,
-                                color = region.inuktitut)) +
-  # geom_errorbar(aes(ymin = (region_mean_mean_m3-region_sd_mean_m3)*1000,
-  #                   ymax = (region_mean_mean_m3+region_sd_mean_m3)*1000),
-  #               alpha = 0.3) +
-  geom_line() +
-  geom_point() +
-  coord_flip() +
-  scale_x_reverse(breaks = seq(0,2600,200)) +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  theme(legend.position = "none") +
-  xlab("Depth (m)") + ylab("Biomass (mg C m-3)") +
-  ggtitle("Average concentrations")
-
-
-# ggsave("figures/Fig4_vertical_lipid_biomass_concentration_by_region.png",
-#        width = 3.5, height = 5, units = "in", bg = "white")
-
-ggplot(df.100m %>% 
-         # Add metadata
-         left_join(Amund_UVP6_meta %>% 
-                     select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
-                   by = "sample_id") %>% 
-         filter(taxa == "Calanus"),
-       aes(x = Depth_100m, y = biomass_mgC_m3,
-           color = region.inuktitut)) +
-  geom_boxplot() +
-  coord_flip() +
-  scale_x_discrete(limits = rev) +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  facet_wrap(~region.inuktitut, scales = "free", nrow = 2) +
-  theme(legend.position = "none") +
-  xlab("Depth (m)") + ylab("Abundance (indiv m-3)")
-
-# Abundance vs Lipid biomass vs total C flux ( r - 0.89)
-df <- df.100m %>% 
-  filter(taxa == "Calanus") %>% 
-  filter(abundance_m3 > 0)
-cor(df$abundance_m3, df$waxester_mgC_m3)
-
-
-```
-
 # Fig 5. Regional comparisons
 ## Compare profile distributions
 ```{r}
+# TODO Add inset map of the regions?
+
 plot_grid(
-    ggplot(df.profile %>% 
+  ggplot(df.profile %>% 
            filter(taxa == "Calanus"),
          aes(y = region.inuktitut)) +
     geom_boxplot(aes(x = total_gC_flux_m2, color = region.inuktitut)) +
     scale_color_manual(values = unique(region_rename$region.color)) +
-     # Add average values for the region
+    # Add average values for the region
     geom_point(data = df.region %>% 
-           filter(taxa == "Calanus"),
+                 filter(taxa == "Calanus"),
                aes(x = total_gC_flux_m2_mean), shape = 17, size = 3, color = "black") +
     geom_linerange(data = df.region %>% 
                      filter(taxa == "Calanus"),
@@ -601,50 +851,125 @@ plot_grid(
                        xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
                    color = "black", linetype = "dashed") +
     scale_y_discrete(limits = rev) +
-    scale_x_continuous(breaks = seq(0,13,2)) +
-    coord_cartesian(xlim = c(0, 10)) +
+    scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
+    coord_cartesian(xlim = c(0, 8.5)) +
     theme(legend.position = "none") +
     xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region"),
   
-
+  
   ggplot(df.region.long %>% 
            filter(taxa == "Calanus"),
-       aes(x = region.inuktitut, y = Cflux, fill = Component)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = clrs) +
-  theme(legend.position = "bottom") +
-  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
-  coord_flip() + scale_x_discrete(limits = rev),
+         aes(x = region.inuktitut, y = Cflux, fill = Component)) +
+    geom_bar(stat = "identity") +
+    # geom_bar(stat = "identity",position = "fill") +
+    scale_fill_manual(values = clrs) +
+    scale_y_continuous(expand = c(0,0.1)) +
+    theme(legend.position = "right",
+          legend.justification = "left",
+          legend.box.just = "left") +
+    ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+    coord_flip() + scale_x_discrete(limits = rev),
   ncol = 1, labels = "auto"
 )
 
+ggsave("figures/Fig5_total_flux_regions_20260202.png",
+       width = 7, height = 7, units = "in", bg = "white")
 
 # If including Calanus + >3mm copepods
 df.region.3mm <- df.profile %>% 
   group_by(sample_id, region.inuktitut, region, Year, bottom_depth_m) %>% 
   summarise(across(abundance_m2:total_gC_flux_m2,
-            sum), .groups = "drop")
+                   sum), .groups = "drop")
+df.region.sum <- df.region.3mm %>% 
+  group_by(region.inuktitut, region) %>% 
+  summarise(total_gC_flux_m2_mean = mean(total_gC_flux_m2),
+            total_gC_flux_m2_sd = sd(total_gC_flux_m2),
+            n = n(),
+            .groups = "drop")
+
 plot_grid(
   ggplot(df.region.3mm,
          aes(y = region.inuktitut)) +
     geom_boxplot(aes(x = total_gC_flux_m2, color = region.inuktitut)) +
     scale_color_manual(values = unique(region_rename$region.color)) +
+    # Add average values for the region
+    geom_point(data = df.region.sum,
+               aes(x = total_gC_flux_m2_mean), shape = 17, size = 3, color = "black") +
+    geom_linerange(data = df.region.sum,
+                   aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd,
+                       xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
+                   color = "black", linetype = "dashed") +
     scale_y_discrete(limits = rev) +
-    scale_x_continuous(breaks = seq(0,13,2)) +
-    coord_cartesian(xlim = c(0, 10)) +
+    scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
+    coord_cartesian(xlim = c(0, 12)) +
     theme(legend.position = "none") +
     xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region"),
   
   ggplot(df.region,
-       aes(x = region.inuktitut, y = total_gC_flux_m2_mean, fill = taxa)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = clrs) +
-  theme(legend.position = "bottom") +
-  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
-  coord_flip() + scale_x_discrete(limits = rev),
+         aes(x = region.inuktitut, y = total_gC_flux_m2_mean, fill = taxa)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = clrs) +
+    scale_y_continuous(expand = c(0,0.1)) +
+    theme(legend.position = "right",
+          legend.justification = "left",
+          legend.box.just = "left") +
+    ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+    coord_flip() + scale_x_discrete(limits = rev),
   ncol = 1, labels = "auto"
 )
-  
+
+
+ggsave("figures/Supp_Fig5_total_flux_regions_with3mmcope_20260202.png",
+       width = 7, height = 7, units = "in", bg = "white")
+
+
+```
+
+## Separate flux by vertical bins
+0-200, 200-500, 500+
+```{r}
+df.profile.dbins <- df.100m %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(depth = as.numeric(as.character(Depth_100m))) %>% 
+  mutate(depth_bin = if_else(depth < 200, "0-200 m", "200-500 m"),
+         depth_bin = if_else(depth >= 500, "500+ m", depth_bin)) %>% 
+  group_by(depth_bin, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+
+# plot total flux by depth bin
+df.region.dbins <- df.profile.dbins %>% 
+  # TODO Only consider profiles with sampling depths > 200 m ???
+  # filter(maxSampleDepth > 200) %>% 
+  group_by(region.inuktitut, region, depth_bin) %>% 
+  summarise(n = n(),
+            across(abundance_m2:total_gC_flux_m2,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop")
+
+# NOTE: the totals do not match the ones for Fig 5 because surface bins can be overrepresnted in shallow tows
+ggplot(df.region.dbins,
+       aes(x = region.inuktitut, y = total_gC_flux_m2_mean, fill = depth_bin)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("aquamarine2","cornflowerblue","navy")) +
+  theme(legend.position = "bottom") +
+  ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
+  coord_flip() + scale_x_discrete(limits = rev)
+
+ggsave("figures/Supp_fig5_total_flux_by_depth_bins.png",
+       width = 6, height = 5, units = "in", bg = "white")
 ```
 
 
@@ -652,7 +977,8 @@ plot_grid(
 ```{r}
 df.profile.long <- df.profile %>% 
   pivot_longer(cols = n100mbins:fraction_C_flux,
-               names_to = "variable", values_to = "value") 
+               names_to = "variable", values_to = "value") %>% 
+  arrange(variable, value)
 
 
 ggplot(df.profile.long %>% 
@@ -671,28 +997,8 @@ ggplot(df.profile.long %>%
 
 
 
-# # Plot biomass, total flux
-basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-85,-52,54,83), rotate = T,
-        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
-        land.border.col = "black", gla.border.col = NA) +
-  ggspatial::geom_spatial_point(data = df.profile.long %>%
-                                  filter(variable == "biomass_gC_m2"),
-                                aes(x = longitude, y = latitude,
-                                    shape = region,
-                                    fill = value), color = "black",
-                                size = 3, alpha = 0.8) +
-  scale_fill_viridis_c(option = "plasma", direction = -1,
-                       name = "Biomass\n(g C m-2)") +
-  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
-  theme(axis.title = element_blank(),
-        legend.position = c(0.05, 0.05),
-        legend.justification = c("left", "bottom"),
-        legend.margin = ggplot2::margin(6,6,6,6),
-        legend.box.background = element_rect(fill = "white", color = "black"))
+# # Plot total flux
 
-# ggsave("figures/map_biomass.png", width = 5, height = 6,
-#        units = "in", bg = "white")
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
@@ -713,8 +1019,8 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.margin = ggplot2::margin(6,6,6,6),
         legend.box.background = element_rect(fill = "white", color = "black"))
 
-# ggsave("figures/map_lipidpump.png", width = 5, height = 6,
-#        units = "in", bg = "white")
+ggsave("figures/Fig5_supp_map_lipidpump.png", width = 5, height = 6,
+       units = "in", bg = "white")
 
 ```
 
@@ -924,31 +1230,54 @@ beta <- -0.001 # natural mortality rate (day-1)
 mort.diap <- indiv_traits %>% 
   mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
   mutate(diapause_dur = if_else(diapauseDuration_day > 240,
-                                 240, diapauseDuration_day)) %>% 
+                                 240, diapauseDuration_day), 
+         diapause_dur_min = if_else(diapauseDuration_day_min > 240,
+                                 240, diapauseDuration_day_min), 
+         diapause_dur_max = if_else(diapause_resp_by_indiv_ugC_max > 240,
+                                 240, diapause_resp_by_indiv_ugC_max), ) %>% 
   group_by(taxa, sample_id, Depth_100m) %>% 
   summarise(diapause_dur_mean = mean(diapause_dur),
             diapause_dur_sd = sd(diapause_dur),
+            diapause_dur_min_mean = mean(diapause_dur_min),
+            diapause_dur_max_mean = mean(diapause_dur_max),
             nindiv = n(), 
             .groups = "drop") %>% 
-  mutate(mortality.coef =  exp(beta * diapause_dur_mean)) 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean),
+         mortality.coef_min =  exp(beta * diapause_dur_min_mean),
+         mortality.coef_max =  exp(beta * diapause_dur_max_mean)) 
 
 # 2.2. Calculate the fraction of the population lost to natural mortality
 df.100m <- df.100m %>% 
   # Append the mortality coef for the population in 100 m bins
   left_join(mort.diap %>% 
-              select(taxa, sample_id, Depth_100m, mortality.coef),
+              select(taxa, sample_id, Depth_100m, mortality.coef,
+                     mortality.coef_min, mortality.coef_max),
             by = join_by(taxa, sample_id, Depth_100m)) %>% 
   # Calculate the abundance, structural, and lipid carbon lost
   mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         abundance_m2_mort_min = abundance_m2 - (abundance_m2 * mortality.coef_min),
+         abundance_m2_mort_max = abundance_m2 - (abundance_m2 * mortality.coef_max),
+         
          structural_gC_m2_mort = (structural_mgC_m2 - 
            (structural_mgC_m2 * mortality.coef)) / 1000,
+         structural_gC_m2_mort_min = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef_min)) / 1000,
+         structural_gC_m2_mort_max = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef_max)) / 1000,
+         
          waxester_gC_m2_mort = (waxester_mgC_m2 - 
-           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+           (waxester_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort_min = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef_min)) / 1000,
+         waxester_gC_m2_mort_max = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef_max)) / 1000) %>% 
   
   # 2.3. Calculate total carbon flux
   mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
-  mutate(total_gC_flux_m2_min = respired_C_gC_m2_min + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
-  mutate(total_gC_flux_m2_max = respired_C_gC_m2_max + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  mutate(total_gC_flux_m2_min = respired_C_gC_m2_min + 
+           structural_gC_m2_mort_min + waxester_gC_m2_mort_min) %>% 
+  mutate(total_gC_flux_m2_max = respired_C_gC_m2_max + 
+           structural_gC_m2_mort_max + waxester_gC_m2_mort_max) %>% 
   # NAs are zeros because zero abundance in the 100 m bin
   mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
   # Establish factors
@@ -1013,8 +1342,8 @@ ggplot(df.profile %>%
                        xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
                    color = "black", linetype = "dashed") +
     scale_y_discrete(limits = rev) +
-    scale_x_continuous(breaks = seq(0,13,2)) +
-    coord_cartesian(xlim = c(0, 10)) +
+    scale_x_continuous(breaks = seq(0,13,1), expand = c(0, 0)) +
+    coord_cartesian(xlim = c(0, 8.5)) +
     theme(legend.position = "none") +
     xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") +
   # Add the min and max total flux 
@@ -1028,10 +1357,14 @@ ggplot(df.profile %>%
   
     geom_point(data = df.region %>% 
            filter(taxa == "Calanus"),
-               aes(x = total_gC_flux_m2_min_median), shape = 3, size = 3, color = "blue") +
+               aes(x = total_gC_flux_m2_min_median), shape = 4, size = 3, color = "black") +
     geom_point(data = df.region %>% 
            filter(taxa == "Calanus"),
-               aes(x = total_gC_flux_m2_max_median), shape = 3, size = 3, color = "blue")
+               aes(x = total_gC_flux_m2_max_median), shape = 4, size = 3, color = "black")
+
+
+ggsave("figures/Supp_fig5_total_flux_resp_uncertainty.png",
+       width = 6, height = 5, units = "in", bg = "white")
 
 
 AA <- df.region %>% 

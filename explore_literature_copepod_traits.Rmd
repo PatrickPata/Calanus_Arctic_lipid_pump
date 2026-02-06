@@ -86,6 +86,36 @@ Calanus.respiration <- resp %>%
             n = n())
 ```
 
+# Get dry mass and carbon mass for abundance to biomass conversion?
+V1 database: Only C5, female, and adult
+Durazzano & Titocci 2026 dataset has averages per life stage
+```{r}
+calanus.size <- calanoid.level1.traitdata %>% 
+  filter(genus %in% c("Calanus")) %>% 
+  filter(scientificName %in% c("Calanus finmarchicus",
+                               "Calanus glacialis",
+                               "Calanus hyperboreus")) %>% 
+  filter(traitName %in% c("dryWeight", "carbonWeight", "carbonPDW","lipidPDW"))
+unique(calanus.size$lifeStage)
+
+calanus.size.sum <- calanus.size %>% 
+  group_by(traitName, scientificName) %>% 
+  mutate(traitValue = as.numeric(traitValue)) %>% 
+  summarise(across(traitValue,
+                   list(mean = mean, sd = sd, min = min, max = max),
+                   na.rm = T),
+            n = n(), .groups = "drop")
+
+df.dur <- read.csv("C:/Users/patri/OneDrive - Université Laval/New_Trait_Data_For_Database/Durazzano_holoplankton_Arctic_traits/Dataset_marine_holoplankton_Arctic.csv", sep = ";") %>% 
+  filter(acceptedNameUsage %in% c("Calanus hyperboreus", "Calanus glacialis", 
+                               "Calanus finmarchicus")) %>% 
+  mutate(dryWeight_mg = dryWeight/1000) %>% 
+  mutate(lifeStage = if_else(lifeStage == "Adult", sex, lifeStage)) %>% 
+  select(taxa = acceptedNameUsage, lifeStage, 
+         meanBodyLength, prosomeLength, dryWeight_mg, lipidContent, waxEstersContent) %>% 
+  filter(!is.na(dryWeight_mg))
+```
+
 
 
 # Old figures
@@ -151,6 +181,15 @@ calanoids.cperc <- calanoid.level1.traitdata %>%
   filter(traitName %in% c("carbonPWW","carbonPDW","dryWeightPWW",
                           "lipidPWW","lipidPDW")) %>% 
   mutate(traitValue = as.numeric(traitValue))
+
+calanoids.cperc.arctic <- calanoids.cperc %>% 
+  filter(traitName == "carbonPDW") %>% 
+  filter(scientificName %in% c("Calanus finmarchicus", "Calanus glacialis", "Calanus hyperboreus")) %>% 
+  # group_by(scientificName,lifeStage) %>% 
+  summarise(nindiv = n(),
+            mean = mean(traitValue, na.rm = T),
+            sd = sd(traitValue, na.rm = T),
+            .groups = "drop")
 
 # rough average of all traits (not controlled by species)... the 0.2 * 0.45 is actually a good estimate
 calanoids.cperc %>% 

@@ -231,8 +231,8 @@ df %>% group_by(region.inuktitut) %>%
 
 ## Export for lipid vs gravity pump 
 ```{r}
-save(df.100m, df.profile, df.region,
-     file = "data/profile_integrated_cflux_20260202.RData")
+save(df.5m.zero, df.100m, df.profile, df.region,
+     file = "data/profile_integrated_cflux_20260206.RData")
 ```
 
 

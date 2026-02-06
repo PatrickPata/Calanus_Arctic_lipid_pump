@@ -30,11 +30,13 @@ hydrobios.meta <- hydrobios %>%
 
 # TODO Check if stations match
 uvp6.meta <- uvp6_profiles %>% 
-  select(cruise_year, uvp_leg = Cruise, Profile,
+  select(sample_id = Profile,
+         cruise_year, uvp_leg = Cruise,
          STATION_NAME = Site, uvp_stn = station, region,
          uvp_Date = `yyyy-mm-dd hh:mm`,
          uvp_Longtiude = Longitude,
          uvp_Latitude = Latitude)
+
 uvp_net_match <- left_join(hydrobios.meta,
                            uvp6.meta %>% 
                              # manually edit the UVP station name to match here
@@ -42,13 +44,21 @@ uvp_net_match <- left_join(hydrobios.meta,
                                                            "TCA-BB2", STATION_NAME),
                                     STATION_NAME = if_else(STATION_NAME == "CA4-23",
                                                            "C4-23", STATION_NAME)),
-                           by = join_by(cruise_year,
-                                        STATION_NAME)) 
+                           by = join_by(cruise_year, STATION_NAME)) 
+
+# Export the net match
+save(uvp_net_match,
+     file = "data/uvp_hydrobios_station_match_20260203.RData")
+
+#  CHECK can be multiple when there were more than one ctd cast/station
+AA <- uvp_net_match %>% 
+  group_by(cruise_year, STATION_NAME) %>% 
+  filter(n() > 1)
+
 
 # These sites do not have matching station names:
 #   2023: A7/196, Lsea-23, NB-02
 #   2024: TCAT6-01(A1), TCAT6-07(A7)
-
 
 # Do they match in lon & lat?
 cowplot::plot_grid(
@@ -69,7 +79,7 @@ cowplot::plot_grid(
 
 # Filter to stations with multiple tows and maxDepth >= 250?
 hydrobios_to_get <- uvp_net_match %>%
-  distinct(cruise_year, STATION_NAME, .keep_all = T) %>% 
+  distinct(sample_id, cruise_year, STATION_NAME, .keep_all = T) %>% 
   # filter(n_nets > 4 | STATION_NAME == "TCA-BB2") %>%
   # filter(maxDepth >= 200 | STATION_NAME == "TCA-BB2") %>% 
   # only with matching UVP cast
@@ -108,10 +118,10 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
   #                               color = "red", shape = 8,
   #                               size = 2, alpha = 0.8) 
 
-ggsave("figures/hydrobios_stations_55.png",
-       width = 7, height = 7, units = "in", bg = "white")
+# ggsave("figures/hydrobios_stations_55.png",
+#        width = 7, height = 7, units = "in", bg = "white")
 
-# Export the list of stations to request
-write.csv(hydrobios_to_get,
-          file = "tables/hydrobios_stations_request_55.csv",
-          row.names = F)
+# # Export the list of stations to request
+# write.csv(hydrobios_to_get,
+#           file = "tables/hydrobios_stations_request_55.csv",
+#           row.names = F)

@@ -382,7 +382,7 @@ save(indiv_traits,
 
 # 6. Compare CNN segmentations, manually annotated, and random forest
 ```{r}
-# load("data/uvp6_images_calculated_traits_20260202.RData")
+load("data/uvp6_images_calculated_traits_20260202.RData")
 df_to_plot <- indiv_traits %>% 
   filter(taxa == "Calanus")
 
@@ -523,6 +523,8 @@ ggplot(df_to_plot,
 ```
 
 
+
+
 # 7. Calculate summary statistics for the overall distributions
 ```{r}
 calanus.stats <- indiv_traits %>% 
@@ -601,7 +603,14 @@ load("data/temporary_trait_database_subset_20260129.RData")
 clrs <- c("blue2","hotpink","gold1")
 
 df_to_plot <- indiv_traits %>% 
-  filter(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"))
+  mutate(source = if_else(object_annotation_category %in% 
+                                   c("Calanoida", "Copepoda<Maxillopoda"),
+                          "Random Forest", source)) %>% 
+   mutate(source = factor(source,
+                          levels = c("Random Forest",
+                                     "CNN segmentation", "Manual segmentation")))
+  
+
 
 plot_grid(
 plot_grid(
@@ -748,7 +757,7 @@ plot_grid(
 nrow = 1, rel_widths = c(1.2, 1, 1) )
 
 
-ggsave("figures/Fig3_20270202.png",
+ggsave("figures/Fig3_20270207_with_3mmCopes.png",
        height = 10, width = 13, units = "in", bg = "white")
 
 

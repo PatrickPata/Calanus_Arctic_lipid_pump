@@ -230,7 +230,7 @@ df %>% group_by(region.inuktitut) %>%
 ```
 
 ## Export for lipid vs gravity pump 
-```{r}
+```{r, eval=FALSE}
 save(df.5m.zero, df.100m, df.profile, df.region,
      file = "data/profile_integrated_cflux_20260206.RData")
 ```
@@ -279,7 +279,13 @@ biomass_vert_region <- df.100m %>%
                "Qikiqtaaluk Shelf (Baffin Shelf)",
                "Nunatsiavut Shelf (Labrador Shelf)")))
 
-g1 <- ggplot(biomass_vert_region,
+# For visualization, exclude the last bins if there are few profiles included in that average (provides a skewed view of the vertical profile)... in all regions, then number of profiles in the last bin represents 16% of the max number of profiles for that region. 
+biomass_vert_region_to_plot <- biomass_vert_region %>% 
+  group_by(region.inuktitut) %>% 
+  filter(Depth_100m != max(Depth_100m)) %>% 
+  ungroup()
+
+g1 <- ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
                  color = region.inuktitut2)) +
   geom_line() +
@@ -295,7 +301,7 @@ g1 <- ggplot(biomass_vert_region,
     #       legend.key = element_blank()) +
   xlab("Depth (m)") + ylab("Biomass (mg C m-3)")
   
-g28 <- biomass_vert_region %>%
+g28 <- biomass_vert_region_to_plot %>%
   split(.$region.inuktitut2) %>%
   
   purrr::imap(~ {
@@ -318,7 +324,7 @@ all_plots <- c(list(g1), g28)
 cowplot::plot_grid(plotlist = all_plots, ncol = 2,
                    labels = "auto")
 
-# ggsave("figures/Fig4_vertical_biomass_profiles_20260202.png",
+# ggsave("figures/Fig4_vertical_biomass_profiles_20260208.png",
 #        width = 10, height = 12, units = "in", bg = "white")
 ```
 
@@ -360,8 +366,8 @@ all_plots <- c(list(g1), g28)
 cowplot::plot_grid(plotlist = all_plots, ncol = 2,
                    labels = "auto")
 
-ggsave("figures/Fig4_vertical_abundance_profiles_20260202.png",
-       width = 10, height = 12, units = "in", bg = "white")
+# ggsave("figures/Fig4_vertical_abundance_profiles_20260202.png",
+#        width = 10, height = 12, units = "in", bg = "white")
 
 
 # Abundance vs Lipid biomass vs total C flux ( r - 0.89)

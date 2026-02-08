@@ -278,29 +278,43 @@ uvp_net_bins <- df.5m.zero %>%
   # Add region information
   left_join(Amund_UVP6_meta %>% 
               select(sample_id, region, region.inuktitut),
-            by = "sample_id") 
+            by = "sample_id") %>% 
 
-# Check duplicated uvp casts because multiple ctd casts to net tow
-zz <- uvp_net_bins %>% 
-  filter(!is.na(YEAR_STATION)) %>% 
-  distinct(YEAR_STATION, region, sample_id) %>% 
-  group_by(YEAR_STATION) %>% 
-  mutate(n_uvp = n()) %>% 
-  ungroup() %>% 
-  mutate(isdup = if_else(n_uvp > 1, T, F))
+  # difference in abundances as % of net abundance
+  mutate(diff_per_net = (uvp_abundance_m3 - net_abundance_m3)/net_abundance_m3 * 100)
+
+# Check distribution of UVP-Net difference
+# MAbout 54% of pairs have negative differences (UVP underestimates), generally more negatives at <50m/100m at 71%, so underestimation is a bit stronger when surface abundances are high.
+summary(uvp_net_bins$diff_per_net)
+ggplot(uvp_net_bins, aes(x = diff_per_net)) +
+  # geom_histogram() +
+  geom_density() +
+  scale_x_continuous(limits = c(-100, 1000))
+
+uvp_net_bins %>% 
+  mutate(DBIN = if_else(MAX_SAMPLE_DEPTH > 250, ">250m","100-250m"),
+         DBIN = if_else(MAX_SAMPLE_DEPTH <= 100, "0-100m", DBIN)) %>% 
+  mutate(is_negative = (diff_per_net < 0)) %>% 
+  group_by(DBIN, is_negative) %>% 
+  count()
+
+ggplot(uvp_net_bins, aes(x = diff_per_net, y = Depth_mid)) +
+  geom_point() +
+  scale_x_continuous(limits = c(-100, 1000))
+
 
 # Pairwise match of station-depth bin
 # There are multiple net bins with 0 uvp_abundance, mostly shallow samples
 ggplot(uvp_net_bins %>% 
          filter(net_abundance_m3 > 0) , 
-       aes(x = net_abundance_m3, y = uvp_abundance_m3)) +
+       aes(x = uvp_abundance_m3, y = net_abundance_m3)) +
   geom_abline() +
   geom_point(aes(color = Depth_mid)) +
   geom_smooth(method = "lm", color = "red") +
   scale_x_log10() + scale_y_log10() +
   scale_color_viridis_c(trans = "log10", name = "Bin Depth") +
   coord_fixed(ratio = 1) +
-  xlab("Hydrobios (indiv m-3)") + ylab("UVP6 (indiv m-3)")
+  xlab("UVP6 (indiv m-3)") + ylab("Hydrobios (indiv m-3)")
 
 # ggsave("figures/NET_UVP_match_pairwise_bins_abundancem3.png",
 #        width = 7, height = 5, units = "in", bg = "white")
@@ -323,13 +337,13 @@ summary(lm(uvp_abundance_m3 ~ net_abundance_m3,
 # Area version /m2, similar trends but slightly lower R2
 ggplot(uvp_net_bins %>% 
          filter(net_abundance_m2 > 0), 
-       aes(x = net_abundance_m2, y = uvp_abundance_m2)) +
+       aes(y = net_abundance_m2, x = uvp_abundance_m2)) +
   geom_abline() +
   geom_point(aes(color = Depth_mid)) +
   geom_smooth(method = "lm") +
   scale_x_log10() + scale_y_log10() +
   scale_color_viridis_c(trans = "log10") +
-  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+  ylab("Hydrobios (indiv m-2)") + xlab("UVP6 (indiv m-2)")
 
 summary(lm(log10(uvp_abundance_m2 +1) ~ log10(net_abundance_m2 +1), 
            data = uvp_net_bins %>% 
@@ -365,27 +379,27 @@ uvp_net_integ <- df.5m.zero %>%
   droplevels()
 
 
-summary(lm(log10(total_uvp_abundance_m2) ~ 
-             log10(total_net_abundance_m2), data = uvp_net_integ))
+summary(lm(log10(total_net_abundance_m2) ~ 
+             log10(total_uvp_abundance_m2), data = uvp_net_integ))
 
 # Prepare the segments for nets associated with 2-3 ctd casts
 segments_df <- uvp_net_integ %>%
   group_by(STATION_NAME, DEPLOYMENT_DATE_START, region.inuktitut) %>%
   summarise(
-    x = first(total_net_abundance_m2),
-    y_min = min(total_uvp_abundance_m2, na.rm = TRUE),
-    y_max = max(total_uvp_abundance_m2, na.rm = TRUE),
+    y = first(total_net_abundance_m2),
+    x_min = min(total_uvp_abundance_m2, na.rm = TRUE),
+    x_max = max(total_uvp_abundance_m2, na.rm = TRUE),
     n = n(),
     .groups = "drop"
   ) %>%
   filter(n > 1)  
 
 # Plot comparison
-ggplot(uvp_net_integ, aes(x = total_net_abundance_m2, 
-                          y = total_uvp_abundance_m2)) +
+ggplot(uvp_net_integ, aes(x = total_uvp_abundance_m2, 
+                          y = total_net_abundance_m2)) +
   geom_abline() +
   geom_segment(data = segments_df,
-    aes(x = x, xend = x, y = y_min, yend = y_max), 
+    aes(x = x_min, xend = x_max, y = y, yend = y), 
     color = "gray", show.legend = FALSE) +
   geom_point(aes(color = region.inuktitut),
              size = 2) +
@@ -394,10 +408,11 @@ ggplot(uvp_net_integ, aes(x = total_net_abundance_m2,
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
   coord_fixed(ratio = 1) +
-  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+  xlab("UVP6 (indiv m-2)") + 
+  ylab("Hydrobios (indiv m-2)")
 
-ggsave("figures/NET_UVP_match_integrated_abundancem2.png",
-       width = 7, height = 4, units = "in", bg = "white")
+# ggsave("figures/NET_UVP_match_integrated_abundancem2.png",
+#        width = 6, height = 5, units = "in", bg = "white")
 ```
 
 
@@ -441,8 +456,13 @@ ggplot(df, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean,
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
   geom_text(aes(label = n.x), color = "black") +
-  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+  coord_flip() +
+  ylab("UVP6 (indiv m-2)") +
+  xlab("Hydrobios (indiv m-2)")
+```
 
+
+```{r}
 # If including all UVP casts for a region
 region.uvpALL <- df.5m.zero %>% 
   # Sum across 3 taxa
@@ -481,10 +501,11 @@ ggplot(df2, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
   geom_text(aes(label = n.x), color = "black") +
+  coord_flip() +
   xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
 
-# ggsave("figures/NET_UVP_match_regional_integrated_abundancem2.png",
-#        width = 7, height = 4, units = "in", bg = "white")
+ggsave("figures/NET_UVP_match_regional_integrated_abundancem2.png",
+       width = 7, height = 4, units = "in", bg = "white")
 
 ```
 
@@ -643,7 +664,8 @@ net_meta <- hydrobios.meta %>%
   mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
   mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>% 
   distinct(YEAR_STATION, YEAR, STATION_NAME, DEPLOYMENT_DATE_START,
-           LATITUDE, LONGITUDE, BOTTOM_DEPTH)
+           LATITUDE, LONGITUDE, BOTTOM_DEPTH) %>% 
+  filter(YEAR_STATION %in% uvp_net_integ$YEAR_STATION)
 
 basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         limits = c(-85,-52,65,83), rotate = T,
@@ -665,7 +687,7 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.position = "right",
         legend.box.background = element_rect(fill = "white", color = "black")) 
 
-ggsave("figures/net_hydrobios_stations.png", width = 10, height = 10, 
+ggsave("figures/net_hydrobios_stations_49.png", width = 10, height = 10, 
        units = "in", bg = "white")
 ```
 

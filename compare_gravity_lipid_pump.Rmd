@@ -147,7 +147,7 @@ pocFlux.region <- pocFlux.ave %>%
             .groups = "drop")
   
   
-ggplot(pocFlux.region, 
+g1 <- ggplot(pocFlux.region, 
        aes(x = poc_model_184_mean, y = total_gC_flux_m2_mean, color = region.inuktitut)) +
   geom_errorbar(aes(xmin = poc_model_184_mean-poc_error_184_mean,
                     xmax = poc_model_184_mean+poc_error_184_mean)) +
@@ -158,15 +158,15 @@ ggplot(pocFlux.region,
   geom_text(aes(label = n), color = "black") +
   geom_abline() +
   scale_x_continuous(breaks = seq(0,40,2), limits = c(0, 38), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0.1)) +
   # scale_x_log10() +
   # scale_y_log10() +
   theme(legend.position = "right") +
   scale_color_manual(values = unique(region_rename$region.color),
                      name = "Region") +
-  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  xlab("POC flux 200 m-300 m (g C m-2 y-1)") + 
   ylab("Lipid Pump (g C m-2 y-1)")
-
+g1 
 ggsave("figures/Fig6_lipid_gravity_comparison_20260203.png",
        width = 8, height = 5, units = "in", bg = "white")
 
@@ -200,30 +200,46 @@ sedTrap_annual <- sedTrap %>%
             n = n(), .groups = "drop")
   # mutate(label = paste(RefID, AreaCode, sep = " - "))
 
-ggplot(sedTrap_annual, 
-       aes(y = RefID, x = flux_mean)) +
+g2 <- ggplot(sedTrap_annual, 
+             aes(y = RefID, x = flux_mean)) +
   geom_point(size = 3, alpha = 0.8) +
   geom_segment(aes(x = min, xend = max)) +
   xlab("POC flux (g C m-2 y-1)") +
-    geom_text(aes(label = RefID), 
-              vjust = -1, hjust = 0.2,  size = 4, show.legend = FALSE) +
+  geom_text(aes(label = RefID), 
+            vjust = -1, hjust = 0.3,  size = 3, show.legend = FALSE) +
   theme(axis.title.y = element_blank(),
         axis.text.y = element_blank()) +
   scale_x_continuous(breaks = seq(0,40,2), limits = c(0, 38), expand = c(0,0))
 
-# TODO had subplot of historical gravity flux
 
+plot_grid(g1, g2, 
+          align = "v", labels = "auto",
+          ncol = 1, rel_heights = c(1, 0.3))
 
-
-
+ggsave("figures/Fig6_lipid_gravity_comparison_20260208.png",
+       width = 8, height = 7, units = "in", bg = "white")
 
 ```
 
 ## Additional stats and comparisons
 ```{r}
+# summary stats and sample sizes
+pocFlux.ave %>% 
+  group_by(region.inuktitut)
 
+ggplot(pocFlux.ave, aes(x = poc_model_184, color = region.inuktitut)) +
+  # geom_density()
+  geom_boxplot() +
+  scale_color_manual(values = region_rename$region.color)
 
-# TODO summary stats and sample sizes
+kruskal.test(poc_model_184 ~ region.inuktitut, 
+             data = pocFlux.ave) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = pocFlux.ave$poc_model_184,
+                     g = pocFlux.ave$region.inuktitut,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
 ```
 
 

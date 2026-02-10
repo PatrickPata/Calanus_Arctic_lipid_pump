@@ -144,8 +144,8 @@ df.profile <- df.100m %>%
             Sampled_volume_m3 = sum(Sampled_volume_m3),
             abundance_m2 = sum(abundance_m2),
             biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
-            structural_gC = sum(structural_mgC) / 1000,
-            waxester_gC_m2 = sum(waxester_mgC) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
             respired_C_gC_m2 = sum(respired_C_gC_m2),
             structural_gC_m2_mort = sum(structural_gC_m2_mort),
             waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
@@ -153,7 +153,8 @@ df.profile <- df.100m %>%
             total_gC_flux_m2 = sum(total_gC_flux_m2),
             .groups = "drop") %>% 
   # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
-  mutate(fraction_dead = abundance_m2_mort / abundance_m2,
+  mutate(we_perc_biom = waxester_gC_m2/biomass_gC_m2,
+         fraction_dead = abundance_m2_mort / abundance_m2,
          fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
          frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
          frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
@@ -185,27 +186,10 @@ df.region.long <- df.region %>%
                         `mortality structural`, `moratlity storage`),
                names_to = "Component", values_to = "Cflux")
 
-# Note that when combining concentrations across taxa, simply add since the same volume of water was sampled
+```
 
-
-# check average % of total abundance and biomass potentially from likely Calanus spp
-df.profile %>% 
-  select(taxa, sample_id, abundance_m2, biomass_gC_m2) %>% 
-  pivot_longer(cols = c(abundance_m2, biomass_gC_m2),
-               names_to = "variable", values_to = "value") %>% 
-  group_by(sample_id, variable) %>% 
-  mutate(total = sum(value)) %>% 
-  ungroup() %>% 
-  mutate(percent = value / total * 100) %>% 
-  # Get average percentage of each variable
-  group_by(taxa, variable) %>% 
-  summarise(mean_perc = mean(percent, na.rm = T),
-            sd_perc = sd(percent, na.rm = T),
-            min_perc = min(percent, na.rm = T),
-            max_perc = max(percent, na.rm = T),
-            n = n(), .groups = "drop") %>% 
-  arrange(variable)
-
+## Summary stats of integrated values
+```{r}
 # Average contributions ***
 # 1. fraction of the biomass contributed to C flux
 # 2. fraction of the total flux due to respiration, mortality
@@ -227,12 +211,52 @@ df %>% group_by(region.inuktitut) %>%
             frac_resp_mean = mean(frac_resp_total),
             frac_resp_sd = sd(frac_resp_total),
             .groups = "drop")
+
+indiv_traits %>% 
+  group_by(taxa) %>% 
+  count()
+
+# check average % of total abundance and biomass potentially from likely Calanus spp
+# Note that when combining concentrations across taxa, simply add since the same volume of water was sampled
+df.profile %>% 
+  select(taxa, sample_id, abundance_m2, biomass_gC_m2) %>% 
+  pivot_longer(cols = c(abundance_m2, biomass_gC_m2),
+               names_to = "variable", values_to = "value") %>% 
+  group_by(sample_id, variable) %>% 
+  mutate(total = sum(value)) %>% 
+  ungroup() %>% 
+  mutate(percent = value / total * 100) %>% 
+  # Get average percentage of each variable
+  group_by(taxa, variable) %>% 
+  summarise(mean_perc = mean(percent, na.rm = T),
+            sd_perc = sd(percent, na.rm = T),
+            min_perc = min(percent, na.rm = T),
+            max_perc = max(percent, na.rm = T),
+            n = n(), .groups = "drop") %>% 
+  arrange(variable)
+
+# Format csv for Table 3: Regional averages
+table3 <- df.region %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
+         biomass_gC_m2 = sprintf("%.2f ± %.2f",biomass_gC_m2_mean, biomass_gC_m2_sd),
+         waxester_gC_m2 = sprintf("%.2f ± %.2f",waxester_gC_m2_mean, waxester_gC_m2_sd),
+         total_gC_flux_m2 = sprintf("%.2f ± %.2f",total_gC_flux_m2_mean, total_gC_flux_m2_sd),
+         perc_C_flux = sprintf("%.0f ± %.0f",fraction_C_flux_mean*100, fraction_C_flux_sd*100),
+         perc_respired = sprintf("%.0f ± %.0f",frac_resp_total_mean*100, 
+                                 frac_resp_total_sd*100)) %>%
+  select(region.inuktitut, n,
+         abundance_m2, biomass_gC_m2, waxester_gC_m2, 
+         total_gC_flux_m2, perc_C_flux, perc_respired)
+
+write.csv(table3, file = "tables/Table3_regional_averages.csv")
 ```
+
 
 ## Export for lipid vs gravity pump 
 ```{r, eval=FALSE}
 save(df.5m.zero, df.100m, df.profile, df.region,
-     file = "data/profile_integrated_cflux_20260206.RData")
+     file = "data/profile_integrated_cflux_20260209.RData")
 ```
 
 
@@ -497,6 +521,21 @@ res.dunn <- dunn.test::dunn.test(x = df$total_gC_flux_m2,
                      method = "bh")
 subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
   p >= 0.025 )
+
+# % WE in biom
+kruskal.test(we_perc_biom ~ region, data = df) 
+# % Cflux to total carbon biomass
+kruskal.test(fraction_C_flux ~ region, data = df) 
+
+# % respired to total C flux
+kruskal.test(frac_resp_total ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p < 0.025 )
+
 
 
 # separate Baffin Bay/Shelf, Davis, NOW from rest

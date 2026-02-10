@@ -280,7 +280,9 @@ biomass_vert_region <- df.100m %>%
             .groups = "drop")  %>% 
   select(taxa, region.inuktitut, Depth_100m, nprofiles,
          abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
-         lipid_m3 = waxester_mgC_m3_mean) %>% 
+         lipid_m3 = waxester_mgC_m3_mean,
+         abundance_m2_mean, biomass_mgC_m2_mean, waxester_mgC_m2_mean,
+         abundance_m2_sd, biomass_mgC_m2_sd, waxester_mgC_m2_sd) %>% 
   # calculate total across all taxa
   group_by(region.inuktitut, Depth_100m, nprofiles) %>% 
   mutate(total_abundance_m3 = sum(abundance_m3), 
@@ -307,7 +309,8 @@ biomass_vert_region <- df.100m %>%
 biomass_vert_region_to_plot <- biomass_vert_region %>% 
   group_by(region.inuktitut) %>% 
   filter(Depth_100m != max(Depth_100m)) %>% 
-  ungroup()
+  ungroup() %>% 
+  mutate(biomass_mgC_m2_se = biomass_mgC_m2_sd / sqrt(nprofiles))
 
 g1 <- ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
@@ -370,9 +373,26 @@ ggplot(biomass_vert_region_to_plot,
     #       legend.background = element_rect(fill = "white", color = "black"),
     #       legend.key = element_blank()) +
   xlab("Depth (m)") + ylab("Wax ester biomass (mg C m-3)")
-ggsave("figures/Fig4a_vertical_WE_biomass_profile.png",
-       width = 4, height = 6, units = "in", bg = "white")
+# ggsave("figures/Fig4a_vertical_WE_biomass_profile.png",
+#        width = 4, height = 6, units = "in", bg = "white")
 
+# Biomas distribution by area (actual counts)
+ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = biomass_mgC_m2_mean,
+                 color = region.inuktitut2)) +
+  geom_bar(aes(fill = region.inuktitut2), alpha = 0.5, stat = "identity") +
+  geom_errorbar(aes(ymin = biomass_mgC_m2_mean - biomass_mgC_m2_se,
+                    ymax = biomass_mgC_m2_mean + biomass_mgC_m2_se)) +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2400,200)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  scale_fill_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none") +
+  facet_wrap(~region.inuktitut, ncol = 2, scales = "free") +
+  xlab("Depth (m)") + ylab("Biomass (mg C m-2)")
 ```
 
 ## Fig 4 Supp. Abundance Plot

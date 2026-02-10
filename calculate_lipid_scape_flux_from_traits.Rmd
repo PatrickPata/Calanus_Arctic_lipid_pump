@@ -350,6 +350,29 @@ cowplot::plot_grid(plotlist = all_plots, ncol = 2,
 
 # ggsave("figures/Fig4_vertical_biomass_profiles_20260208.png",
 #        width = 10, height = 12, units = "in", bg = "white")
+
+# g1
+# ggsave("figures/Fig4a_vertical_biomass_profile.png",
+#        width = 4, height = 6, units = "in", bg = "white")
+
+ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = total_lipid_m3,
+                 color = region.inuktitut2)) +
+  geom_line() +
+  geom_point() +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2400,200)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none") +
+    # theme(legend.position = c(0.65, 0.2),
+    #       legend.background = element_rect(fill = "white", color = "black"),
+    #       legend.key = element_blank()) +
+  xlab("Depth (m)") + ylab("Wax ester biomass (mg C m-3)")
+ggsave("figures/Fig4a_vertical_WE_biomass_profile.png",
+       width = 4, height = 6, units = "in", bg = "white")
+
 ```
 
 ## Fig 4 Supp. Abundance Plot
@@ -983,7 +1006,10 @@ df.profile.dbins <- df.100m %>%
   filter(taxa == "Calanus") %>% 
   mutate(depth = as.numeric(as.character(Depth_100m))) %>% 
   mutate(depth_bin = if_else(depth < 200, "0-200 m", "200-500 m"),
-         depth_bin = if_else(depth >= 500, "500+ m", depth_bin)) %>% 
+         depth_bin = if_else(depth >= 500, "500+ m", depth_bin)
+         ) %>% 
+  mutate(depth_bin = factor(depth_bin, 
+                            levels = c("0-200 m", "200-500 m","500+ m"))) %>% 
   group_by(depth_bin, sample_id) %>% 
   summarise(n100mbins = n(),
             Sampled_volume_m3 = sum(Sampled_volume_m3),
@@ -1008,19 +1034,43 @@ df.region.dbins <- df.profile.dbins %>%
             across(abundance_m2:total_gC_flux_m2,
               list(mean = mean, sd = sd, median = median),
               na.rm = TRUE),
-            .groups = "drop")
+            .groups = "drop") %>% 
+  # Calculate total and percentage of C-flux in the depth bin
+  group_by(region.inuktitut) %>% 
+  mutate(total_flux_gC_m2 = sum(total_gC_flux_m2_mean)) %>% 
+  ungroup() %>% 
+  mutate(perc_total_flux = total_gC_flux_m2_mean / total_flux_gC_m2 * 100) %>% 
+  relocate(perc_total_flux)
+
 
 # NOTE: the totals do not match the ones for Fig 5 because surface bins can be overrepresnted in shallow tows
+cowplot::plot_grid(
 ggplot(df.region.dbins,
        aes(x = region.inuktitut, y = total_gC_flux_m2_mean, fill = depth_bin)) +
   geom_bar(stat = "identity") +
-  scale_fill_manual(values = c("aquamarine2","cornflowerblue","navy")) +
-  theme(legend.position = "bottom") +
+  scale_fill_manual(values = c("darkturquoise","dodgerblue3","navyblue"),
+                    name = "Depth Layer") +
+  theme(legend.position = "right") +
   ylab("Lipid pump carbon flux (gC m-2 y-1)") + xlab("Region") +
-  coord_flip() + scale_x_discrete(limits = rev)
+  scale_y_continuous(expand = c(0, 0.1), breaks = c(0:5)) +
+  coord_flip() + scale_x_discrete(limits = rev),
+
+ggplot(df.region.dbins,
+       aes(x = region.inuktitut, y = perc_total_flux, fill = depth_bin)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("darkturquoise","dodgerblue3","navyblue"),
+                    name = "Depth Layer") +
+  theme(legend.position = "right") +
+  ylab("% Total lipid pump carbon flux") + xlab("Region") +
+  scale_y_continuous(expand = c(0.01, 0.01)) +
+  coord_flip() + scale_x_discrete(limits = rev),
+  ncol = 1, labels = "auto"
+)
 
 ggsave("figures/Supp_fig5_total_flux_by_depth_bins.png",
-       width = 6, height = 5, units = "in", bg = "white")
+       width = 6, height = 8, units = "in", bg = "white")
+
+
 ```
 
 

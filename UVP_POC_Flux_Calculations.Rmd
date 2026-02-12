@@ -14,6 +14,7 @@ Note that seasonal variation in POC flux is expected based on the results in the
 
 Note that in the truncated power law model in Bisson et al. (2022), the modelled particle count is lower for larger particles (stronger decrease with higher lambda).
 
+Note that for UVP5, in Barth and Stone (2022), they removed the bottom 50m of each profile because they observed that the slowing of the CTD-rosette leads to high potential reimaging of particles.
 
 
 ```{r setup, include=FALSE}

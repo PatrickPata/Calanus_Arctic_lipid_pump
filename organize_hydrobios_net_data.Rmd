@@ -2,7 +2,9 @@
 title: "Organize hydrobios net data"
 author: "Patrick Pata"
 date: "2026-02-03"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 This script curates the 2023 and 2024 hydrobios stratified net data provided by the KEBABB project through C. Aubry. The data will then be explore and organized for comparison with the UVP6 copepod count data for similar stations.
@@ -279,6 +281,11 @@ uvp_net_bins <- df.5m.zero %>%
   left_join(Amund_UVP6_meta %>% 
               select(sample_id, region, region.inuktitut),
             by = "sample_id") %>% 
+  # Log10 transform
+  mutate(log_uvp_abundance_m3 = log10(uvp_abundance_m3 + 1),
+         log_net_abundance_m3 = log10(net_abundance_m3 + 1),
+         log_uvp_abundance_m2 = log10(uvp_abundance_m2 +1),
+         log_net_abundance_m2 = log10(net_abundance_m2 + 1)) %>% 
 
   # difference in abundances as % of net abundance
   mutate(diff_per_net = (uvp_abundance_m3 - net_abundance_m3)/net_abundance_m3 * 100)
@@ -305,8 +312,7 @@ ggplot(uvp_net_bins, aes(x = diff_per_net, y = Depth_mid)) +
 
 # Pairwise match of station-depth bin
 # There are multiple net bins with 0 uvp_abundance, mostly shallow samples
-ggplot(uvp_net_bins %>% 
-         filter(net_abundance_m3 > 0) , 
+g1 <- ggplot(uvp_net_bins , 
        aes(x = uvp_abundance_m3, y = net_abundance_m3)) +
   geom_abline() +
   geom_point(aes(color = Depth_mid)) +
@@ -315,7 +321,7 @@ ggplot(uvp_net_bins %>%
   scale_color_viridis_c(trans = "log10", name = "Bin Depth") +
   coord_fixed(ratio = 1) +
   xlab("UVP6 (indiv m-3)") + ylab("Hydrobios (indiv m-3)")
-
+g1
 # ggsave("figures/NET_UVP_match_pairwise_bins_abundancem3.png",
 #        width = 7, height = 5, units = "in", bg = "white")
 
@@ -326,7 +332,7 @@ zz <- uvp_net_bins %>%
 
 # Association between 
 # The +1 is for the zero uvp abundance
-summary(lm(log10(uvp_abundance_m3 +1) ~ log10(net_abundance_m3 +1), 
+summary(lm(log_net_abundance_m3 ~ log_uvp_abundance_m3, 
            data = uvp_net_bins %>% 
              filter(net_abundance_m3 > 0)))
 
@@ -337,17 +343,19 @@ summary(lm(uvp_abundance_m3 ~ net_abundance_m3,
 # Area version /m2, similar trends but slightly lower R2
 ggplot(uvp_net_bins %>% 
          filter(net_abundance_m2 > 0), 
-       aes(y = net_abundance_m2, x = uvp_abundance_m2)) +
+       aes(x = log_uvp_abundance_m2,y = log_net_abundance_m2)) +
   geom_abline() +
   geom_point(aes(color = Depth_mid)) +
   geom_smooth(method = "lm") +
-  scale_x_log10() + scale_y_log10() +
+  # scale_x_log10() + scale_y_log10() +
   scale_color_viridis_c(trans = "log10") +
-  ylab("Hydrobios (indiv m-2)") + xlab("UVP6 (indiv m-2)")
+  xlab("UVP6 (indiv m-2)") +
+  ylab("Hydrobios (indiv m-2)") 
 
-summary(lm(log10(uvp_abundance_m2 +1) ~ log10(net_abundance_m2 +1), 
+summary(lm(log_net_abundance_m2 ~ log_uvp_abundance_m2, 
            data = uvp_net_bins %>% 
              filter(net_abundance_m3 > 0)))
+
 ```
 
 ## Net integrated
@@ -395,7 +403,7 @@ segments_df <- uvp_net_integ %>%
   filter(n > 1)  
 
 # Plot comparison
-ggplot(uvp_net_integ, aes(x = total_uvp_abundance_m2, 
+g2 <- ggplot(uvp_net_integ, aes(x = total_uvp_abundance_m2, 
                           y = total_net_abundance_m2)) +
   geom_abline() +
   geom_segment(data = segments_df,
@@ -411,8 +419,10 @@ ggplot(uvp_net_integ, aes(x = total_uvp_abundance_m2,
   xlab("UVP6 (indiv m-2)") + 
   ylab("Hydrobios (indiv m-2)")
 
-# ggsave("figures/NET_UVP_match_integrated_abundancem2.png",
-#        width = 6, height = 5, units = "in", bg = "white")
+plot_grid(g1,g2, labels = "auto", ncol = 1)
+
+ggsave("figures/SuppFig2_NET_UVP_match_integrated_abundancem2.png",
+       width = 5, height = 8, units = "in", bg = "white")
 ```
 
 
@@ -687,8 +697,10 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.position = "right",
         legend.box.background = element_rect(fill = "white", color = "black")) 
 
-ggsave("figures/net_hydrobios_stations_49.png", width = 10, height = 10, 
-       units = "in", bg = "white")
+# ggsave("figures/net_hydrobios_stations_49.png", width = 10, height = 10, 
+#        units = "in", bg = "white")
+
+
 ```
 
 

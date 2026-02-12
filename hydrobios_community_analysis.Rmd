@@ -1,0 +1,482 @@
+---
+title: "Stratified net community analysis"
+author: "Patrick Pata"
+date: "2026-02-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+This is the community analysis of the hydrobios stratified net tows to contextualize the results of the lipid pump analysis.
+
+Questions to answer:
+1. What are the other dominant copepods and their body sizes? - resolved
+2. What % of the zooplankton abundance are accounted for by copepods? 
+3. What % of the copepod abundance are accounted for by Calanus spp.?
+4. Are there regional differences on what is the dominant Calanus species?
+5. Could seasonally variation in life stages per Calanus species be observed with the data?
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libaries and data files
+```{r}
+library(tidyverse)
+library(cowplot)
+library(here)
+
+`%notin%` <- Negate(`%in%`)
+
+fname <- "data/2023-2024-taxo_analyses_data_patrickPata-20260203.xlsx"
+
+# 
+hydrobios <- readxl::read_xlsx(
+  fname,
+  sheet = "zooplankton abundances",
+  # To resolve expected numeric [the sampling net ID is loaded as numeric]
+  col_types = c("text","text","text","text","text","numeric","text","numeric",
+                "numeric","numeric","text","text","text","text","text","text",
+                "text","numeric")) %>% 
+  rename(abundance_m3 = `Total abundance (ind./m3 depth computed vol)`,
+         volume_filtered_m3 = depth_calc_net_filtered_vol)
+
+hydrobios.meta <- readxl::read_xlsx(fname,
+                               sheet = "sampling details")
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+```
+
+# Taxonomy check
+```{r}
+# Ocurrence per entire hydrobios station
+taxa.count <- hydrobios %>% 
+  distinct(STATION_NAME, STATION_NAME, TAXON_ID) %>% 
+  group_by(TAXON_ID) %>% 
+  count() %>% 
+  arrange(-n)
+
+# TODO Assign all taxa with occurrence counts <10 (20% of the profiles) as "others"
+taxa.others <- taxa.count %>% 
+  filter(n < 10)
+```
+
+# List the copepods and get their body lengths
+1. What are the other dominant copepods and their body sizes? - resolved
+```{r}
+# Dataset of lifestage specific size for Arctic species
+df.dur <- read.csv("C:/Users/patri/OneDrive - Université Laval/New_Trait_Data_For_Database/Durazzano_holoplankton_Arctic_traits/Dataset_marine_holoplankton_Arctic.csv", sep = ";") %>% 
+  filter(class == "Copepoda") %>% 
+  mutate(dryWeight_mg = dryWeight/1000) %>% 
+  mutate(lifeStage = if_else(lifeStage == "Adult", sex, lifeStage)) %>% 
+  select(taxa = acceptedNameUsage, lifeStage, 
+         meanBodyLength, prosomeLength) %>% 
+  # rename stages to match the database names
+  mutate(lifeStage = case_when(
+    lifeStage == "Female" ~ "F",
+    lifeStage == "Male" ~ "M",
+    lifeStage == "Copepodite stage I" ~ "C1",
+    lifeStage == "Copepodite stage II" ~ "C2",
+    lifeStage == "Copepodite stage III" ~ "C3",
+    lifeStage == "Copepodite stage IV" ~ "C4",
+    lifeStage == "Copepodite stage V" ~ "C5"))
+
+# Subset of copepods in the hydrobios dataset
+taxa.copepods <- hydrobios %>% 
+  filter(CLASS == "Copepoda") %>% 
+  filter(!is.na(FAMILY)) %>% # "Copepoda" or "Calanoida" or "Harpacticoida"
+  filter(TAXON_ID != FAMILY) %>% 
+  filter(TAXON_ID %notin% taxa.others$TAXON_ID) %>% 
+  group_by(ORDER, FAMILY, TAXON_ID, TAXON_LIFE_DEV_STAGE) %>% 
+  summarise(mean_abundance = mean(abundance_m3),
+            occurrence = n(),
+            .groups = "drop") %>% 
+  # Remove the sp. and spp.
+  mutate(taxa = gsub("\\bsp\\.|\\bspp\\.", "", TAXON_ID)) %>% 
+  mutate(genus = sub(" .*", "", taxa)) %>% 
+  rename(lifeStage = TAXON_LIFE_DEV_STAGE) %>% 
+  # adjust taxa names to match df.dur
+  mutate(taxa = if_else(taxa == "Metridia longa", "Metridia longa longa", taxa)) %>% 
+  mutate(taxa = if_else(taxa == "Oncaea notopus/parila", "Oncaea parila", taxa)) %>% 
+  mutate(taxa = if_else(taxa == "Scolecithricella minor", "Scolecithricella minor minor", taxa)) %>% 
+  mutate(taxaStage = paste(taxa, lifeStage)) 
+
+taxa.copepods.size <- taxa.copepods %>% 
+  filter(taxa %in% df.dur$taxa) %>% 
+  left_join(df.dur %>% 
+              select(taxa, lifeStage, meanBodyLength, prosomeLength),
+            by = join_by(lifeStage, taxa))
+
+# Pseudocalanus spp. can be multiple species but all mean body length <1.9mm
+aa <- taxa.copepods %>% 
+  filter(taxa %notin% df.dur$taxa) %>% 
+  filter(genus %notin% taxa.copepods.size$genus) %>% 
+  distinct(taxa, .keep_all = T)
+
+
+# Large copepods > 2 mm
+large.copepods <- taxa.copepods.size %>% 
+  filter(meanBodyLength>2 | prosomeLength >2) %>% 
+  arrange(-meanBodyLength)%>% 
+  mutate(perc_occurrence = (occurrence / 369) * 100) %>% 
+  relocate(taxaStage, mean_abundance, perc_occurrence, meanBodyLength, prosomeLength) %>% 
+  filter(genus %notin% c("Calanus")) %>%
+  filter(meanBodyLength >= 3)
+
+ggplot(large.copepods, aes(x = meanBodyLength, y = perc_occurrence , 
+                           color = mean_abundance)) +
+  # geom_vline(xintercept = 3, linetype = "dashed") +
+  geom_point() +
+  theme(legend.position = "bottom") +
+  ggrepel::geom_text_repel(aes(label = taxaStage), hjust = 0)
+```
+
+
+# Curate the data
+```{r}
+mesozoop <- hydrobios %>% 
+  filter(KINGDOM == "Animalia") %>% 
+  # Reduce the number of taxa
+  mutate(TAXON_ID = if_else(TAXON_ID %in% taxa.others$TAXON_ID,
+                            "Others", TAXON_ID)) %>% 
+   # Assign dates
+  mutate(datetime = as.POSIXct(paste(DEPLOYMENT_DATE_START, DEPLOYMENT_TIME_START))) %>% 
+  mutate(year = year(datetime),
+         month = month(datetime),
+         doy = yday(datetime)) %>% 
+  mutate(YEAR_STATION = paste(year, STATION_NAME)) %>% 
+  # Calculate depth  range and midpoint
+  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
+  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2) %>% 
+  # Remove the sp. and spp.
+  mutate(taxa = gsub("\\bsp\\.|\\bspp\\.", "", TAXON_ID)) %>% 
+  mutate(genus = sub(" .*", "", taxa)) %>% 
+  rename(lifeStage = TAXON_LIFE_DEV_STAGE) %>% 
+  mutate(taxaStage = paste(taxa, lifeStage)) %>% 
+  # remove the repeated counts for RA62
+  filter(!(YEAR_STATION == "2024 RA62" & SAMPLING_NET_ID %in% c("6","7")))
+  
+
+hydrobios.meta <- hydrobios.meta %>% 
+   # Assign dates
+  mutate(datetime = as.POSIXct(paste(DEPLOYMENT_DATE_START, DEPLOYMENT_TIME_START))) %>% 
+  mutate(year = year(datetime),
+         month = month(datetime),
+         doy = yday(datetime)) %>% 
+  mutate(YEAR_STATION = paste(year, STATION_NAME)) %>% 
+  # Calculate depth  range and midpoint
+  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
+  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2)
+
+colnames(net.data)
+```
+
+## Check sampling frequency
+2023: August (n = 14), September (n = 12)
+2024: August (n = 15), September (n = 7), October (n = 6)
+```{r}
+hydrobios.meta %>% 
+  distinct(STATION_NAME, year, month, datetime) %>% 
+  group_by(year, month) %>% 
+  count()
+
+ggplot(hydrobios.meta, aes(x = doy, y = LATITUDE)) +
+  geom_point(aes(shape = as.factor(year)))
+```
+
+# Composition
+2. What % of the zooplankton abundance are accounted for by copepods? 
+3. What % of the copepod abundance are accounted for by Calanus spp.?
+```{r, eval=FALSE}
+# percent copepods (86.4%)
+class.summary <- mesozoop %>% 
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH, Depth_mid,
+           year, month, doy, CLASS) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            .groups = "drop") %>% 
+  # total mesozoop abundance in a sample
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3),
+         percent_abundance = (abundance_m3 / total_abundance_m3) * 100) %>% 
+  group_by(CLASS) %>% 
+  summarize(percent_abundance_mean = mean(percent_abundance),
+            percent_abundance_sd = sd(percent_abundance),
+            percent_abundance_min = min(percent_abundance),
+            percent_abundance_max = max(percent_abundance),
+            n = n(),
+            .groups = "drop") %>% 
+  arrange(-percent_abundance_mean)
+
+# Calanoids % copepods
+order.summary <- mesozoop %>% 
+  filter(CLASS == "Copepoda") %>% 
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH, Depth_mid,
+           year, month, doy, ORDER) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            .groups = "drop") %>% 
+  # total mesozoop abundance in a sample
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3),
+         percent_abundance = (abundance_m3 / total_abundance_m3) * 100) %>% 
+  group_by(ORDER) %>% 
+  summarize(percent_abundance_mean = mean(percent_abundance),
+            percent_abundance_sd = sd(percent_abundance),
+            percent_abundance_min = min(percent_abundance),
+            percent_abundance_max = max(percent_abundance),
+            n = n(),
+            .groups = "drop") %>% 
+  arrange(-percent_abundance_mean)
+
+
+# Calanidae % Calanoida (%)
+family.summary <- mesozoop %>% 
+  filter(ORDER == "Calanoida") %>% 
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH, Depth_mid,
+           year, month, doy, FAMILY) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            .groups = "drop") %>% 
+  # total mesozoop abundance in a sample
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3),
+         percent_abundance = (abundance_m3 / total_abundance_m3) * 100) %>% 
+  group_by(FAMILY) %>% 
+  summarize(percent_abundance_mean = mean(percent_abundance),
+            percent_abundance_sd = sd(percent_abundance),
+            percent_abundance_min = min(percent_abundance),
+            percent_abundance_max = max(percent_abundance),
+            n = n(),
+            .groups = "drop") %>% 
+  arrange(-percent_abundance_mean)
+
+# Calanus % Calanoida (21)
+taxa.summary <- mesozoop %>% 
+  filter(ORDER == "Calanoida") %>% 
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH, Depth_mid,
+           year, month, doy, taxa) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            .groups = "drop") %>% 
+  # total mesozoop abundance in a sample
+  group_by(YEAR_STATION, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3),
+         percent_abundance = (abundance_m3 / total_abundance_m3) * 100) %>% 
+  group_by(taxa) %>% 
+  summarize(percent_abundance_mean = mean(percent_abundance),
+            percent_abundance_sd = sd(percent_abundance),
+            percent_abundance_min = min(percent_abundance),
+            percent_abundance_max = max(percent_abundance),
+            n = n(),
+            .groups = "drop") %>% 
+  arrange(-percent_abundance_mean)
+```
+
+# Calanus spp.
+4. Are there regional differences on what is the dominant Calanus species?
+5. Could seasonally variation in life stages per Calanus species be observed with the data?
+ - Cant really differentiate months. Even C1-C5 difference in abundance between 2023 and 2024 is high, so using the A-transect for Aug 2023 vs TCAT/A-trasect for Oct 2024 would not be reliable.
+```{r}
+# community composition by station
+stn.calanus <- mesozoop %>% 
+  filter(genus %in% c("Calanus","Metridia")) %>% 
+  filter(lifeStage != "Cop-NS") %>% 
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  # vertical integration
+  group_by(YEAR_STATION, STATION_NAME, taxaStage, taxa, lifeStage, 
+           year, month, doy) %>% 
+  summarise(abundance_m2 = sum(abundance_m2),
+            max_depth = max(MAX_SAMPLE_DEPTH),
+            nlayers = n(),
+            .groups = "drop") %>% 
+# TODO assign regions and latitude
+  left_join(distinct(hydrobios.meta,
+                     YEAR_STATION, LONGITUDE, LATITUDE),
+            by = "YEAR_STATION")
+
+
+ggplot(stn.calanus, aes(x = STATION_NAME, y = abundance_m2,
+           fill = taxa)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~year, scales = "free_x")
+
+ggplot(stn.calanus, aes(x = YEAR_STATION, y = abundance_m2,
+           fill = lifeStage)) +
+  geom_bar(stat = "identity", position = "fill", color = "gray20") +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  facet_wrap(~taxa)
+```
+
+## Try month difference
+For 2024, the A & C transects were sampled in August and October, also sampled in auguest in 2023
+```{r}
+stn.calanus.2 <- stn.calanus %>% 
+         filter(taxa != "Metridia longa") %>% 
+  # filter(year == 2024) %>% 
+  filter(STATION_NAME %in% c("C1","C3","C4-23","C4-23","C5",
+                             "A1","A3","A5","A7/196",
+                             "TCAT6-01(A1)","TCAT6-03(A3)","TCAT6-05(A5)","TCAT6-07(A7)"))
+  
+
+ggplot(stn.calanus.2, aes(x = STATION_NAME, y = abundance_m2,
+           fill = taxa)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(year~month, scales = "free_x")
+
+unique(stn.calanus.2$YEAR_STATION)
+```
+
+## TODO change in vertical distribution of Calanus spp
+```{r, fig.height=7}
+calanus.depth <- mesozoop %>% 
+  filter(genus %in% c("Calanus")) %>% 
+  filter(lifeStage != "Cop-NS") %>% 
+  # Select stages?
+  filter(lifeStage %in% c("C4","C5","M","F")) %>% 
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  mutate(abundance_m3_log10 = log10(abundance_m3 + 1)) %>% 
+  mutate(abundance_m2_log10 = log10(abundance_m2 + 1)) %>% 
+  filter(STATION_NAME %in% c("C1","C3","C5","D1","D3")) 
+                             # "C4-23","C4-23","A1","A3","A5","A7/196",
+                             # "TCAT6-01(A1)","TCAT6-03(A3)","TCAT6-05(A5)","TCAT6-07(A7)"
+         
+# for different depth bin widths
+ggplot(calanus.depth, aes(x = Depth_mid, y = abundance_m3_log10, 
+                          fill = taxaStage)) +
+  geom_col(aes(width = Depth_range),
+    position = "stack",color = "black") +
+  coord_flip() +
+  scale_x_reverse() +
+  # scale_fill_manual(values = c("turquoise","pink","hotpink")) +
+  facet_grid(STATION_NAME~year, scales = "free_y") +
+  theme(legend.position = "bottom")
+
+# looking at the /m3 abundance shows which depth layer has the most copepods
+ggplot(calanus.depth, aes(x = Depth_mid, y = abundance_m2, 
+                          fill = taxaStage)) +
+  geom_col(aes(width = Depth_range),
+    position = "stack",color = "black") +
+  coord_flip() +
+  scale_x_reverse() +
+  # scale_fill_manual(values = c("turquoise","pink","hotpink")) +
+  facet_grid(STATION_NAME~year, scales = "free_y") +
+  theme(legend.position = "bottom")
+
+```
+
+# TODO Calculate % of stages per species in depth layers
+This is similar to Fig 2b in Schmidt et al. (2025)
+```{r}
+select_stations <- hydrobios.meta %>% 
+  # exclude the stations that are 1+2+3+4+5+6+7+8+9
+  filter(STATION_NAME %notin% c("122","322","325")) %>% 
+  group_by(YEAR_STATION) %>% 
+  mutate(max_depth = max(MAX_SAMPLE_DEPTH)) %>% 
+  ungroup() %>% 
+  # Select the few very deep stations
+  filter(max_depth >= 500) %>% 
+  distinct(YEAR_STATION, .keep_all = T) %>% 
+  # some stations have no surface samples??
+  filter()
+  
+# per sample-species-stage, calculate the % of the population in the upper X  m of the water column
+calanus.depth <- mesozoop %>% 
+  filter(genus %in% c("Calanus")) %>% 
+  filter(lifeStage != "Cop-NS") %>% 
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  # TODO curate out the stations that dont differentiate surface 150/250m
+  # calculate the depth-integrated total abundance of sample-species-stage
+  group_by(YEAR_STATION, taxaStage) %>% 
+  mutate(total_abund_m2 = sum(abundance_m2)) %>% 
+  ungroup() %>% 
+  mutate(perc_abund = (abundance_m2 / total_abund_m2) * 100) %>% 
+  filter(STATION_NAME %in% select_stations$STATION_NAME) %>% 
+  # Group to upper 150 or lower 150
+  mutate(surface150 = if_else(MAX_SAMPLE_DEPTH <= 150, T, F)) %>% 
+  left_join(select_stations %>% 
+              distinct(YEAR_STATION, LATITUDE))
+
+ggplot(calanus.depth %>% 
+         filter(taxaStage == "Calanus hyperboreus F"),
+       aes(y = perc_abund, x = MAX_SAMPLE_DEPTH,
+                          color = YEAR_STATION)) +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  geom_line(alpha = 0.4) +
+  geom_point(aes(shape = surface150)) + 
+  coord_flip() +
+  scale_x_reverse() +
+  theme(legend.position = "none")
+
+perc_surf <- calanus.depth %>% 
+  filter(lifeStage %in% c("C4","C5","F")) %>% 
+  group_by(YEAR_STATION, surface150, doy, year,LATITUDE,
+           taxaStage, taxa, lifeStage, total_abund_m2) %>% 
+  summarise(perc_abund = sum(perc_abund),
+            .groups = "drop")
+
+ggplot(perc_surf %>% 
+         # filter(taxaStage == "Calanus hyperboreus C5") %>% 
+         filter(surface150 == T),
+       aes(x = doy, y = perc_abund)) +
+  geom_smooth(se = F, linetype = "dashed", color = "grey") +
+  geom_point(aes(color = LATITUDE)) +
+  theme(legend.position = "right",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+        # axis.text.x = element_blank()
+    ) +
+  scale_x_continuous(breaks = c(228,244,259, 274, 289), 
+                     labels = c("228(Aug)","244(Sep)","259(Sep)","274(Oct)","289(Oct)")) +
+  ylab("Populatin in upper 150 m (%)") +
+  xlab("Day of Year") +
+  facet_grid(lifeStage~taxa) +
+  ggtitle("n=25 stations deeper than 500 m")
+
+ggsave("figures/check_percent150m_calanus.png",
+       height = 7, width = 8, units = "in", bg = "white")
+```
+
+
+# Sampling distribution map
+```{r}
+library(ggOceanMaps)
+`%notin%` <- Negate(`%in%`)
+
+net_meta <- hydrobios.meta %>% 
+  filter(YEAR_STATION %in% select_stations$YEAR_STATION) %>% 
+  distinct(YEAR_STATION, year, month, doy, STATION_NAME, DEPLOYMENT_DATE_START,
+           LATITUDE, LONGITUDE, BOTTOM_DEPTH) %>% 
+  mutate(month = as.factor(month))
+
+basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-85,-52,65,83), rotate = T,
+        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = net_meta,
+                                aes(x = LONGITUDE, y = LATITUDE,
+                                    shape = month,
+                                    color = doy),
+                                size = 4, alpha = 0.8) +
+  ggspatial::geom_spatial_text_repel(data = net_meta,
+                                aes(x = LONGITUDE, y = LATITUDE,
+                                    label = STATION_NAME), size = 3) +
+  scale_color_viridis_c(option = "plasma", direction = -1,
+                       name = "DOY") +
+  theme(axis.title = element_blank(),
+        legend.position = "right",
+        legend.box.background = element_rect(fill = "white", color = "black")) +
+  facet_wrap(~year)
+
+
+# ggsave("figures/net_year_hydrobios_stations_54.png", width = 20, height = 10,
+#        units = "in", bg = "white")
+```
+
+

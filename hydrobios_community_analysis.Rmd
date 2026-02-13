@@ -48,6 +48,47 @@ theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 ```
 
+Establish regions
+```{r}
+region_rename <- data.frame(
+  region = c("Baffin Bay", "Baffin Shelf", 
+             "Davis Strait", "Lancaster Sound",
+             "North Water Polynya", "Labrador Shelf", 
+              "Nares Strait"),
+  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
+                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+                       "Tallurutiup Imanga\n(Lancaster Sound)",
+                       "Pikialasorsuaq\n(North Water Polynya)", 
+                       "Nunatsiavut Shelf\n(Labrador Shelf)",
+                       "Sarvarjuaq\n(Nares Strait)"),
+  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
+                   "deeppink1","blue1", "sienna2")) %>% 
+  # order regions as factors by latitude
+  mutate(region.inuktitut = factor(
+    region.inuktitut,
+    levels = c("Sarvarjuaq\n(Nares Strait)",
+               "Pikialasorsuaq\n(North Water Polynya)", 
+               "Tallurutiup Imanga\n(Lancaster Sound)",
+               "Sannirutiup Imavik\n(Baffin Bay)", 
+               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+               "Nunatsiavut Shelf\n(Labrador Shelf)"
+    ))) %>% 
+  arrange(region.inuktitut)
+
+
+# Load the table to match hydrobios stations with UVP profiles. Note that some hydrobios stations are associated with multiple UVP/CTD casts.
+load("data/uvp_hydrobios_station_match_20260203.RData")
+net.regions <- uvp_net_match %>% 
+  distinct(STATION_NAME, DEPLOYMENT_DATE_START, region) %>% 
+  filter(!is.na(region)) %>% 
+  mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
+  mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>% 
+  left_join(region_rename) 
+rm(uvp_net_match)
+```
+
 # Taxonomy check
 ```{r}
 # Ocurrence per entire hydrobios station
@@ -169,7 +210,6 @@ hydrobios.meta <- hydrobios.meta %>%
   mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
   mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2)
 
-colnames(net.data)
 ```
 
 ## Check sampling frequency
@@ -372,6 +412,138 @@ ggplot(calanus.depth, aes(x = Depth_mid, y = abundance_m2,
 
 ```
 
+## Regional comparison of composition
+## 6. What are the general lifestage proportions in abundance? More C5?
+```{r}
+calanus.all <- mesozoop %>% 
+  filter(genus %in% c("Calanus")) %>% 
+  filter(lifeStage != "Cop-NS") %>% 
+  filter(lifeStage %in% c("C4","C5","M","F")) %>% 
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  # integrate per profile
+  group_by(YEAR_STATION, STATION_NAME,
+           taxa, lifeStage, taxaStage,
+           year, month, doy) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            nlayers = n(),
+            max_depth = max(MAX_SAMPLE_DEPTH),
+            .groups = "drop") %>% 
+  # Individuals of a lifestage percent species per cast
+  group_by(YEAR_STATION, taxa) %>% 
+  mutate(taxa_total = sum(total_abundance_m2)) %>% 
+  ungroup() %>% 
+  mutate(taxa_percent = (total_abundance_m2 / taxa_total) * 100) %>% 
+  filter(max_depth > 100)
+  
+  
+# Plot histograms of total abundance (/m2) by species-lifestage  
+ggplot(calanus.all, aes(x = total_abundance_m2, fill = lifeStage)) +
+  geom_histogram( position = "stack") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_x_log10() +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~taxa, ncol = 1)
+
+# Add zeros when a life stage is not present
+calanus.all.percent <- calanus.all %>% 
+  select(YEAR_STATION, taxa, lifeStage, taxa_percent) %>% 
+  pivot_wider(names_from = lifeStage, 
+              values_from = taxa_percent,
+              values_fill = 0) %>% 
+  pivot_longer(cols = -c(YEAR_STATION, taxa),
+               names_to = "lifeStage",
+               values_to = "taxa_percent") %>% 
+  left_join(net.regions)
+
+
+# Per taxa, C5 accounts for majority of the abundance in C. finmarchicus and C. glacialis, while C4 is highest for C. hyperboreus.
+ggplot(calanus.all.percent, aes(x = lifeStage, y = taxa_percent, fill = lifeStage)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~taxa, nrow = 1) +
+  xlab("Life Stage") + ylab("% Abundance")
+
+ggplot(calanus.all.percent %>% 
+         filter(lifeStage != "M"), 
+       aes(x = region.inuktitut, y = taxa_percent, fill = region.inuktitut)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = region_rename$region.color, name = "Region") +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  facet_grid(lifeStage~taxa) +
+  xlab("Region") + ylab("% Abundance")
+```
+
+
+##7. How do the regions vary in Calanus complex composition?
+```{r}
+# What is the general species composition per sample?
+calanus.all.species <- calanus.all %>% 
+  group_by(YEAR_STATION) %>% 
+  mutate(calanus_total = sum(total_abundance_m2)) %>% 
+  ungroup() %>% 
+  mutate(calanus_percent = (taxa_total / calanus_total) * 100) %>% 
+  distinct(YEAR_STATION, taxa, calanus_percent) %>% 
+  # Add region information
+  left_join(net.regions)
+
+ggplot(calanus.all.species, aes(x = taxa, y = calanus_percent, fill = taxa)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  xlab("Species") + ylab("% Abundance") 
+
+# How about the composition per region?
+ggplot(calanus.all.species, aes(x = taxa, y = calanus_percent, fill = taxa)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = c("turquoise","pink","hotpink","orange")) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  xlab("Species") + ylab("% Abundance") +
+  facet_wrap(~region.inuktitut)
+
+ggplot(calanus.all.species, aes(x = region.inuktitut, y = calanus_percent, 
+                                fill = region.inuktitut)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = region_rename$region.color) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  xlab("Species") + ylab("% Abundance") +
+  facet_wrap(~taxa)
+
+```
+
+
 # TODO Calculate % of stages per species in depth layers
 This is similar to Fig 2b in Schmidt et al. (2025)
 ```{r}
@@ -442,6 +614,7 @@ ggplot(perc_surf %>%
 ggsave("figures/check_percent150m_calanus.png",
        height = 7, width = 8, units = "in", bg = "white")
 ```
+
 
 
 # Sampling distribution map

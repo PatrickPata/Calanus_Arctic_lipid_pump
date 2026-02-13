@@ -97,6 +97,9 @@ segmented.images <- segmented.images %>%
   
   mutate(prosome_total_mgC = structural_carbon_mgC + waxester_mass_mgC) %>% 
   
+  # Calculate WE % TL (note both based on empirical models)
+  mutate(we_perc_tl = (waxester_mass_mgC / lipid_mass_mgC) * 100) %>% 
+  
   # Calculate lipid fullness as % carbon in lipid sac WE
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100)
 
@@ -819,6 +822,81 @@ plot_grid(
 ggsave("figures/Fig3_supp_20270202.png",
        height = 6, width = 6, units = "in", bg = "white")
 
+```
+
+## WE % TL?
+```{r, eval=FALSE}
+we.tl.check <- segmented.images %>% 
+  relocate(we_perc_tl) %>% 
+  left_join(indiv_traits %>% 
+              select(object_id, region, region.inuktitut),
+            by = "object_id") %>% 
+  filter(!is.na(region)) %>% 
+  mutate(depth_bin = if_else(object_depth_max < 200, "0-200 m", "200-500 m"),
+         depth_bin = if_else(object_depth_max > 500, "500+ m", depth_bin))
+
+# Check overall distribution
+ ggplot(we.tl.check,
+         aes(x = we_perc_tl,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    xlab("WE (% TL)")+
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    theme(legend.position = "none",
+          axis.title.y = element_blank(),
+          axis.title.x = element_markdown())
+ 
+# Check regional variation
+ggplot(we.tl.check, aes(x = region.inuktitut, y = we_perc_tl, 
+                                fill = region.inuktitut)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = region_rename$region.color) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+  xlab("Species") + ylab("WE (% TL)") 
+
+kruskal.test(we_perc_tl ~ region, data = we.tl.check) # p = 0.01, no difference in distributions
+res.dunn <- dunn.test::dunn.test(x = we.tl.check$we_perc_tl,
+                     g = we.tl.check$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+ggplot(we.tl.check, aes(x = depth_bin, y = we_perc_tl, 
+                                fill = depth_bin)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = region_rename$region.color) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+ ylab("WE (% TL)") 
+
+
+# Size differrence with depth?
+ggplot(we.tl.check, aes(x = depth_bin, y = prosome_total_mgC, #prosome_length_mm 
+                                fill = depth_bin)) +
+  geom_boxplot(outliers = F) +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "black") +
+  # Standard error
+  stat_summary(fun.data = mean_se, fun.args = list(mult = 1), geom = "errorbar",
+               width = 0.2, color = "black") +
+  scale_fill_manual(values = region_rename$region.color) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.position = "bottom",
+        axis.text.x = element_blank()) +
+ ylab("Carbon biomass (mg C)") 
 ```
 
 

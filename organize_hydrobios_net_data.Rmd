@@ -363,7 +363,7 @@ Need to individually integrate the net and uvp casts because if using the uvp_ne
 ```{r}
 uvp_net_integ <- df.5m.zero %>% 
   # Sum across 3 taxa
-  # filter(taxa == "Calanus") %>% 
+  filter(taxa == "Calanus") %>%
   group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
   summarise(abundance = sum(abundance),
             .groups = "drop") %>% 
@@ -406,23 +406,28 @@ segments_df <- uvp_net_integ %>%
 g2 <- ggplot(uvp_net_integ, aes(x = total_uvp_abundance_m2, 
                           y = total_net_abundance_m2)) +
   geom_abline() +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
   geom_segment(data = segments_df,
     aes(x = x_min, xend = x_max, y = y, yend = y), 
     color = "gray", show.legend = FALSE) +
   geom_point(aes(color = region.inuktitut),
-             size = 2) +
-  geom_smooth(method = "lm", color = "red") +
+             size = 3) +
   scale_x_log10() + scale_y_log10() +
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
-  coord_fixed(ratio = 1) +
+  # coord_fixed(ratio = 1) +
   xlab("UVP6 (indiv m-2)") + 
   ylab("Hydrobios (indiv m-2)")
 
 plot_grid(g1,g2, labels = "auto", ncol = 1)
 
-ggsave("figures/SuppFig2_NET_UVP_match_integrated_abundancem2.png",
-       width = 5, height = 8, units = "in", bg = "white")
+# ggsave("figures/SuppFig2_NET_UVP_match_integrated_abundancem2.png",
+#        width = 5, height = 8, units = "in", bg = "white")
+
+g2
+
+# ggsave("figures/NET_UVP_match_integrated_abundance_m2_49profiles.png",
+#        width = 7, height = 4, units = "in", bg = "white")
 ```
 
 
@@ -438,7 +443,9 @@ region.hydrobios <- uvp_net_integ %>%
   summarise(across(c(total_net_abundance_m2),
             list(mean = mean, sd = sd, min = min, max = max),
               na.rm = TRUE),
-            n = n(), .groups = "drop")
+            n = n(), .groups = "drop") %>% 
+  # Calculate standard errors
+  mutate(total_net_abundance_m2_se = total_net_abundance_m2_sd / sqrt(n))
 
 # Calculate averages of UVP data (for n=81 profiles matching nets)
 region.uvpmatch <- uvp_net_integ %>% 
@@ -448,27 +455,35 @@ region.uvpmatch <- uvp_net_integ %>%
   summarise(across(c(total_uvp_abundance_m2),
             list(mean = mean, sd = sd, min = min, max = max),
               na.rm = TRUE),
-            n = n(), .groups = "drop")
+            n = n(), .groups = "drop") %>% 
+  # Calculate standard errors
+  mutate(total_uvp_abundance_m2_se = total_uvp_abundance_m2_sd / sqrt(n))
 
 df <- left_join(region.hydrobios, region.uvpmatch, by = "region.inuktitut") %>% 
   droplevels()
 
-ggplot(df, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean,
-               color = region.inuktitut)) +
+ggplot(df, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean)) +
   geom_abline() +
-  geom_point(size = 5) +
-  geom_errorbar(aes(xmin = total_net_abundance_m2_mean-total_net_abundance_m2_sd,
-                    xmax = total_net_abundance_m2_mean+total_net_abundance_m2_sd), 
+  geom_smooth(method = "lm", se = F, linetype = "dashed", color = "black") +
+  geom_point(size = 5, aes(color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = total_net_abundance_m2_mean-total_net_abundance_m2_se,
+                    xmax = total_net_abundance_m2_mean+total_net_abundance_m2_se,
+                    color = region.inuktitut), 
                 show.legend = FALSE) +
-  geom_errorbar(aes(ymin = total_uvp_abundance_m2_mean-total_uvp_abundance_m2_sd,
-                    ymax = total_uvp_abundance_m2_mean+total_uvp_abundance_m2_sd), 
+  geom_errorbar(aes(ymin = total_uvp_abundance_m2_mean-total_uvp_abundance_m2_se,
+                    ymax = total_uvp_abundance_m2_mean+total_uvp_abundance_m2_se,
+                    color = region.inuktitut), 
                 show.legend = FALSE) +
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
   geom_text(aes(label = n.x), color = "black") +
   coord_flip() +
-  ylab("UVP6 (indiv m-2)") +
-  xlab("Hydrobios (indiv m-2)")
+  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+
+
+ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_49stns_SE.png",
+       width = 7, height = 4, units = "in", bg = "white")
+
 ```
 
 
@@ -476,7 +491,7 @@ ggplot(df, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean,
 # If including all UVP casts for a region
 region.uvpALL <- df.5m.zero %>% 
   # Sum across 3 taxa
-  # filter(taxa == "Calanus") %>% 
+  filter(taxa == "Calanus") %>%
   group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
   summarise(abundance = sum(abundance),
             .groups = "drop") %>% 
@@ -494,19 +509,23 @@ region.uvpALL <- df.5m.zero %>%
   summarise(across(c(total_uvp_abundance_m2),
             list(mean = mean, sd = sd, min = min, max = max),
               na.rm = TRUE),
-            n = n(), .groups = "drop")
+            n = n(), .groups = "drop") %>% 
+  # Calculate standard errors
+  mutate(total_uvp_abundance_m2_se = total_uvp_abundance_m2_sd / sqrt(n))
 
 df2 <- left_join(region.hydrobios, region.uvpALL, by = "region.inuktitut")
 
-ggplot(df2, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean,
-               color = region.inuktitut)) +
+ggplot(df2, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean)) +
   geom_abline() +
-  geom_point(size = 5) +
-  geom_errorbar(aes(xmin = total_net_abundance_m2_mean-total_net_abundance_m2_sd,
-                    xmax = total_net_abundance_m2_mean+total_net_abundance_m2_sd), 
+  geom_smooth(method = "lm", se = F) +
+  geom_point(size = 5, aes(color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = total_net_abundance_m2_mean-total_net_abundance_m2_se,
+                    xmax = total_net_abundance_m2_mean+total_net_abundance_m2_se,
+                    color = region.inuktitut), 
                 show.legend = FALSE) +
-  geom_errorbar(aes(ymin = total_uvp_abundance_m2_mean-total_uvp_abundance_m2_sd,
-                    ymax = total_uvp_abundance_m2_mean+total_uvp_abundance_m2_sd), 
+  geom_errorbar(aes(ymin = total_uvp_abundance_m2_mean-total_uvp_abundance_m2_se,
+                    ymax = total_uvp_abundance_m2_mean+total_uvp_abundance_m2_se,
+                    color = region.inuktitut), 
                 show.legend = FALSE) +
   scale_color_manual(values = region_rename$region.color,
                      name = "Region") +
@@ -514,8 +533,8 @@ ggplot(df2, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean
   coord_flip() +
   xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
 
-ggsave("figures/NET_UVP_match_regional_integrated_abundancem2.png",
-       width = 7, height = 4, units = "in", bg = "white")
+# ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_SE.png",
+#        width = 7, height = 4, units = "in", bg = "white")
 
 ```
 

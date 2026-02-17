@@ -537,6 +537,27 @@ ggplot(df.100m %>%
   xlab("Depth (m)") + ylab("Biomass (mg C m-3)")
 ```
 
+### OSM version
+- squares
+```{r}
+ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = total_lipid_m3,
+                 color = region.inuktitut2)) +
+  geom_vline(xintercept = 200, linetype = "dashed", color = "gray40") +
+  geom_line(alpha = 0.5) +
+  geom_point(shape = 15, size = 3) +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2400,200), expand = c(0.02,0.02)) +
+  scale_y_continuous(expand = c(0.01,0.01)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none") +
+  xlab("Depth (m)") + ylab("Wax ester biomass (mg C m-3)")
+
+ggsave("figures/OSM_vertical_WE_m3.png", 
+       width = 4, height = 6, units = "in", bg = "white")
+```
+
 
 # 4. Statistical comparison
 ##  4.1 Regional total C flux comparisons

@@ -606,6 +606,7 @@ load("data/temporary_trait_database_subset_20260129.RData")
 clrs <- c("blue2","hotpink","gold1")
 
 df_to_plot <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
   mutate(source = if_else(object_annotation_category %in% 
                                    c("Calanoida", "Copepoda<Maxillopoda"),
                           "Random Forest", source)) %>% 
@@ -760,12 +761,92 @@ plot_grid(
 nrow = 1, rel_widths = c(1.2, 1, 1) )
 
 
-ggsave("figures/Fig3_20270207_with_3mmCopes.png",
-       height = 10, width = 13, units = "in", bg = "white")
+# ggsave("figures/Fig3_20270207_with_3mmCopes.png",
+#        height = 10, width = 13, units = "in", bg = "white")
 
 
 ```
 
+
+### OSM version of Fig 3
+Only prosome size and WE content
+```{r}
+plot_grid(
+  plot_grid(
+    
+    ggplot(df_to_plot,
+           aes(x = prosome_length_mm, fill = source, color = source)) +
+      geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      scale_x_log10(breaks = 2:10, limits = c(1.6, 10)) +
+      xlab("Prosome length (mm)") +
+      ylab("# Individuals") +
+      theme(legend.position = c(0.75, 0.79),
+            # axis.title.y = element_text(hjust = 1),
+            axis.text = element_text(size = 14),
+            legend.background = element_rect(fill = "white", color = "black"),
+            legend.key = element_blank()),
+    
+    ggplot(loki.segmentations,
+           aes(x = prosome_length_mm, y = taxa,
+               color = taxa))+
+      geom_boxplot() +
+      scale_x_log10(breaks = c(2:10), limits = c(1.6,10)) +
+      xlab("Prosome length (mm)") +
+      ylab("Segmented\nLOKI images") +
+      theme(legend.position = "none",
+            axis.text.y = element_text(face = "bold.italic", 
+                                       hjust = 0,
+                                       vjust = -0.3,
+                                       size = 12,
+                                       margin = ggplot2::margin(r = -115)),
+            axis.ticks.y = element_blank(),
+            axis.text.x = element_text(size = 14)),
+    
+    ncol = 1, align = "v", #labels = c("a","b"),
+    rel_heights = c(2,1.4)
+  ),
+  
+  
+  plot_grid(
+    
+    ggplot(df_to_plot,
+           aes(x = waxester_mass_mgC, fill = source, color = source)) +
+      geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+      scale_fill_manual(values = clrs, name = "Data source") +
+      scale_color_manual(values = clrs, name = "Data source") +
+      scale_x_log10(breaks = c(0.05, 0.1,0.25,0.5,1,2,4), limits = c(0.02,4)) +
+      xlab("Wax ester carbon (mg C)") +
+      ylab("# Individuals") +
+      theme(legend.position = "none",
+            axis.text = element_text(size = 14),
+            axis.title.y = element_blank()),
+    
+    ggplot(loki.segmentations,
+           aes(x = waxester_carbon, y = taxa,
+               color = taxa))+
+      geom_boxplot() +
+      scale_x_log10(breaks = c(0.05, 0.1,0.25,0.5,1,2,4), limits = c(0.02,4)) +
+      xlab("Wax ester carbon (mg C)") +
+      theme(legend.position = "none",
+            axis.text.x = element_text(size = 14),
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.y = element_blank()),
+    
+    
+    
+    ncol = 1, align = "v", #labels = c("b","d"),
+    rel_heights = c(2,1.4)
+  )
+)
+
+
+ggsave("figures/Fig3_OSM_version2.png",
+       height = 6, width = 10, units = "in", bg = "white")
+
+```
 
 
 ## Supp Fig: Total/structural carbon, lipid fullness, diapause respiration, potential diapause duration

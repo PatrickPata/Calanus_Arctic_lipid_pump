@@ -220,12 +220,12 @@ Amund_UVP6_meta %>%
   count()
 
 # *** Export the metadata file including the volumes ***
-save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta, to_exclude,
-     file = "data/UVP6_Calanus_metadata_20260129.RData")
+# save(Amund_UVP6_meta, volumes.df, region_rename, pg_meta, to_exclude,
+#      file = "data/UVP6_Calanus_metadata_20260129.RData")
 ```
 # 5. Figure 2 Map
 ```{r, fig.width=6}
-# load("data/UVP6_Calanus_metadata_20260129.RData")
+load("data/UVP6_Calanus_metadata_20260129.RData")
 region_rename <- data.frame(
   region = c("Baffin Bay", "Baffin Shelf", 
              "Davis Strait", "Lancaster Sound",
@@ -263,16 +263,18 @@ p <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
                                   filter(sample_id %notin% to_exclude$sample_id) %>% 
                                   mutate(Year = as.factor(Year)),
                                 aes(x = object_lon, y = object_lat, 
-                                    shape = Year,
+                                    # shape = Year,
                                     color = region.inuktitut),
-                                size = 3, alpha = 0.7) +
+                                size = 4, alpha = 0.8) +
   scale_color_manual(values = clrs, name = "Region") +
   theme(axis.title = element_blank(),
-        axis.text = element_text(size = 12),
+        axis.text = element_text(size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 14),
         legend.key.spacing.y = unit(0.2, "cm"),
         legend.position = c(0.025, 0.025),
         legend.justification = c("left", "bottom"),
-        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.margin = ggplot2::margin(5,5,5,5),
         legend.box.background = element_rect(fill = "white", color = "black")) 
 
 # 1) Make a version that shows ONLY the fill legend (from basemap)
@@ -287,13 +289,43 @@ p_main <- p + guides(fill = "none")
 p_final <- cowplot::ggdraw(p_main) +
   cowplot::draw_grob(
     fill_leg,
-    x = 0.77, y = 0.65,   # position (0–1)
+    x = 0.72, y = 0.66,   # position (0–1)
     width = 0.26, height = 0.26
   )
 
 p_final
 
-ggsave("figures/Fig2_samples_map_by_region_289.png", width = 6, height = 8,
+ggsave("figures/Fig2_samples_map_by_region_289_OSM.png", width = 6, height = 8,
+       units = "in", bg = "white")
+
+basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(sample_id %notin% to_exclude$sample_id) %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat, 
+                                    fill = region.inuktitut),
+                                size = 5, alpha = 0.9, 
+                                color = "black", shape = 21) +
+  scale_fill_manual(values = region_rename$region.color, name = "Region") +
+  # theme(axis.title = element_blank(),
+  #       axis.text = element_text(size = 14),
+  #       legend.position = "none") 
+
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.position = c(0.02, 0.02), 
+        legend.justification = c("left", "bottom"),
+        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black"))
+
+
+
+ggsave("figures/Fig2_samples_map_by_region_289_OSM_withlegend.png", width = 6, height = 8,
        units = "in", bg = "white")
 ```
 

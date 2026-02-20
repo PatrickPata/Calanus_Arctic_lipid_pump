@@ -1,0 +1,1033 @@
+---
+title: "Calculate lipid concentration and flux from traits"
+author: "Patrick Pata"
+date: "2025-11-27"
+output: html_document
+---
+
+This file is similar to the calculate_lipid_scape_flux_from_traits.Rmd but applies different mortality rate scenarios for calculating the total lipid flux.
+
+Scenarios to check:
+  1. High mortality: Visser et al. (2017) uses the mortality rate of 0.005 d-1. (higher mortality, stronger lipid pump)
+  2. Winter activity: ~20% of surface population not diapausing
+  3. Dynamic mortality: Reducing the respiration of the individuals that would have died
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Load libraries and data
+```{r}
+library(tidyverse)
+library(cowplot)
+
+# The calculated trait values
+load("data/uvp6_images_calculated_traits_20260202.RData")
+
+# <- Profiles metadata with regions and dataframe of volumes at 5m bins
+load("data/UVP6_Calanus_metadata_20260129.RData")
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+source("functions/lipid_pump_toolkit.R")
+
+clrs <- rev(c("blue","black","hotpink"))
+```
+
+## Organize the dataset to adjust for zeros
+```{r, fig.height = 6}
+# Step 1. Calculate abundance, biomass, and respiration in 100 m bins
+
+# 1.1. In each 5m bin, per taxa, per profile, get abundance and biomass
+df.5m <- indiv_traits %>% 
+  # Add column of the volume sampled in 5m depth bins
+  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  
+  # Calculate total abundance and biomass per bin
+  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = n(),
+         biomass_mgC = sum(prosome_total_mgC),
+         structural_mgC = sum(structural_carbon_mgC),
+         waxester_mgC = sum(waxester_mass_mgC),
+         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
+         .groups = "drop") 
+  
+# 1.2. When calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
+df.5m.zero <-  volumes.df %>% 
+  filter(sample_id %in% indiv_traits$sample_id) %>% 
+  # Repeat it 3 times for each taxa
+  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
+  select(-Sampled_volume_L) %>% 
+  left_join(df.5m, 
+            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# 1.3. Calculate 100 m bin totals
+df.100m <- df.5m.zero %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins))
+```
+
+# 2. Baseline scenario beta = -0.001
+```{r, fig.height = 6}
+# Step 2. Calculate mortality for 100 m bins
+beta <- -0.001 # natural mortality rate (day-1)
+
+# 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day)) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean))
+
+# 2.2. Calculate the fraction of the population lost to natural mortality
+df.100m.base <- df.100m %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+# Step 3. Vertically integrate each profile (/m2)
+df.profile.base <- df.100m.base %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(we_perc_biom = waxester_gC_m2/biomass_gC_m2,
+         fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
+         frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
+         frac_waxe_total = waxester_gC_m2_mort / total_gC_flux_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+# Step 4. Calculate regional averages
+df.region.base <- df.profile.base %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:frac_waxe_total,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(scenario = "baseline")
+```
+
+# 3. Scenario 1: High mortality
+## Calculate flux
+Create a function instead to run different beta values
+```{r}
+vary_mortality <- function(beta, scenarioName) {
+  
+# 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day)) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean))
+
+# 2.2. Calculate the fraction of the population lost to natural mortality
+df.100m <- df.100m %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+# Step 3. Vertically integrate each profile (/m2)
+df.profile <- df.100m %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(we_perc_biom = waxester_gC_m2/biomass_gC_m2,
+         fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
+         frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
+         frac_waxe_total = waxester_gC_m2_mort / total_gC_flux_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+# Step 4. Calculate regional averages
+df.region <- df.profile %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:frac_waxe_total,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(scenario = scenarioName,
+         beta = beta) %>% 
+  filter(taxa == "Calanus")
+  
+  return(df.region)
+}
+
+
+```
+
+### Sensitvity to mortality rates
+```{r}
+# Vary beta
+df.mort.scens <- data.frame()
+for (BB in c(0.0001, 0.0005, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006)) {
+  df <- vary_mortality(beta = BB*-1,
+                       scenarioName = paste0("beta -", BB))
+  
+  df.mort.scens <- bind_rows(df.mort.scens, df)
+}
+
+comp.total <- df.mort.scens %>% 
+  select(scenario, region.inuktitut, region,
+         total_gC_flux_m2_mean) %>% 
+  pivot_wider(names_from = scenario,
+              values_from = total_gC_flux_m2_mean)
+
+comp.frac <- df.mort.scens %>% 
+  select(scenario, region.inuktitut, region,
+         fraction_dead_mean) %>% 
+  pivot_wider(names_from = scenario,
+              values_from = fraction_dead_mean)
+
+ggplot(df.mort.scens, aes(x = beta,
+                       y = total_gC_flux_m2_mean,
+                       color = region.inuktitut)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_vline(xintercept = -0.001) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  theme(legend.position = "right")
+
+ggplot(df.mort.scens, aes(x = beta,
+                       y = fraction_dead_mean,
+                       color = region.inuktitut)) +
+  geom_line() +
+  geom_vline(xintercept = -0.001) +
+  geom_point(size = 3) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  theme(legend.position = "right")
+```
+
+# 4. Scenario 2: Winter activity
+```{r}
+# For the population in upper 200 m*, exclude 20% from the mortality and respiration flux calculations by simply reducing abundance.
+vary_winterActivity <- function(fracResident, scenarioName) {
+  beta = -0.001
+
+df.100m <- df.5m.zero %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
+  
+  
+  # Here the abundance and biomass of the upper 200 m  population is reduced
+  mutate(abundance_m3 = if_else(Depth_100m < 200,
+                                abundance_m3 * (1-fracResident),
+                                abundance_m3),
+         biomass_mgC_m3 = if_else(Depth_100m < 200,
+                                biomass_mgC_m3 * (1-fracResident),
+                                biomass_mgC_m3),
+         structural_mgC_m3 = if_else(Depth_100m < 200,
+                                structural_mgC_m3 * (1-fracResident),
+                                structural_mgC_m3),
+         waxester_mgC_m3 = if_else(Depth_100m < 200,
+                                waxester_mgC_m3 * (1-fracResident),
+                                waxester_mgC_m3),
+         respired_C_gC_m3 = if_else(Depth_100m < 200,
+                                respired_C_gC_m3 * (1-fracResident),
+                                respired_C_gC_m3)) %>% 
+  
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins)) 
+  
+  
+  # 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day)) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean))
+
+# 2.2. Calculate the fraction of the population lost to natural mortality
+df.100m <- df.100m %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+# Step 3. Vertically integrate each profile (/m2)
+df.profile <- df.100m %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(we_perc_biom = waxester_gC_m2/biomass_gC_m2,
+         fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
+         frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
+         frac_waxe_total = waxester_gC_m2_mort / total_gC_flux_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+# Step 4. Calculate regional averages
+df.region <- df.profile %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:frac_waxe_total,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(scenario = scenarioName,
+         fracResident = fracResident) %>% 
+  filter(taxa == "Calanus")
+  
+  return(df.region)
+}
+
+
+df.resi.scens <- data.frame()
+for (WR in seq(0,0.5,0.1)) {
+  df <- vary_winterActivity(fracResident = WR,
+                       scenarioName = paste0("Winter Resident: ",WR*100,"%"))
+  
+  df.resi.scens <- bind_rows(df.resi.scens, df)
+}
+
+
+ggplot(df.resi.scens, aes(x = fracResident * 100,
+                       y = total_gC_flux_m2_mean,
+                       color = region.inuktitut)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_vline(xintercept = 0) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  theme(legend.position = "right") +
+  xlab("% winter residents")
+
+# Relative to no winter residents, how does the total flux change?
+comp.resi <- df.resi.scens %>% 
+  select(region.inuktitut, scenario,
+         fracResident, 
+         total_gC_flux_m2_mean) 
+
+comp.resi <- comp.resi %>% 
+  # establish the baseline
+  left_join(comp.resi %>% 
+              filter(fracResident == 0) %>% 
+              select(region.inuktitut, baseline_flux = total_gC_flux_m2_mean),
+            by = "region.inuktitut") %>% 
+  # Calculate change in total flux and relative to the baseline
+  mutate(tflux_change = total_gC_flux_m2_mean - baseline_flux, 
+         tflux_change_base = (1 - total_gC_flux_m2_mean/baseline_flux)*-100)
+
+
+
+ggplot(comp.resi, aes(x = fracResident * 100,
+                       y = tflux_change_base,
+                       color = region.inuktitut)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_vline(xintercept = 0) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  theme(legend.position = "right") +
+  xlab("% winter residents")
+```
+
+# 5. Scenario 3: Dynamic mortality
+## Simple version: for the fraction dead, remove their contribution to respiration. Around 18% of respired C for beta = -0.001.
+
+The result will be an average reduction of the total flux to 88% of the baseline scenario.
+```{r}
+beta <- -0.001 # natural mortality rate (day-1)
+
+# 1.1. In each 5m bin, per taxa, per profile, get abundance and biomass
+df.5m <- indiv_traits %>% 
+  # Add column of the volume sampled in 5m depth bins
+  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  
+  # Calculate total abundance and biomass per bin
+  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = n(),
+         biomass_mgC = sum(prosome_total_mgC),
+         structural_mgC = sum(structural_carbon_mgC),
+         waxester_mgC = sum(waxester_mass_mgC),
+         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
+         .groups = "drop") 
+  
+# 1.2. When calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
+df.5m.zero <-  volumes.df %>% 
+  filter(sample_id %in% indiv_traits$sample_id) %>% 
+  # Repeat it 3 times for each taxa
+  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
+  select(-Sampled_volume_L) %>% 
+  left_join(df.5m, 
+            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# 1.3. Calculate 100 m bin totals
+df.100m <- df.5m.zero %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins))
+
+# 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day)) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean))
+
+# 2.2. Calculate the fraction of the population lost to natural mortality
+df.100m.base <- df.100m %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+  # TODO remove the fraction that died from the respired C
+  
+  mutate(respired_C_gC_m2_prime = respired_C_gC_m2 * 
+           (1 - (abundance_m2_mort / abundance_m2) )) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+   mutate(total_gC_flux_m2_prime = respired_C_gC_m2_prime + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  
+  # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+
+# TODO --- SHOULD BE OKAY FROM HERE ON OUT ---
+# Step 3. Vertically integrate each profile (/m2)
+df.profile.base <- df.100m.base %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            total_gC_flux_m2_prime = sum(total_gC_flux_m2_prime),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(fraction_dead = abundance_m2_mort / abundance_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+# Step 4. Calculate regional averages
+df.region.base <- df.profile.base %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:fraction_dead,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(scenario = "baseline") %>% 
+  filter(taxa == "Calanus") %>% 
+  # change in total flux
+  mutate(tflux_change = total_gC_flux_m2_prime_mean / total_gC_flux_m2_mean) %>% 
+  relocate(tflux_change)
+
+mean(df.region.base$tflux_change)
+```
+
+
+## Monthly reduction
+This tries to recreate the monthly mortality calculation in Yang et al. (2025)
+
+Start with 30-day time steps, calculate mortality, add that to the running structural and waxester mortality & also remove that fraction from the respiration rate
+
+... This results in the same reduction in total flux as the simple method. So that would be: 88% of the baseline.
+```{r}
+beta <- -0.001 # natural mortality rate (day-1)
+
+# 1.1. In each 5m bin, per taxa, per profile, get abundance and biomass
+df.5m <- indiv_traits %>% 
+  # Add column of the volume sampled in 5m depth bins
+  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  
+  # Calculate total abundance and biomass per bin
+  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = n(),
+         biomass_mgC = sum(prosome_total_mgC),
+         structural_mgC = sum(structural_carbon_mgC),
+         waxester_mgC = sum(waxester_mass_mgC),
+         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
+         .groups = "drop") 
+  
+# 1.2. When calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
+df.5m.zero <-  volumes.df %>% 
+  filter(sample_id %in% indiv_traits$sample_id) %>% 
+  # Repeat it 3 times for each taxa
+  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
+  select(-Sampled_volume_L) %>% 
+  left_join(df.5m, 
+            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# 1.3. Calculate 100 m bin totals
+df.100m <- df.5m.zero %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins))
+
+
+
+# TODO change this to 30 day intervals, calculate mortality, the remove that fraction from the respired C, and total biomass
+df.100m.ts <- df.100m %>% 
+  # establish the starting values
+  mutate(orig_abundance_m2 = abundance_m2,
+         orig_structural_mgC_m2 = structural_mgC_m2,
+         orig_waxester_mgC_m2 = waxester_mgC_m2,
+         orig_respired_C_gC_m2 = respired_C_gC_m2,
+         total_mort_abundance = 0,
+         total_mort_structural = 0,
+         total_mort_waxester = 0,
+         total_mort_respiration = 0)
+tstep <- 30
+for (month in seq(1,8,1)) {
+  mort.diap <- indiv_traits %>% 
+    mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+    mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                  240, diapauseDuration_day)) %>% 
+    group_by(taxa, sample_id, Depth_100m) %>% 
+    summarise(diapause_dur_mean = mean(diapause_dur),
+              diapause_dur_sd = sd(diapause_dur),
+              nindiv = n(), 
+              .groups = "drop") %>% 
+    
+    # calculate how many days of diapause in this time step. If below the mean, do 30 days, if above the mean, get the remainder days or zero
+    mutate(ndaysnow = month*tstep) %>% 
+    mutate(diapause_dur_timestep = if_else(ndaysnow < diapause_dur_mean,
+      tstep, 
+      ndaysnow %% diapause_dur_mean)) %>% 
+    mutate(diapause_dur_timestep = if_else(diapause_dur_timestep > 30,
+                                           0, diapause_dur_timestep)) %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_timestep))  
+  
+# Calculate the fraction of the population lost to natural mortality
+df.100m.ts <- df.100m.ts %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_mgC_m2_mort = structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef),
+         waxester_mgC_m2_mort = waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) %>% 
+  # *** to remove the fraction that died from the respired C ***
+  mutate(respiration_mort = respired_C_gC_m2 * 
+           (abundance_m2_mort / abundance_m2)) %>% 
+  
+  # The remaining population after mortality
+  mutate(abundance_m2 = abundance_m2 - abundance_m2_mort,
+         structural_mgC_m2 = structural_mgC_m2 - structural_mgC_m2_mort,
+         waxester_mgC_m2 = waxester_mgC_m2 - waxester_mgC_m2_mort,
+         respired_C_gC_m2 = respired_C_gC_m2 - respiration_mort,
+         
+         total_mort_abundance = total_mort_abundance + abundance_m2_mort,
+         total_mort_structural = total_mort_structural + structural_mgC_m2_mort,
+         total_mort_waxester = total_mort_waxester + waxester_mgC_m2_mort,
+         total_mort_respiration = total_mort_respiration + respiration_mort) %>% 
+  select(-mortality.coef)
+print(month)
+  }
+
+
+# Step 3. Vertically integrate each profile (/m2)
+df.profile.base <- df.100m.ts %>% 
+   # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  
+  # Calculate respiration not affected by mortality and also convert mort to gC_m2 from mgC 
+  mutate(respired_C_gC_m2_prime = orig_respired_C_gC_m2 - total_mort_respiration,
+         structural_gC_m2_mort = total_mort_structural / 1000,
+         waxester_gC_m2_mort = total_mort_waxester / 1000) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = orig_respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort,
+    total_gC_flux_m2_prime = respired_C_gC_m2_prime + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100))) %>% 
+
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC_m2) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            respired_C_gC_m2 = sum(orig_respired_C_gC_m2),
+            respired_C_gC_m2_prime = sum(respired_C_gC_m2_prime),
+            total_mort_respiration = sum(total_mort_respiration),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            total_gC_flux_m2_prime = sum(total_gC_flux_m2_prime),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(fraction_dead = abundance_m2_mort / abundance_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+# Step 4. Calculate regional averages
+df.region.base <- df.profile.base %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:fraction_dead,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(scenario = "baseline") %>% 
+  filter(taxa == "Calanus") %>% 
+  # change in total flux
+  mutate(tflux_change = total_gC_flux_m2_prime_mean / total_gC_flux_m2_mean) %>% 
+  relocate(tflux_change, total_gC_flux_m2_prime_mean, total_gC_flux_m2_mean,
+           respired_C_gC_m2_mean, respired_C_gC_m2_prime_mean,
+           total_mort_respiration_mean)
+
+mean(df.region.base$tflux_change)
+```
+
+
+
+# 6. Scenario 4: Uncertainty ranges in respiration
+Alternative version of section 2. The integration of the data but uses the minimum and maximum values for respiration flux. Only retain the profile and regional averages for comparison with calculations above.
+
+```{r, fig.height = 6, eval=FALSE}
+# Step 1. Calculate abundance, biomass, and respiration in 100 m bins
+
+# 1.1. In each 5m bin, per taxa, per profile, get abundance and biomass
+df.5m <- indiv_traits %>% 
+  # Add column of the volume sampled in 5m depth bins
+  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
+  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
+  
+  # Calculate total abundance and biomass per bin
+  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = n(),
+         biomass_mgC = sum(prosome_total_mgC),
+         structural_mgC = sum(structural_carbon_mgC),
+         waxester_mgC = sum(waxester_mass_mgC),
+         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
+         respired_C_ugC_min = sum(diapause_resp_by_indiv_ugC_min),
+         respired_C_ugC_max = sum(diapause_resp_by_indiv_ugC_max),
+         .groups = "drop") 
+  
+# 1.2. When calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
+df.5m.zero <-  volumes.df %>% 
+  filter(sample_id %in% indiv_traits$sample_id) %>% 
+  # Repeat it 3 times for each taxa
+  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
+  select(-Sampled_volume_L) %>% 
+  left_join(df.5m, 
+            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+
+# 1.3. Calculate 100 m bin totals
+df.100m <- df.5m.zero %>% 
+  mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
+  # Calculate concentrations per 100 m bin (note the number of 5m bins)
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(n5mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance = sum(abundance),
+            biomass_mgC = sum(biomass_mgC),
+            structural_mgC = sum(structural_mgC),
+            waxester_mgC = sum(waxester_mgC),
+            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
+            respired_C_gC_min = sum(respired_C_ugC_min) / 1000 / 1000, # year-1 
+            respired_C_gC_max = sum(respired_C_ugC_max) / 1000 / 1000, # year-1 
+            .groups = "drop") %>% 
+  # This is more ideal because averaging the 5m bin concentrations results in slightly different values because the sampled volume is different per 5m bin
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
+         structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
+         waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
+         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3,
+         respired_C_gC_m3_min = respired_C_gC_min/Sampled_volume_m3,
+         respired_C_gC_m3_max = respired_C_gC_max/Sampled_volume_m3) %>%
+  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
+  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
+         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
+         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
+         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
+         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins),
+         respired_C_gC_m2_min = respired_C_gC_m3_min * (5 * n5mbins),
+         respired_C_gC_m2_max = respired_C_gC_m3_max * (5 * n5mbins))
+
+# Step 2. Calculate mortality for 100 m bins
+beta <- -0.001 # natural mortality rate (day-1)
+
+# 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
+mort.diap <- indiv_traits %>% 
+  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
+  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
+                                 240, diapauseDuration_day), 
+         diapause_dur_min = if_else(diapauseDuration_day_min > 240,
+                                 240, diapauseDuration_day_min), 
+         diapause_dur_max = if_else(diapause_resp_by_indiv_ugC_max > 240,
+                                 240, diapause_resp_by_indiv_ugC_max), ) %>% 
+  group_by(taxa, sample_id, Depth_100m) %>% 
+  summarise(diapause_dur_mean = mean(diapause_dur),
+            diapause_dur_sd = sd(diapause_dur),
+            diapause_dur_min_mean = mean(diapause_dur_min),
+            diapause_dur_max_mean = mean(diapause_dur_max),
+            nindiv = n(), 
+            .groups = "drop") %>% 
+  mutate(mortality.coef =  exp(beta * diapause_dur_mean),
+         mortality.coef_min =  exp(beta * diapause_dur_min_mean),
+         mortality.coef_max =  exp(beta * diapause_dur_max_mean)) 
+
+# 2.2. Calculate the fraction of the population lost to natural mortality
+df.100m <- df.100m %>% 
+  # Append the mortality coef for the population in 100 m bins
+  left_join(mort.diap %>% 
+              select(taxa, sample_id, Depth_100m, mortality.coef,
+                     mortality.coef_min, mortality.coef_max),
+            by = join_by(taxa, sample_id, Depth_100m)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         abundance_m2_mort_min = abundance_m2 - (abundance_m2 * mortality.coef_min),
+         abundance_m2_mort_max = abundance_m2 - (abundance_m2 * mortality.coef_max),
+         
+         structural_gC_m2_mort = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef)) / 1000,
+         structural_gC_m2_mort_min = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef_min)) / 1000,
+         structural_gC_m2_mort_max = (structural_mgC_m2 - 
+           (structural_mgC_m2 * mortality.coef_max)) / 1000,
+         
+         waxester_gC_m2_mort = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef)) / 1000,
+         waxester_gC_m2_mort_min = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef_min)) / 1000,
+         waxester_gC_m2_mort_max = (waxester_mgC_m2 - 
+           (waxester_mgC_m2 * mortality.coef_max)) / 1000) %>% 
+  
+  # 2.3. Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  mutate(total_gC_flux_m2_min = respired_C_gC_m2_min + 
+           structural_gC_m2_mort_min + waxester_gC_m2_mort_min) %>% 
+  mutate(total_gC_flux_m2_max = respired_C_gC_m2_max + 
+           structural_gC_m2_mort_max + waxester_gC_m2_mort_max) %>% 
+  # NAs are zeros because zero abundance in the 100 m bin
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # Establish factors
+  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
+         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+
+# Step 3. Vertically integrate each profile (/m2)
+# TODO fix messy mgC and gC values
+df.profile <- df.100m %>% 
+  group_by(taxa, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            structural_gC = sum(structural_mgC) / 1000,
+            waxester_gC_m2 = sum(waxester_mgC) / 1000,
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            respired_C_gC_m2_min = sum(respired_C_gC_m2_min),
+            respired_C_gC_m2_max = sum(respired_C_gC_m2_max),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            total_gC_flux_m2_min = sum(total_gC_flux_m2_min),
+            total_gC_flux_m2_max = sum(total_gC_flux_m2_max),
+            .groups = "drop") %>% 
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause
+  mutate(fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         fraction_C_flux_min = total_gC_flux_m2_min / biomass_gC_m2,
+         fraction_C_flux_max = total_gC_flux_m2_max / biomass_gC_m2) %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+
+# Step 4. Calculate regional averages
+df.region <- df.profile %>% 
+  group_by(taxa, region.inuktitut, region) %>% 
+  summarise(n = n(),
+            across(abundance_m2:fraction_C_flux_max,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop")
+
+## Check range from respiration uncertainty
+ggplot(df.profile %>% 
+           filter(taxa == "Calanus"),
+         aes(y = region.inuktitut)) +
+    geom_boxplot(aes(x = total_gC_flux_m2, color = region.inuktitut)) +
+    scale_color_manual(values = unique(region_rename$region.color)) +
+     # Add average values for the region
+    geom_point(data = df.region %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_mean), shape = 17, size = 3, color = "black") +
+    geom_linerange(data = df.region %>% 
+                     filter(taxa == "Calanus"),
+                   aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd,
+                       xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
+                   color = "black", linetype = "dashed") +
+    scale_y_discrete(limits = rev) +
+    scale_x_continuous(breaks = seq(0,13,1), expand = c(0, 0)) +
+    coord_cartesian(xlim = c(0, 8.5)) +
+    theme(legend.position = "none") +
+    xlab("Lipid pump carbon flux (gC m-2 y-1)") + ylab("Region") +
+  # Add the min and max total flux 
+    geom_point(data = df.region %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_min_mean), shape = 2, size = 3, color = "red") +
+    geom_point(data = df.region %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_max_mean), shape = 2, size = 3, color = "red") +
+  
+  
+    geom_point(data = df.region %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_min_median), shape = 4, size = 3, color = "black") +
+    geom_point(data = df.region %>% 
+           filter(taxa == "Calanus"),
+               aes(x = total_gC_flux_m2_max_median), shape = 4, size = 3, color = "black")
+
+
+# ggsave("figures/Supp_fig5_total_flux_resp_uncertainty.png",
+#        width = 6, height = 5, units = "in", bg = "white")
+
+
+AA <- df.region %>% 
+  filter(taxa == "Calanus") %>% 
+  select(region.inuktitut, mean = fraction_C_flux_mean,
+         min = fraction_C_flux_min_mean, max = fraction_C_flux_max_mean) %>% 
+  mutate(min_diff = mean-min,
+         max_diff = mean-max)
+
+```
+
+

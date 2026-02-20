@@ -51,7 +51,8 @@ region_rename <- data.frame(
 
 ctd <- ctd %>% 
   filter(!is.na(te90)) %>% 
-  left_join(distinct(uvp6_ctd_match, ctd_filename, region),
+  left_join(distinct(uvp6_ctd_match, ctd_filename, region,
+                     sample_id),
             by = join_by(filename == ctd_filename)) %>% 
   left_join(region_rename, 
             by = "region") 
@@ -111,6 +112,18 @@ ggplot(region_temp_profiles_100m,
 save(temp_profiles_100m, region_temp_profiles_100m, region_rename,
      uvp6_ctd_match, 
      file = "data/ctd_temperature_100m_averages_20260202.RData")
+```
+
+
+# Alternative temperature binning to match net tows
+```{r}
+load("data/uvp_hydrobios_station_match_20260203.RData")
+
+temp_hydrobios <- ctd %>% 
+  filter(sample_id %in% uvp_net_match$sample_id)
+
+save(temp_hydrobios, file = "data/ctd_for_hydrobios_20260219.RData")
+length(unique(temp_hydrobios$filename))
 ```
 
 

@@ -303,6 +303,7 @@ basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
         legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
         land.border.col = "black", gla.border.col = NA) +
   ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(sample_id %in% pocFlux.sub$sample_id) %>% 
                                   filter(sample_id %notin% to_exclude$sample_id) %>% 
                                   mutate(Year = as.factor(Year)),
                                 aes(x = object_lon, y = object_lat, 
@@ -325,7 +326,9 @@ basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
 
 
 
-ggsave("figures/Fig2_samples_map_by_region_289_OSM_withlegend.png", width = 6, height = 8,
+# ggsave("figures/Fig2_samples_map_by_region_289_OSM_withlegend.png", 
+ggsave("figures/Fig2_samples_map_by_region_178_OSM_withlegend.png", 
+       width = 6, height = 8,
        units = "in", bg = "white")
 ```
 

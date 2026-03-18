@@ -33,10 +33,9 @@ load("data/UVP6_Calanus_metadata_20260129.RData")
 rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
 
 # The segmented images and morphological traits of calanoids
-load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
+load("data/uvp6_CNN_segmentations_morphotraits_20260317.RData")
 
 # The CTD data temperature and region names/color
-# load("data/ctd_temperature_100m_averages.RData") # old ctd match
 load("data/ctd_temperature_100m_averages_20260202.RData")
 
 # The random forest model
@@ -54,8 +53,8 @@ source("functions/lipid_pump_toolkit.R")
 ## Derive volume, dry weight, and carbon
 ```{r}
 uvpRes <- 0.073
-# Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
-lambda <- (36*12) / (36*12 + 2*36 + 2*16)
+# Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 based on the most common 36-carbon and 38-carbon chain lengths of NOW waxesters for C. glacialis and C. hyperboreus in (Kattner & Graeve 1991) 
+lambda <- 0.81
 # Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
 vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 Calanus species in (McConville et al. (2016)
 
@@ -104,11 +103,7 @@ segmented.images <- segmented.images %>%
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100)
 
 
-# TODO The regression models for the prosome and lipid predictions
-
-
-# TODO Calculate the uncertainty in segmentation of the prosome and lipid carbon
-
+# TODO Apply Filter outliers of CNN predicted prosome 
 ```
 
 # 2. RF for unsegmented images
@@ -377,7 +372,7 @@ ggplot(df, aes(x = value, color = type)) +
 The indiv_traits dataframe includes images of individuals classified as "Calanus spp" and were segmented manually or with CNN (or the RF predictions when the CNN was bad). It also includes the RF predicted structural and lipid carbon values for images with major axis length >3 mm and were validated and classified as Calanoida/Copepoda, which are likely to be Calanus spp.
 ```{r, eval=FALSE}
 save(indiv_traits, 
-     file = "data/uvp6_images_calculated_traits_20260202.RData")
+     file = "data/uvp6_images_calculated_traits_20260317.RData")
 ```
 
 
@@ -385,7 +380,7 @@ save(indiv_traits,
 
 # 6. Compare CNN segmentations, manually annotated, and random forest
 ```{r}
-load("data/uvp6_images_calculated_traits_20260202.RData")
+# load("data/uvp6_images_calculated_traits_20260317.RData")
 df_to_plot <- indiv_traits %>% 
   filter(taxa == "Calanus")
 
@@ -554,9 +549,7 @@ colnames(calanus.stats)
 ```
 
 
-
-
-# 8. Manuscript Fig 3
+# 8. Load other size data
 Main Fig 3: Show results for prosome length (major axis length for RF), wax ester carbon. Show LOKI values per stage. Show literature values from database
 
 
@@ -583,6 +576,14 @@ loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ec
 
 
 loki.segmentations <- loki.segmentations %>% 
+  mutate(scientificName = case_when(
+    object_annotation_category %in% c("female+lateral<Calanus hyperboreus",
+                                      "cvstage+lateral<Calanus hyperboreus",
+                                      "civstage+lateral<Calanus hyperboreus") ~ "Calanus hyperboreus",
+    object_annotation_category %in% c("female+lateral<Calanus glacialis",
+                                      "cvstage+lateral<Calanus glacialis",
+                                      "civstage+lateral<Calanus glacialis") ~ "Calanus glacialis",
+  )) %>% 
   mutate(taxa = case_when(
     object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "C. hyperboreus F",
     object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "C. hyperboreus CV",
@@ -591,15 +592,208 @@ loki.segmentations <- loki.segmentations %>%
     object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "C. glacialis CV",
     object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "C. glacialis CIV",
     TRUE ~ object_annotation_category
-  ) )
+  ) ) %>% 
+  mutate(lifeStage = case_when(
+    object_annotation_category %in% c("female+lateral<Calanus hyperboreus",
+                                      "female+lateral<Calanus glacialis") ~ "F",
+    object_annotation_category %in% c("cvstage+lateral<Calanus hyperboreus",
+                                      "cvstage+lateral<Calanus glacialis") ~ "CV",
+    object_annotation_category %in% c("civstage+lateral<Calanus hyperboreus",
+                                      "civstage+lateral<Calanus glacialis") ~ "CIV",
+  ))
 
 ```
 
 ## Get Trait Database values
 ```{r}
-load("data/temporary_trait_database_subset_20260129.RData")
+load( "data/literature_prosome_lengths_20260317.RData")
+
+# For prosome length, combine the LOKI and literature information
+prosome.lit <- calanus.prosome.length %>% 
+  rename(taxa = scientificNameStage,
+         prosome_length_mm = prosomeLength) %>% 
+  mutate(source = "literature") %>% 
+  filter(lifeStage != "CIII") %>% 
+  droplevels() %>% 
+  bind_rows(
+    loki.segmentations %>% 
+      select(taxa, source, prosome_length_mm,
+             scientificName, lifeStage) ) %>% 
+  mutate(scientificName = factor(scientificName,
+                                 levels = c("Calanus hyperboreus",
+                                            "Calanus glacialis",
+                                            "Calanus finmarchicus")))
+
+ggplot(prosome.lit,
+         aes(x = prosome_length_mm, y = taxa, color = source))+
+    geom_boxplot() +
+    scale_x_log10(breaks = c(2:10), limits = c(1.42, 8.8)) +
+  scale_color_manual(values = c("purple","black")) +
+    xlab("Prosome length (mm)") +
+    theme(legend.position = "none",
+          axis.text.y = element_text(face = "bold.italic", 
+                                     hjust = 0,
+                                     vjust = -1,
+                                     size = 12,
+                                     margin = ggplot2::margin(r = -115)),
+          axis.ticks.y = element_blank())
+
+
+ggplot(prosome.lit,
+       aes(x = prosome_length_mm, y = lifeStage, color = source))+
+  geom_boxplot() +
+  scale_x_log10(breaks = c(2:10), limits = c(1.42, 8.8)) +
+  scale_color_manual(values = c("purple","black"),
+                                name = "Data source") +
+  xlab("Prosome length (mm)") +
+  facet_wrap(~scientificName, ncol = 1) + 
+  theme(axis.title.y = element_blank(),
+        strip.placement = "inside",
+        strip.text = element_text(face = "bold.italic", hjust = 0),
+        strip.background = element_blank(),
+        
+        # legend inside bottom-right
+    legend.position = c(0.98, 0.02),
+    legend.justification = c(1, 0),
+    legend.background = element_rect(fill = "white", color = NA)
+  )
 ```
 
+# 9. Figure 3
+a. Wax ester carbon distribution
+b. LOKI + literature for waxester carbon
+c. prosome length vs diapause resp/WE + %lipid color
+d. potential diapause duration
+
+if WE limits = c(0.04, 3.2)
+prosome length = c(1.9, 8.8)
+```{r}
+clrs <- c("blue2","hotpink","gold1")
+
+g1 <- ggplot(df_to_plot,
+         aes(x = prosome_length_mm, fill = source)) +
+    geom_histogram(alpha = 0.9, position = "stack", bins = 50) +
+    scale_fill_manual(values = clrs, name = "Data source") +
+    scale_x_log10(breaks = 2:10, limits = c(1.42, 8.8),
+                  expand = c(0,0)) +
+    xlab("Prosome length (mm)") +
+    ylab("# Individuals") +
+    theme(legend.position = c(0.2, 0.82),
+          # axis.title.y = element_text(hjust = 1),
+          legend.background = element_rect(fill = "white", color = "black"),
+          legend.key = element_blank())
+
+
+g2 <- ggplot(prosome.lit,
+       aes(x = prosome_length_mm, y = lifeStage, color = source))+
+  geom_boxplot() +
+  scale_x_log10(breaks = c(2:10), limits = c(1.42, 8.8),
+                  expand = c(0,0)) +
+  scale_color_manual(values = c("purple","black"),
+                                name = "Data source") +
+  xlab("Prosome length (mm)") +
+  ylab("life stage") +
+  facet_wrap(~scientificName, ncol = 1) + 
+  theme(strip.placement = "inside",
+        strip.text = element_text(face = "bold.italic", hjust = 0),
+        strip.background = element_blank(),
+        
+    legend.position = c(0.98, 0.02), #  c(0.3, 0.75), 
+    legend.justification = c(1, 0),
+    legend.background = element_rect(fill = "white", color = "black"))
+
+g3 <- ggplot(df_to_plot %>% 
+         mutate(Temperature = temperature_kelvin - 273.15),
+       aes(x = waxester_mass_mgC, y = respirationRate_ugCday)) +
+  geom_point(aes(color = Temperature), alpha = 0.5) +
+  geom_smooth(method = "lm", color = "black") +
+  scale_color_viridis_c(name = "(°C)") +
+  xlab("Wax ester carbon (mg C)") +
+  ylab("Diapause respiration rate (\u03bcg C day⁻¹)")+
+  theme(legend.position = c(0.1, 0.78), # c(0.9, 0.2),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_blank())
+
+g4 <- ggplot(df_to_plot,
+       aes(x = lipid_fullness, y = diapauseDuration_day)) +
+  geom_point(aes(color = prosome_length_mm), alpha = 0.5) +
+  geom_hline(yintercept = 240, color = "gray50", size = 1, linetype = "dashed") +
+  scale_color_viridis_c(option = "turbo", name = "Prosome\nlength (mm)") +
+  xlab("Lipid fullness (%)")+
+  ylab("Potential diapause duration (day)") +
+  theme(legend.position = c(0.15, 0.78),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_blank())
+  
+  
+cowplot::plot_grid(
+  plot_grid(g1,g2, ncol = 1, align = "v", labels = c("a","c")),
+  plot_grid(g3,g4, ncol = 1, align = "v", labels = c("b","d")),
+  nrow = 1)
+
+ggsave("figures/Figure2_March_20260317.png",
+       width = 12, height = 10, units = "in", bg = "white")
+
+```
+
+alternative subplots
+```{r, eval=FALSE}
+
+  ggplot(df_to_plot %>% 
+         mutate(Temperature = temperature_kelvin - 273.15),
+       aes(x = diapauseDuration_day, y = respirationRate_ugCday)) +
+  geom_point(aes(color = Temperature), alpha = 0.5) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_vline(xintercept = 240, color = "gray50", size = 1, linetype = "dashed") +
+  scale_x_continuous(limits = c(50,450)) +
+  scale_color_viridis_c(option = "plasma", name = "(°C)") +
+  xlab("Potential diapause duration (day)") +
+  ylab("Diapause respiration rate (\u03bcg C day⁻¹)")+
+  theme(legend.position = c(0.9, 0.75),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_blank())
+
+ggplot(df_to_plot,
+         aes(x = diapauseDuration_day,
+             fill = source, color = source)) +
+    geom_histogram(alpha = 0.7, position = "stack", bins = 50) +
+    xlab("Potential diapause duration (day)") +
+    geom_vline(xintercept = 240, color = "black", size = 1, linetype = "dashed") +
+    scale_fill_manual(values = clrs) + 
+    scale_color_manual(values = clrs) +
+    scale_x_continuous(limits = c(50,450)) +
+   theme(legend.position = c(0.75, 0.75),
+          axis.title.y = element_blank(),
+          legend.background = element_rect(fill = "white", color = "black"),
+          legend.key = element_blank())
+
+ ggplot(df_to_plot,
+       aes(x = diapauseDuration_day, y = lipid_fullness)) +
+  geom_point(aes(color = waxester_mass_mgC), alpha = 0.5) +
+  geom_vline(xintercept = 240, color = "gray50", size = 1, linetype = "dashed") +
+  scale_x_continuous(limits = c(50,450)) +
+  scale_color_viridis_c() +
+  xlab("Potential diapause duration (day)") +
+  ylab("Lipid fullness")+
+  theme(legend.position = c(0.9, 0.25),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_blank())
+  
+ 
+ ggplot(df_to_plot,
+       aes(x = waxester_mass_mgC, y = lipid_fullness)) +
+  geom_point(aes(color = diapauseDuration_day), alpha = 0.5) +
+   scale_color_viridis_c() +
+  xlab("Lipid resreve (mg C)") +
+  ylab("Lipid fullness")+
+  theme(legend.position = c(0.9, 0.25),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_blank())
+```
+
+
+
+# ---- old figures ------------
 
 ## Fig 3 with size distribution for LOKI
 ```{r, fig.width=8, fig.height=6}
@@ -843,8 +1037,8 @@ plot_grid(
 )
 
 
-ggsave("figures/Fig3_OSM_version2.png",
-       height = 6, width = 10, units = "in", bg = "white")
+# ggsave("figures/Fig3_OSM_version2.png",
+#        height = 6, width = 10, units = "in", bg = "white")
 
 ```
 

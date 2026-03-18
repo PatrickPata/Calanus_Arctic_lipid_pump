@@ -349,22 +349,24 @@ calanus.lipids <- bind_rows(df.cav, df.dur) %>%
 
 
 calanus.size.edited <- calanus.size %>% 
-         mutate(lifeStage = if_else(lifeStage %in% c("male","female"),
-                                    "adult",lifeStage)) %>% 
+         mutate(lifeStage = if_else(lifeStage %in% c("female"),
+                                    "F",lifeStage)) %>% 
          mutate(lifeStage = if_else(lifeStage == "C5",
                                     "CV",lifeStage)) %>% 
          mutate(lifeStage = if_else(lifeStage == "C4",
                                     "CIV",lifeStage)) %>% 
-         filter(lifeStage %notin% c("C1","C2","C3")) %>% 
+         mutate(lifeStage = if_else(lifeStage == "C3",
+                                    "CIII",lifeStage)) %>% 
+         filter(lifeStage %notin% c("C1","C2")) %>% 
          mutate(scientificNameStage = paste(scientificName, lifeStage)) %>% 
          mutate(scientificNameStage = str_replace(scientificNameStage,
                                                   "Calanus", "C.")) %>% 
          mutate(scientificNameStage = 
                   factor(scientificNameStage,
-                         levels = c("C. hyperboreus adult",
-                                    "C. glacialis adult",
+                         levels = c("C. hyperboreus F",
+                                    "C. glacialis F",
                                     "C. glacialis CV", "C. glacialis CIV",
-                                    "C. finmarchicus adult",
+                                    "C. finmarchicus F",
                                     "C. finmarchicus CV", "C. finmarchicus CIV")))
 
 ggplot(calanus.size.edited,
@@ -378,9 +380,71 @@ ggplot(calanus.size.edited,
         # axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) 
 
-save(file = "data/temporary_trait_database_subset_20260129.RData",
+save(file = "data/temporary_trait_database_subset_20260317.RData",
      calanus.size.edited, calanus.lipids)
 
 ```
 
+# Just prosome lengths for Figure 2
+```{r}
+df.dur <- read.csv("C:/Users/patri/OneDrive - Université Laval/New_Trait_Data_For_Database/Durazzano_holoplankton_Arctic_traits/Dataset_marine_holoplankton_Arctic.csv", sep = ";") %>% 
+  filter(acceptedNameUsage %in% c("Calanus hyperboreus", "Calanus glacialis", 
+                                  "Calanus finmarchicus")) %>% 
+  mutate(lifeStage = if_else(lifeStage == "Adult", sex, lifeStage)) %>% 
+  select(taxa = acceptedNameUsage, lifeStage, 
+         prosomeLength, prosomeLength_bibliographicCitation) %>% 
+  filter(!is.na(prosomeLength)) %>% 
+  mutate(lifeStage = if_else(lifeStage %in% c("Female"), "F",lifeStage)) %>% 
+  mutate(lifeStage = str_replace(lifeStage,"Copepodite stage ", "C")) %>% 
+  filter(lifeStage %notin% c("Male", "CI","CII")) 
+
+# Load level 0 records
+load( "C:/Sync/R Workspace/UBC_zoop_traits_paper/data_raw/Trait_dataset_level0/trait_dataset_level0-2023-08-15.RData")
+
+df.gztd <- traits.lvl0 %>% 
+  filter(scientificName %in% c("Calanus finmarchicus",
+                               "Calanus glacialis",
+                               "Calanus hyperboreus"))  
+  
+df.gztd <- df.gztd %>% 
+  filter(sizeType == "Prosome length") %>% 
+  filter(lifeStage %notin% c("male", "C1","C2")) %>% 
+  mutate(lifeStage = case_match(lifeStage, 
+    "female" ~ "F",
+    "C3" ~ "CIII",
+    "C4" ~ "CIV",
+    "C5" ~ "CV")) 
+  
+rm(traits.lvl0)
+# All data from Brun et al. 2016 and 
+unique(df.gztd$primaryReference)
+unique(df.gztd$traitUnit)
+
+# Combine both sources
+calanus.prosome.length <- df.dur %>% 
+  select(scientificName = taxa, lifeStage,
+         prosomeLength, reference = prosomeLength_bibliographicCitation) %>% 
+  bind_rows(df.gztd %>% 
+              select(scientificName, lifeStage,
+                     prosomeLength = traitValue,
+                     reference = secondaryReferenceDOI) %>% 
+              mutate(prosomeLength = as.numeric(prosomeLength))) %>%
+
+  mutate(scientificNameStage = paste(scientificName, lifeStage)) %>% 
+  mutate(scientificNameStage = str_replace(scientificNameStage,
+                                           "Calanus", "C.")) %>% 
+  mutate(scientificNameStage = 
+           factor(scientificNameStage,
+                  levels = c("C. hyperboreus F","C. hyperboreus CV",
+                             "C. hyperboreus CIV","C. hyperboreus CIII",
+                             "C. glacialis F","C. glacialis CV", 
+                             "C. glacialis CIV","C. glacialis CIII",
+                             "C. finmarchicus F","C. finmarchicus CV", 
+                             "C. finmarchicus CIV","C. finmarchicus CIII")))
+
+  
+save(file = "data/literature_prosome_lengths_20260317.RData",
+     calanus.prosome.length)
+
+```
 

@@ -176,7 +176,7 @@ Only consider images with both prosome and lipid manual segmentations.
 ```{r}
 manual.segmented.images <- segmented.images %>% 
   filter(source == "manual_segmentation") %>% 
-  select(object_id, Major, Minor, Feret, Area,
+  select(object_id, Major, Minor, Feret, Area, 
          prosome.pixels = prosome_pixels, prosome.major = prosome_major, 
          lipid.pixels = lipid_pixels) 
 
@@ -208,17 +208,21 @@ ggplot(manual.segmented.images, aes(x = Area, y = prosome.pixels)) +
 
 # Further curation of the automated lipid segmentations
 ```{r}
+
 # *** EXCLUDE EXTRAPOLATIONS ***
 # Many of these are also categorized as bad images
 to_exclude_by_size <- segmented.images %>% 
   filter(source == "CNN_segmentation") %>% 
   # exclude all images smaller than the minimum size of the training data, also remove too small/large lipid and prosome pixel area!
-  filter(Major < filter(sum.manual.seg, column == "Major")$min |
-           Major > filter(sum.manual.seg, column == "Major")$max |
+  filter(prosome_major < filter(sum.manual.seg,
+                                   column == "prosome.major")$min |
+           prosome_major > filter(sum.manual.seg, 
+                                   column == "prosome.major")$max |
            prosome_pixels < filter(sum.manual.seg, 
                                    column == "prosome.pixels")$min |
            prosome_pixels > filter(sum.manual.seg, 
                                    column == "prosome.pixels")$max |
+
            lipid_pixels < filter(sum.manual.seg, 
                                       column == "lipid.pixels")$min |
            lipid_pixels > filter(sum.manual.seg, 
@@ -256,7 +260,7 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
 # Also organize the annotated segmentations and output here
 save(segmented.images, Amund_UVP6_meta, manual.segmented.images,
      all.copepods.uvp6,
-     file = "data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
+     file = "data/uvp6_CNN_segmentations_morphotraits_20260317.RData")
 
 
 ```

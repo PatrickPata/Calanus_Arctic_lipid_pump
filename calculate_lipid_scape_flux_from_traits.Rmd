@@ -182,10 +182,13 @@ df.region.long <- df.region %>%
   select(taxa, region.inuktitut, region, 
          `diapause respiration` = respired_C_gC_m2_mean, 
          `mortality structural` = structural_gC_m2_mort_mean, 
-         `moratlity storage` = waxester_gC_m2_mort_mean) %>% 
+         `mortality storage` = waxester_gC_m2_mort_mean) %>% 
   pivot_longer(cols = c(`diapause respiration`, 
-                        `mortality structural`, `moratlity storage`),
-               names_to = "Component", values_to = "Cflux")
+                        `mortality structural`, `mortality storage`),
+               names_to = "Component", values_to = "Cflux") %>% 
+  mutate(Component = factor(Component,
+                            levels = c("mortality structural", "mortality storage",
+                        "diapause respiration")))
 
 ```
 
@@ -261,7 +264,7 @@ save(df.5m.zero, df.100m, df.profile, df.region,
      file = "data/profile_integrated_cflux_20260318.RData")
 ```
 
-# Figure 3
+# Figure 3 Community Distribution
 ## Fig3a map
 ```{r}
 # TODO Change land color
@@ -574,6 +577,166 @@ ggplot(df.region.dbins,
 )
 ```
 
+# Figure 4 Lipid pump
+
+## Fig 4a spatial map
+```{r}
+df.profile.long <- df.profile %>% 
+  pivot_longer(cols = n100mbins:fraction_C_flux,
+               names_to = "variable", values_to = "value") %>% 
+  arrange(variable, value) %>% 
+  filter(taxa == "Calanus") %>% 
+  filter(variable == "total_gC_flux_m2")
+
+
+pp1 <- basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "ivory",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = df.profile.long,
+                                aes(x = longitude, y = latitude, 
+                                    shape = region.inuktitut,
+                                    color = region.inuktitut,
+                                    fill = value), #color = "black",
+                                size = 3, alpha = 0.9) +
+  # scale_fill_viridis_c(option = "plasma", direction = -1, 
+  #                      name = "Lipid pump\n(g C m⁻² y⁻¹") +
+  scale_fill_distiller(palette = "Greys", direction = 1,
+                       name = "Lipid pump\n(g C m⁻² y⁻¹") +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     guide = "none") +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.05, 0.05), 
+        legend.justification = c("left", "bottom"),
+        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black"))
+
+pp1
+```
+
+## Fig 4bc 
+```{r}
+df_to_plot <- df.region %>% 
+           filter(taxa == "Calanus") %>% 
+  mutate(total_gC_flux_m2_se = total_gC_flux_m2_sd / sqrt(n))
+
+pp2 <- ggplot(df.profile %>% 
+         filter(taxa == "Calanus"),
+       aes(y = region.inuktitut)) +
+  geom_violin(aes(x = total_gC_flux_m2, fill = region.inuktitut),
+              scale = "width", color = "white", alpha = 0.4) +
+  # Add average values for the region
+  geom_linerange(data = df_to_plot %>% 
+                   filter(taxa == "Calanus"),
+                 aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_se,
+                     xmax = total_gC_flux_m2_mean + total_gC_flux_m2_se),
+                 linetype = "solid", color = "black") +
+  geom_point(data = df_to_plot %>% 
+               filter(taxa == "Calanus"),
+             aes(x = total_gC_flux_m2_mean, 
+                 fill = region.inuktitut,
+                 shape = region.inuktitut), 
+             size = 4, color = "black") +
+  # # The total flux if including >3 mm copepods
+  # geom_point(data = df.region.sum,
+  #           aes(x = total_gC_flux_m2_mean), 
+  #           shape = 17, size = 3, color = "black") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_fill_manual(values = unique(region_rename$region.color)) +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
+  scale_y_discrete(limits = rev) +
+  scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 8.5)) +
+  theme(legend.position = "none") +
+  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)") + ylab("Region")
+
+
+pp3 <- ggplot(df.region.long %>% 
+         filter(taxa == "Calanus"),
+       aes(x = region.inuktitut)) +
+  geom_bar(aes(y = Cflux, fill = Component),
+           stat = "identity", color = "black") +
+  # geom_point(data = df_to_plot,
+  #            aes(y = total_gC_flux_m2_mean, 
+  #                color = region.inuktitut),
+  #            shape = 16, size = 4) +
+  # geom_linerange(data = df_to_plot,
+  #                aes(ymin = total_gC_flux_m2_mean - total_gC_flux_m2_se,
+  #                    ymax = total_gC_flux_m2_mean + total_gC_flux_m2_se,
+  #                    color = region.inuktitut),
+  #                linetype = "solid") +
+  
+  scale_fill_manual(values = c("gray80","gray40","gray10"),
+                     name = "Flux component") +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     guide = "none") +
+  scale_y_continuous(expand = c(0,0.1)) +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        legend.justification = "left",
+        legend.box.just = "left",
+        legend.box = "horizontal",
+        legend.location = "plot" ) +
+  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
+  xlab("Region") +
+  coord_flip() +
+  guides(fill = guide_legend(#title.position = "top",
+                             title.hjust = 0.5, nrow = 2)) 
+
+pp2 
+pp3
+```
+
+## Combine all 
+```{r}
+
+plot_grid(pp1,
+          plot_grid(pp2, pp3,
+                    ncol = 1, labels = c("b","c")),
+          nrow = 1, labels = c("a",""))
+
+
+ggsave("figures/Fig4_temp.png", width = 10, height = 7,
+       units = "in", bg = "white")
+```
+
+
+## alt no map
+```{r}
+
+pp4 <- ggplot(df.region.long %>% 
+         filter(taxa == "Calanus"),
+       aes(x = region.inuktitut)) +
+  geom_bar(aes(y = Cflux, fill = Component,
+               color = region.inuktitut),
+           stat = "identity") +
+  
+  scale_fill_manual(values = c("gray80","gray40","gray10"),
+                     name = "Flux component") +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     guide = "none") +
+  scale_y_continuous(expand = c(0,0.1)) +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        legend.justification = "left",
+        legend.box.just = "left",
+        legend.box = "horizontal",
+        legend.location = "plot" ) +
+  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
+  xlab("Region") +
+  coord_flip() +
+  guides(fill = guide_legend(#title.position = "top",
+                             title.hjust = 0.5, nrow = 2))
+
+plot_grid(pp2, pp4 + theme(axis.text.y = element_blank(),
+                           axis.title.y = element_blank()),
+          nrow = 1, align = "h", 
+          rel_widths = c(1.5,1),
+          labels = c("a","b"))
+```
 
 # --- old scripts ----
 
@@ -1461,8 +1624,8 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.margin = ggplot2::margin(6,6,6,6),
         legend.box.background = element_rect(fill = "white", color = "black"))
 
-ggsave("figures/Fig5_supp_map_lipidpump.png", width = 5, height = 6,
-       units = "in", bg = "white")
+# ggsave("figures/Fig5_supp_map_lipidpump.png", width = 5, height = 6,
+#        units = "in", bg = "white")
 
 ```
 

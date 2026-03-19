@@ -237,13 +237,13 @@ region_rename <- data.frame(
                        "Tallurutiup Imanga\n(Lancaster Sound)",
                        "Pikialasorsuaq\n(North Water Polynya)", 
                        "Nunatsiavut Shelf\n(Labrador Shelf)",
-                       "Sarvarjuaq\n(Nares Strait)"),
+                       "Nares Strait"),
   region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
                    "deeppink1","blue1", "sienna2")) %>% 
   # order regions as factors by latitude
   mutate(region.inuktitut = factor(
     region.inuktitut,
-    levels = c("Sarvarjuaq\n(Nares Strait)",
+    levels = c("Nares Strait",
                "Pikialasorsuaq\n(North Water Polynya)", 
                "Tallurutiup Imanga\n(Lancaster Sound)",
                "Sannirutiup Imavik\n(Baffin Bay)", 
@@ -295,7 +295,7 @@ p_final <- cowplot::ggdraw(p_main) +
 
 p_final
 
-ggsave("figures/Fig2_samples_map_by_region_289_OSM.png", width = 6, height = 8,
+ggsave("figures/Fig2_samples_map_by_region_289_20260318.png", width = 6, height = 8,
        units = "in", bg = "white")
 
 basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,

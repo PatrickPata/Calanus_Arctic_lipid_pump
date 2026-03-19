@@ -34,6 +34,7 @@ rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
 
 # The segmented images and morphological traits of calanoids
 load("data/uvp6_CNN_segmentations_morphotraits_20260317.RData")
+# load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 
 # The CTD data temperature and region names/color
 load("data/ctd_temperature_100m_averages_20260202.RData")
@@ -101,9 +102,6 @@ segmented.images <- segmented.images %>%
   
   # Calculate lipid fullness as % carbon in lipid sac WE
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100)
-
-
-# TODO Apply Filter outliers of CNN predicted prosome 
 ```
 
 # 2. RF for unsegmented images
@@ -111,7 +109,7 @@ segmented.images <- segmented.images %>%
 other.calanoid.images <- all.copepods.uvp6 %>% 
   filter(object_id %notin% segmented.images$object_id) %>% 
   # only include > 3 mm
-  filter(major_length_mm >= 3) %>% 
+  filter(major_length_mm >= 3 | object_annotation_category == "Calanus") %>% 
   filter(traits_from_RF == T) %>% 
   # only include validated
   filter(object_annotation_status == "validated")
@@ -731,7 +729,7 @@ cowplot::plot_grid(
   plot_grid(g3,g4, ncol = 1, align = "v", labels = c("b","d")),
   nrow = 1)
 
-ggsave("figures/Figure2_March_20260317.png",
+ggsave("figures/Figure2_March_20260318.png",
        width = 12, height = 10, units = "in", bg = "white")
 
 ```

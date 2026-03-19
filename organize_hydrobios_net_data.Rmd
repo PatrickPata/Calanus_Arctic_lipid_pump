@@ -27,12 +27,13 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(cowplot)
 library(here)
+library(ggpattern)
 
 `%notin%` <- Negate(`%in%`)
 
 fname <- "data/2023-2024-taxo_analyses_data_patrickPata-20260203.xlsx"
 
-# 
+# The hydrobios data
 hydrobios <- readxl::read_xlsx(
   fname,
   sheet = "zooplankton abundances",
@@ -48,37 +49,253 @@ hydrobios.meta <- readxl::read_xlsx(fname,
 
 # Load the table to match hydrobios stations with UVP profiles. Note that some hydrobios stations are associated with multiple UVP/CTD casts.
 load("data/uvp_hydrobios_station_match_20260203.RData")
+# Only select nets with matching UVP profile
+uvp_net_match <- uvp_net_match %>% 
+  filter(!is.na(uvp_stn)) %>% 
+  filter(STATION_NAME %notin% c("RA09","RA27"))
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 ```
 
-## confirm metadata
-```{r, eval=FALSE}
-# N samples should be 54
+## metadata
+```{r}
+# N samples should be 49
 hydrobios.meta %>% 
+  filter(STATION_NAME %in% uvp_net_match$STATION_NAME) %>% 
   distinct(STATION_NAME, DEPLOYMENT_DATE_START) %>% 
   nrow()
 
-unique(hydrobios.meta$SAMPLING_NET_ID) # The 1+2+... are aggregated samples
-unique(hydrobios.meta$NET_MESH_SIZE)
-unique(hydrobios.meta$ANALYSIS_PROTOCOL_ID)
+# Time difference between net and ctd/uvp casts
+AA <- uvp_net_match %>% 
+  filter(!is.na(uvp_Date)) %>% 
+  # filter(sample_id %notin% to_exclude$sample_id) %>% 
+  mutate(net_Date = as.POSIXct(paste(DEPLOYMENT_DATE_START,
+                                     DEPLOYMENT_TIME_START))) %>% 
+  mutate(time_diff = difftime(uvp_Date, net_Date, units = "hours"))
+min(AA$time_diff)
+min(abs(AA$time_diff))
+max(AA$time_diff)
+mean(abs(AA$time_diff))
+sd(abs(AA$time_diff))
+```
 
-colnames(hydrobios)
-sapply(hydrobios, class)
+# Curate the calanus abundances
+```{r}
+calanus <- hydrobios  %>% 
+  # Select only stations in the UVP match dataset
+  filter(STATION_NAME %in% uvp_net_match$STATION_NAME) %>% 
+  filter(grepl("Calanus", TAXON_ID) == T) %>% 
+  mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
+  mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>% 
+  # Curate the data
+  filter(!(YEAR_STATION == "2024 RA62" & SAMPLING_NET_ID %in% c("6","7"))) %>% 
+  # Calculate depth  range and midpoint
+  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
+  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2) %>% 
+  # Calculate /m2 abundane
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  # Back calculate the number of individuals
+  mutate(indiv_count = abundance_m3 * volume_filtered_m3) %>% 
+  # Differentiate C4-C6
+  # mutate(stage = TAXON_LIFE_DEV_STAGE)
+  mutate(stage = if_else(TAXON_LIFE_DEV_STAGE %in% c("C4","C5","M","F"),
+                         TAXON_LIFE_DEV_STAGE, "N-C3"),
+         stage = factor(stage, levels = c("C4","C5","M","F","N-C3"))) %>% 
+  # Exclude nauplii to C3
+  filter(stage != "N-C3") %>% 
+  # remove 3 records of Calanus spp
+  filter(TAXON_ID != "Calanus spp.") %>% 
+  # remove Calanus finmarchicus C4 because size beyond range in images
+  filter(!(TAXON_ID == "Calanus finmarchicus" &  
+             TAXON_LIFE_DEV_STAGE == "C4"))
 
-AA <- hydrobios %>% 
-  group_by(MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
-  count()
+```
 
-# only 1 instance of C gla/fin, and 10 of Calanus spp. Among C4-6, only 1 record of Calanus spp. 
-calanus %>% 
+# Calculate net integrated abundance and biomass
+```{r}
+# Total of all Calanus spp
+net.integ <- calanus %>%
+   # filter(TAXON_ID != "Calanus finmarchicus") %>% 
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
+            total_indiv_count = sum(indiv_count),
+            maxDepth = max(MAX_SAMPLE_DEPTH),
+            nbins = n(),
+            .groups = "drop")
+
+# Totals at species level
+net.integ.species <- calanus %>%
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
+           TAXON_ID) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
+            total_indiv_count = sum(indiv_count),
+            maxDepth = max(MAX_SAMPLE_DEPTH),
+            nbins = n(),
+            .groups = "drop")
+
+net.integ.species %>% 
   group_by(TAXON_ID) %>% 
-  count()
+  summarise(n(), mean(total_abundance_m2))
 ```
 
 
-# Curate Calanus spp
+# Species composition of nets by region
+```{r}
+species.comp.region <- net.integ.species %>% 
+  left_join(uvp_net_match %>% 
+              distinct(STATION_NAME, region),
+            by = "STATION_NAME") %>% 
+  group_by(region, TAXON_ID) %>% 
+  summarise(mean_total_abund_m2 = mean(total_abundance_m2),
+            mean_mean_abund_m3 = mean(mean_abundance_m3),
+            n = n(),
+            .groups = "drop") %>% 
+  mutate(TAXON_ID = case_match(TAXON_ID,
+                               "Calanus finmarchicus" ~ "Cfin CV-F",
+                               "Calanus glacialis" ~ "Cgla CIV-F",
+                               "Calanus hyperboreus" ~ "Chyp CIV-F"))
+  # mutate(TAXON_ID = case_match(TAXON_ID,
+  #                              "Calanus finmarchicus" ~ "C. finmarchicus CV-F",
+  #                              "Calanus glacialis" ~ "C. glacialis CIV-F",
+  #                              "Calanus hyperboreus" ~ "C. hyperboreus CIV-F"))
+
+ggplot(species.comp.region, aes(x = region, y = mean_total_abund_m2,
+                                fill = TAXON_ID)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_fill_manual(values = c("gray10","gray90","gray50"),
+                    name = "Calanus\nspecies")+
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  ylab("% Abundance") +
+  coord_flip() +
+  theme(axis.title.y = element_blank())
+
+```
+
+# Match UVP casts
+```{r}
+load("data/UVP6_Calanus_metadata_20260129.RData")
+
+# UVP6 profile and region integrations (note per Taxa data)
+load("data/profile_integrated_cflux_20260318.RData")
+# rm(df.5m.zero, df.100m, df.region)
+uvp.calanus <- df.profile %>% 
+  filter(taxa == "Calanus") %>%
+  group_by(region.inuktitut, region, sample_id) %>% 
+  summarise(uvp_abundance_m2 = sum(abundance_m2),
+            uvp_biomass_mg_m2 = sum(biomass_gC_m2) * 1000,
+            .groups = "drop")
+summary(uvp.calanus$uvp_abundance_m2)
+```
+
+
+# Calculate difference in integrated abundance between nets and uvp
+```{r}
+comp_uvp_net <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  select(sample_id, uvp_abundance_m2 = abundance_m2, 
+         region.inuktitut:bottom_depth_m) %>% 
+  left_join(uvp_net_match %>% 
+              select(sample_id, STATION_NAME, DEPLOYMENT_DATE_START),
+            by = "sample_id") %>% 
+  filter(!is.na(STATION_NAME)) %>% 
+  
+  # join net abundance
+  left_join(net.integ %>% 
+              select(STATION_NAME, DEPLOYMENT_DATE_START,
+                     net_abundance_m2 = total_abundance_m2),
+            by = join_by(STATION_NAME, DEPLOYMENT_DATE_START)) %>% 
+  
+  # calculate abundance difference
+  mutate(rel_diff_net = (net_abundance_m2 - uvp_abundance_m2) / net_abundance_m2) %>% 
+  mutate(net_factor = net_abundance_m2/uvp_abundance_m2)
+
+# Median 1.3x conversion of UVP to net abundance
+summary(comp_uvp_net$net_factor)
+summary(comp_uvp_net$rel_diff_net)
+
+# major axis regression to check bias 
+# slope >1, accellerating (overestimation by UVP at high abundance), underestimation at low
+# SMA intercept -0.802, which is 10^(-0.802), so 16% underestimation multiplicative bias factor, on average
+reg.model <- lmodel2::lmodel2(log10(net_abundance_m2) ~ log10(uvp_abundance_m2), 
+           data = comp_uvp_net)
+sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]
+10^(sma$Intercept)*100 # average bias factor
+
+# *** For the CI area in the figure **
+# SMA slope CI from lmodel2 output
+sma_ci <- reg.model$confidence.intervals[ reg.model$confidence.intervals$Method == "SMA",]
+# Means on the fitted (log10) scale
+xbar <- mean(log10(comp_uvp_net$uvp_abundance_m2), na.rm = TRUE)
+ybar <- mean(log10(comp_uvp_net$net_abundance_m2), na.rm = TRUE)
+# Fitted slope/intercept
+b1 <- sma$Slope
+b0 <- ybar - b1 * xbar
+# CI slopes
+b1_lo <- sma_ci$`2.5%-Slope`
+b1_hi <- sma_ci$`97.5%-Slope`
+# Corresponding intercepts so each CI line passes through the centroid
+b0_lo <- ybar - b1_lo * xbar
+b0_hi <- ybar - b1_hi * xbar
+# x grid on original scale
+x_seq <- 10^seq(log10(min(comp_uvp_net$uvp_abundance_m2, na.rm = TRUE)),
+                log10(max(comp_uvp_net$uvp_abundance_m2, na.rm = TRUE)),
+                length.out = 200)
+# Build fitted and CI lines back on original scale
+line_df <- data.frame(uvp_abundance_m2 = x_seq,
+                      fit = 10^(b0 + b1 * log10(x_seq)),
+                      lo  = 10^(b0_lo + b1_lo * log10(x_seq)),
+                      hi  = 10^(b0_hi + b1_hi * log10(x_seq)))
+
+
+
+ggplot(comp_uvp_net, aes(x = uvp_abundance_m2, 
+                         y = net_abundance_m2)) +
+  geom_abline() +
+  geom_ribbon(data = line_df,
+              aes(x = uvp_abundance_m2, ymin = lo, ymax = hi),
+              inherit.aes = FALSE,
+              alpha = 0.15) +
+  geom_line(data = line_df,
+            aes(x = uvp_abundance_m2, y = fit),
+            linetype = "dashed") +
+  geom_point(aes(color = region.inuktitut), size = 2) +
+  geom_abline(intercept = b1, slope = b0, 
+              linetype = "dashed") +
+  
+  geom_point(aes(color = region.inuktitut),
+             size = 2) +
+  scale_x_log10() + scale_y_log10() +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  coord_fixed(ratio = 1) +
+  xlab("UVP6 abundance (# m⁻²)") + 
+  ylab("Hydrobios abundance (# m⁻²)") +
+  theme(legend.position = "none")
+
+
+ggplot(comp_uvp_net, aes(x = net_factor)) +
+  geom_histogram()
+```
+
+# Temporary export just to plot figure 3b
+```{r}
+
+save(comp_uvp_net, species.comp.region, net.integ, net.integ.species, calanus,
+     line_df, b0, b1,
+     file = "data/temporary_net_uvp_match_20260319.RData")
+
+```
+
+
+
+# --- old scripts Feb 2026 ----
+
+# Curate Calanus spp with biomass estimate
 ```{r}
 # The carbon % dry weight from trait database for C.fin/C.gla/C.hyp
 cpdw <- 0.5664096 # sd: 0.08150848, n = 113 
@@ -137,66 +354,6 @@ calanus <- hydrobios %>%
 ```
 
 
-## Check vertical profiles with bins relative to min and max depth
-```{r, eval=FALSE}
-AA <- calanus %>% 
-  # filter(STATION_NAME == "C5" & DEPLOYMENT_DATE_START == "2023-08-15") %>% 
-  filter(STATION_NAME %in% c("A1","A3","A5","C1","C3","C5")) %>% 
-  filter(YEAR == 2023) %>% 
-  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START, 
-           SAMPLING_NET_ID, volume_filtered_m3, Depth_mid, Depth_range,
-           MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
-           TAXON_ID, stage) %>% 
-  summarise(abundance_m3 = sum(abundance_m3),
-            abundance_m2 = sum(abundance_m2),
-            indiv_count = sum(indiv_count),
-            n = n(), .groups = "drop") %>% 
-  mutate(specieStage = substr(TAXON_ID,9,11)) %>% 
-  mutate(specieStage = paste0("C",specieStage," ",stage))
-
-colnames(AA)
-
-# for different depth bin widths
-ggplot(AA, aes(x = Depth_mid, y = abundance_m3, fill = specieStage)) +
-  geom_col(aes(width = Depth_range),
-    position = "stack",color = "black") +
-  coord_flip() +
-  scale_x_reverse() +
-  facet_wrap(~STATION_NAME, scales = "free") +
-  theme(legend.position = "right")
-```
-
-
-# Calculate net integrated abundance and biomass
-```{r}
-# Total of all Calanus spp
-net.integ <- calanus %>%
-  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
-  summarise(total_abundance_m2 = sum(abundance_m2),
-            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
-            total_indiv_count = sum(indiv_count),
-            total_biomass_mgC_m2 = sum(biomass_mgC_m2),
-            mean_biomass_mgC_m3 = weighted.mean(biomass_mgC_m3, w = Depth_range),
-            maxDepth = max(MAX_SAMPLE_DEPTH),
-            nbins = n(),
-            .groups = "drop")
-
-# Totals at species-stage level
-net.integ.spstg <- calanus %>%
-  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
-           TAXON_ID, stage) %>% 
-  summarise(total_abundance_m2 = sum(abundance_m2),
-            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
-            total_indiv_count = sum(indiv_count),
-            total_biomass_mgC_m2 = sum(biomass_mgC_m2),
-            mean_biomass_mgC_m3 = weighted.mean(biomass_mgC_m3, w = Depth_range),
-            maxDepth = max(MAX_SAMPLE_DEPTH),
-            nbins = n(),
-            .groups = "drop")
-
-summary(net.integ$total_abundance_m2)
-summary(net.integ$total_biomass_mgC_m2)
-```
 
 
 
@@ -208,28 +365,17 @@ n = 68 UVP casts, n = 51 nets
 load("data/UVP6_Calanus_metadata_20260129.RData")
 
 # UVP6 profile and region integrations (note per Taxa data)
-load("data/profile_integrated_cflux_20260206.RData")
+# load("data/profile_integrated_cflux_20260206.RData")
+load("data/profile_integrated_cflux_20260318.RData")
 # rm(df.5m.zero, df.100m, df.region)
 uvp.calanus <- df.profile %>% 
-  # filter(taxa == "Calanus") %>%
+  filter(taxa == "Calanus") %>%
   group_by(region.inuktitut, region, sample_id) %>% 
   summarise(uvp_abundance_m2 = sum(abundance_m2),
             uvp_biomass_mg_m2 = sum(biomass_gC_m2) * 1000,
             .groups = "drop")
 summary(uvp.calanus$uvp_abundance_m2)
 
-# Time difference between net and ctd/uvp casts
-AA <- uvp_net_match %>% 
-  filter(!is.na(uvp_Date)) %>% 
-  filter(sample_id %notin% to_exclude$sample_id) %>% 
-  mutate(net_Date = as.POSIXct(paste(DEPLOYMENT_DATE_START,
-                                     DEPLOYMENT_TIME_START))) %>% 
-  mutate(time_diff = difftime(uvp_Date, net_Date, units = "hours"))
-min(AA$time_diff)
-min(abs(AA$time_diff))
-max(AA$time_diff)
-mean(abs(AA$time_diff))
-sd(abs(AA$time_diff))
 ```
 
 
@@ -246,7 +392,7 @@ net.integ.depth <- calanus %>%
 
 uvp_net_bins <- df.5m.zero %>% 
   # Sum across 3 taxa
-  # filter(taxa == "Calanus") %>% 
+  filter(taxa == "Calanus") %>%
   group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
   summarise(abundance = sum(abundance),
             .groups = "drop") %>% 
@@ -384,7 +530,15 @@ uvp_net_integ <- df.5m.zero %>%
   left_join(Amund_UVP6_meta %>% 
               select(sample_id, region, region.inuktitut),
             by = "sample_id") %>% 
-  droplevels()
+  droplevels() %>% 
+    # difference in abundances as % of net abundance
+  mutate(diff_per_net = (total_uvp_abundance_m2 - total_net_abundance_m2)/
+           total_net_abundance_m2 * 100)
+
+summary(uvp_net_integ$diff_per_net)
+ggplot(uvp_net_integ, aes(x = diff_per_net)) +
+  geom_histogram() +
+  geom_density() 
 
 
 summary(lm(log10(total_net_abundance_m2) ~ 
@@ -428,6 +582,8 @@ g2
 
 # ggsave("figures/NET_UVP_match_integrated_abundance_m2_49profiles.png",
 #        width = 7, height = 4, units = "in", bg = "white")
+
+# TODO Calculate difference in estimates
 ```
 
 
@@ -481,8 +637,8 @@ ggplot(df, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean)
   xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
 
 
-ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_49stns_SE.png",
-       width = 7, height = 4, units = "in", bg = "white")
+# ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_49stns_SE.png",
+#        width = 7, height = 4, units = "in", bg = "white")
 
 ```
 
@@ -599,6 +755,58 @@ ggplot(uvp_net_integ.Calanus, aes(x = total_net_abundance_m2,
 
 
 # Extra codes
+
+## confirm metadata
+```{r, eval=FALSE}
+# N samples should be 54
+hydrobios.meta %>% 
+  distinct(STATION_NAME, DEPLOYMENT_DATE_START) %>% 
+  nrow()
+
+unique(hydrobios.meta$SAMPLING_NET_ID) # The 1+2+... are aggregated samples
+unique(hydrobios.meta$NET_MESH_SIZE)
+unique(hydrobios.meta$ANALYSIS_PROTOCOL_ID)
+
+colnames(hydrobios)
+sapply(hydrobios, class)
+
+AA <- hydrobios %>% 
+  group_by(MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
+  count()
+
+# only 1 instance of C gla/fin, and 10 of Calanus spp. Among C4-6, only 1 record of Calanus spp. 
+calanus %>% 
+  group_by(TAXON_ID) %>% 
+  count()
+```
+## Check vertical profiles with bins relative to min and max depth
+```{r, eval=FALSE}
+AA <- calanus %>% 
+  # filter(STATION_NAME == "C5" & DEPLOYMENT_DATE_START == "2023-08-15") %>% 
+  filter(STATION_NAME %in% c("A1","A3","A5","C1","C3","C5")) %>% 
+  filter(YEAR == 2023) %>% 
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START, 
+           SAMPLING_NET_ID, volume_filtered_m3, Depth_mid, Depth_range,
+           MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
+           TAXON_ID, stage) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            abundance_m2 = sum(abundance_m2),
+            indiv_count = sum(indiv_count),
+            n = n(), .groups = "drop") %>% 
+  mutate(specieStage = substr(TAXON_ID,9,11)) %>% 
+  mutate(specieStage = paste0("C",specieStage," ",stage))
+
+colnames(AA)
+
+# for different depth bin widths
+ggplot(AA, aes(x = Depth_mid, y = abundance_m3, fill = specieStage)) +
+  geom_col(aes(width = Depth_range),
+    position = "stack",color = "black") +
+  coord_flip() +
+  scale_x_reverse() +
+  facet_wrap(~STATION_NAME, scales = "free") +
+  theme(legend.position = "right")
+```
 
 ## Plot species-stage contribution to abundance/biomass
 ```{r, eval=FALSE}

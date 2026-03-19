@@ -31,7 +31,8 @@ library(tidyverse)
 library(cowplot)
 
 # The calculated trait values
-load("data/uvp6_images_calculated_traits_20260202.RData")
+load("data/uvp6_images_calculated_traits_20260317.RData")
+# load("data/uvp6_images_calculated_traits_20260202.RData")
 
 # <- Profiles metadata with regions and dataframe of volumes at 5m bins
 load("data/UVP6_Calanus_metadata_20260129.RData")
@@ -249,15 +250,332 @@ table3 <- df.region %>%
          abundance_m2, biomass_gC_m2, waxester_gC_m2, 
          total_gC_flux_m2, perc_C_flux, perc_respired)
 
-write.csv(table3, file = "tables/Table3_regional_averages.csv")
+# write.csv(table3, file = "tables/Table3_regional_averages.csv")
 ```
 
+# TODO LOAD NET DATA and match uvp
 
 ## Export for lipid vs gravity pump 
 ```{r, eval=FALSE}
 save(df.5m.zero, df.100m, df.profile, df.region,
-     file = "data/profile_integrated_cflux_20260209.RData")
+     file = "data/profile_integrated_cflux_20260318.RData")
 ```
+
+# Figure 3
+## Fig3a map
+```{r}
+# TODO Change land color
+# TODO Add net sample locations/add border to uvp with nets...
+
+net.lonlat <- uvp_net_match %>% 
+  filter(!is.na(sample_id)) %>% 
+  distinct(STATION_NAME, .keep_all = T) %>% 
+  left_join(region_rename)
+
+load("data/UVP6_Calanus_metadata_20260129.RData")
+region_rename <- data.frame(
+  region = c("Baffin Bay", "Baffin Shelf", 
+             "Davis Strait", "Lancaster Sound",
+             "North Water Polynya", "Labrador Shelf", 
+              "Nares Strait"),
+  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
+                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+                       "Tallurutiup Imanga\n(Lancaster Sound)",
+                       "Pikialasorsuaq\n(North Water Polynya)", 
+                       "Nunatsiavut Shelf\n(Labrador Shelf)",
+                       "Nares Strait"),
+  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
+                   "deeppink1","blue1", "sienna2")) %>% 
+  # order regions as factors by latitude
+  mutate(region.inuktitut = factor(
+    region.inuktitut,
+    levels = c("Nares Strait",
+               "Pikialasorsuaq\n(North Water Polynya)", 
+               "Tallurutiup Imanga\n(Lancaster Sound)",
+               "Sannirutiup Imavik\n(Baffin Bay)", 
+               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
+               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
+               "Nunatsiavut Shelf\n(Labrador Shelf)"
+    ))) %>% 
+  arrange(region.inuktitut)
+
+clrs <- unique(region_rename$region.color)
+
+p1 <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "ivory", bathy.style = "poly_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>% 
+                                  filter(sample_id %notin% to_exclude$sample_id) %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat, 
+                                    color = region.inuktitut),
+                                size = 4, alpha = 0.9) +
+  # mark net samples
+  ggspatial::geom_spatial_point(data = net.lonlat,
+                                aes(x = uvp_Longtiude, y = uvp_Latitude),
+                                shape = 1,
+                                size = 4, alpha = 0.9, color = "black") +
+  
+  ggspatial::geom_spatial_text(aes(x = -70, y =56.5), 
+                               label = "Canada",
+                               fontface = "bold", size = 6) +
+  ggspatial::geom_spatial_text(aes(x = -44, y = 77), 
+                               label = "Kalaallit Nunaat\nGreenland",
+                               fontface = "bold", size = 6) +
+  
+  scale_color_manual(values = clrs, name = "Region") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 10),
+        legend.key.spacing.y = unit(0.2, "cm"),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10))
+        # legend.position = c(0.025, 0.025),
+        # legend.justification = c("left", "bottom"),
+        # legend.box.background = element_rect(fill = "white", color = "none")
+        # legend.margin = ggplot2::margin(5,5,5,5)
+
+p1
+
+# ggsave("figures/Fig2_samples_map_by_region_289_20260318.png", width = 8, height = 7,
+#        units = "in", bg = "white")
+```
+
+
+## Fig 3bc
+```{r}
+load("data/temporary_net_uvp_match_20260319.RData")
+
+# TODO color region names, only use native name
+# TODO have 
+p2 <- ggplot(species.comp.region, aes(x = region, y = mean_total_abund_m2,
+                                fill = TAXON_ID)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_fill_manual(values = c("gray10","gray90","gray50"),
+                    name = "Calanus species")+
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  ylab("% Net abundance") +
+  coord_flip() +
+  theme(axis.title.y = element_blank(),
+        legend.position = "top", legend.box = "vertical") +
+  guides(fill = guide_legend(title.position = "top",
+                             title.hjust = 0.5, nrow = 1))
+
+p3 <- ggplot(comp_uvp_net, aes(x = uvp_abundance_m2, 
+                         y = net_abundance_m2)) +
+  geom_abline() +
+  geom_ribbon(data = line_df,
+              aes(x = uvp_abundance_m2, ymin = lo, ymax = hi),
+              inherit.aes = FALSE,
+              alpha = 0.15) +
+  geom_line(data = line_df,
+            aes(x = uvp_abundance_m2, y = fit),
+            linetype = "dashed") +
+  geom_abline(intercept = b1, slope = b0, 
+              linetype = "dashed") +
+  
+  geom_point(aes(fill = region.inuktitut), 
+             shape = 21, alpha = 0.9,
+             size = 2, color = "black") +
+  scale_x_log10(breaks = c(500, 1000, 3000, 5000, 10000, 15000),
+              labels = scales::label_number(),
+              expand = c(.01,.01)) + 
+  scale_y_log10(breaks = c(500, 1000, 3000, 5000, 10000, 15000, 25000),
+              labels = scales::label_number(),
+              expand = c(0,0)) +
+  scale_fill_manual(values = region_rename$region.color,
+                     name = "Region") +
+  xlab("UVP6 abundance (# m⁻²)") +
+  ylab("Net abundance (# m⁻²)") +
+  theme(legend.position = "none")
+
+p2
+```
+
+
+## Fig3d biomass with standard errors
+```{r}
+biomass_vert_region <- df.100m %>% 
+  filter(taxa == "Calanus") %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, bottom_depth_m),
+            by = "sample_id") %>% 
+  group_by(taxa, region.inuktitut, Depth_100m) %>% 
+  summarise(nprofiles = n(),
+            across(Sampled_volume_m3:total_gC_flux_m2,
+              list(mean = mean, sd = sd),
+              na.rm = TRUE), 
+            .groups = "drop")  %>% 
+  select(taxa, region.inuktitut, Depth_100m, nprofiles,
+         abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
+         biomass_mgC_m3_sd,
+         lipid_m3 = waxester_mgC_m3_mean,
+         abundance_m2_mean, biomass_mgC_m2_mean, waxester_mgC_m2_mean,
+         abundance_m2_sd, biomass_mgC_m2_sd, waxester_mgC_m2_sd) %>% 
+  # calculate total across all taxa
+  group_by(region.inuktitut, Depth_100m, nprofiles) %>% 
+  mutate(total_abundance_m3 = sum(abundance_m3), 
+         total_biomass_m3 = sum(biomass_m3),
+         total_lipid_m3 = sum(lipid_m3)) %>% 
+  ungroup() %>% 
+  mutate(Depth_100m = as.numeric(as.character(Depth_100m)) + 50) %>% 
+  left_join(region_rename %>% 
+              select(region.inuktitut, region.color), by = "region.inuktitut") %>% 
+  # Remove /n in the region name
+  mutate(region.inuktitut2 = str_replace(region.inuktitut, "\n", " ")) %>% 
+  # Relevel
+  mutate(region.inuktitut2 = factor(region.inuktitut2, 
+                                   levels = c("Nares Strait",
+               "Pikialasorsuaq (North Water Polynya)", 
+               "Tallurutiup Imanga (Lancaster Sound)",
+               "Sannirutiup Imavik (Baffin Bay)", 
+               "Qikiqtaaluup Ikinga (Davis Strait)", 
+               "Qikiqtaaluk Shelf (Baffin Shelf)",
+               "Nunatsiavut Shelf (Labrador Shelf)")))
+
+
+# Updated: use nprofiles >= 3 to allow stats. This excludes the last bins with few profiles included.
+biomass_vert_region_to_plot <- biomass_vert_region %>% 
+  group_by(region.inuktitut) %>% 
+  filter(nprofiles >= 3) %>% 
+  ungroup() %>% 
+  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles),
+         biomass_mgC_m2_se = biomass_mgC_m2_sd / sqrt(nprofiles))
+
+# TODO revise region names to just be the native names
+# TODO fix the x axis ticks of the subplots
+p4 <- ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = biomass_m3,
+                 color = region.inuktitut2)) +
+
+  geom_ribbon(aes( ymin = biomass_m3 - biomass_mgC_m3_se,
+                    ymax = biomass_m3 + biomass_mgC_m3_se,
+                   fill = region.inuktitut2),
+               alpha = 0.15, color = NA) +
+  geom_line(alpha = 1) +
+  # geom_errorbar(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
+  #                   ymax = biomass_m3 + biomass_mgC_m3_se),
+  #               alpha = 0.2) +
+  geom_point(shape = 16, size = 2) +
+  
+  # geom_line(aes(y = lipid_m3), linetype = "dashed", alpha = 0.8) +
+  # geom_point(aes(y = lipid_m3), shape = 1, size = 1) +
+  geom_bar(aes(y = lipid_m3, fill = region.inuktitut2),
+           color = "white", stat = "identity") +
+  
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2500,100), expand = c(0.02,0.02)) +
+  scale_y_continuous(expand = c(0.01,0.01),
+              labels = scales::label_number()) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  scale_fill_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  theme(legend.position = "none",
+        strip.background = element_blank()
+        # strip.text = element_blank()
+        ) +
+  xlab("Depth (m)") + ylab("Biomass (mg C m⁻³)") +
+  facet_wrap(~region.inuktitut, scales = "free_x", nrow = 1)
+
+p4
+# ggsave("figures/Vertical_biomass_se.png",
+#        width = 12, height = 6, units = "in", bg = "white")
+```
+
+## Combine all to Fig3
+```{r}
+p23 <- plot_grid(p2, p3,
+          ncol = 1, rel_heights = c(1,1.2),
+          labels = c("b","c"))
+
+plot_grid(
+  plot_grid(p1, p23,
+            nrow = 1,
+            rel_widths = c(1.3,1)),
+  p4, ncol = 1, 
+            labels = c("a","d"))
+
+ggsave("figures/Fig3_temp.png", width = 12, height = 14,
+       units = "in", bg = "white")
+```
+
+
+
+## Extra: % biomass per depth layer - for supplementary?
+```{r}
+df.profile.dbins <- df.100m %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(depth = as.numeric(as.character(Depth_100m))) %>% 
+  mutate(depth_bin = if_else(depth < 200, "0-200 m", "200-500 m"),
+         depth_bin = if_else(depth >= 500, "500+ m", depth_bin)
+         ) %>% 
+  mutate(depth_bin = factor(depth_bin, 
+                            levels = c("0-200 m", "200-500 m","500+ m"))) %>% 
+  group_by(depth_bin, sample_id) %>% 
+  summarise(n100mbins = n(),
+            Sampled_volume_m3 = sum(Sampled_volume_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
+            .groups = "drop") %>% 
+  # Add metadata
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuktitut, region, Year, Month, 
+                     longitude = object_lon, latitude = object_lat, 
+                     maxSampleDepth, bottom_depth_m),
+            by = "sample_id")
+
+
+# plot total flux by depth bin
+df.region.dbins <- df.profile.dbins %>% 
+  # TODO Only consider profiles with sampling depths > 200 m ???
+  # filter(maxSampleDepth > 200) %>% 
+  group_by(region.inuktitut, region, depth_bin) %>% 
+  summarise(n = n(),
+            across(abundance_m2:total_gC_flux_m2,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop") %>% 
+  # Calculate total and percentage of C-flux in the depth bin
+  group_by(region.inuktitut) %>% 
+  mutate(total_biomass_gC_m2 = sum(biomass_gC_m2_mean)) %>% 
+  ungroup() %>% 
+  mutate(perc_total_biomass = biomass_gC_m2_mean / total_biomass_gC_m2 * 100) %>% 
+  relocate(perc_total_biomass)
+
+
+# NOTE: the totals do not match the ones for Fig 5 because surface bins can be overrepresnted in shallow tows
+cowplot::plot_grid(
+ggplot(df.region.dbins,
+       aes(x = region.inuktitut, y = total_biomass_gC_m2, fill = depth_bin)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("darkturquoise","dodgerblue3","navyblue"),
+                    name = "Depth Layer") +
+  theme(legend.position = "right") +
+  ylab("Total biomass (gC m-2)") + xlab("Region") +
+  scale_y_continuous(expand = c(0, 0.1), breaks = c(0:5)) +
+  coord_flip() + scale_x_discrete(limits = rev),
+
+ggplot(df.region.dbins,
+       aes(x = region.inuktitut, y = perc_total_biomass, fill = depth_bin)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("darkturquoise","dodgerblue3","navyblue"),
+                    name = "Depth Layer") +
+  theme(legend.position = "right") +
+  ylab("% Total biomass") + xlab("Region") +
+  scale_y_continuous(expand = c(0.01, 0.01)) +
+  coord_flip() + scale_x_discrete(limits = rev),
+  ncol = 1, labels = "auto"
+)
+```
+
+
+# --- old scripts ----
 
 
 # 3. Vertical biomass profiles
@@ -280,6 +598,7 @@ biomass_vert_region <- df.100m %>%
             .groups = "drop")  %>% 
   select(taxa, region.inuktitut, Depth_100m, nprofiles,
          abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
+         biomass_mgC_m3_sd,
          lipid_m3 = waxester_mgC_m3_mean,
          abundance_m2_mean, biomass_mgC_m2_mean, waxester_mgC_m2_mean,
          abundance_m2_sd, biomass_mgC_m2_sd, waxester_mgC_m2_sd) %>% 
@@ -297,7 +616,7 @@ biomass_vert_region <- df.100m %>%
   mutate(region.inuktitut2 = str_replace(region.inuktitut, "\n", " ")) %>% 
   # Relevel
   mutate(region.inuktitut2 = factor(region.inuktitut2, 
-                                   levels = c("Sarvarjuaq (Nares Strait)",
+                                   levels = c("Nares Strait",
                "Pikialasorsuaq (North Water Polynya)", 
                "Tallurutiup Imanga (Lancaster Sound)",
                "Sannirutiup Imavik (Baffin Bay)", 
@@ -310,7 +629,8 @@ biomass_vert_region_to_plot <- biomass_vert_region %>%
   group_by(region.inuktitut) %>% 
   filter(Depth_100m != max(Depth_100m)) %>% 
   ungroup() %>% 
-  mutate(biomass_mgC_m2_se = biomass_mgC_m2_sd / sqrt(nprofiles))
+  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles),
+         biomass_mgC_m2_se = biomass_mgC_m2_sd / sqrt(nprofiles))
 
 g1 <- ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
@@ -351,8 +671,8 @@ all_plots <- c(list(g1), g28)
 cowplot::plot_grid(plotlist = all_plots, ncol = 2,
                    labels = "auto")
 
-# ggsave("figures/Fig4_vertical_biomass_profiles_20260208.png",
-#        width = 10, height = 12, units = "in", bg = "white")
+ggsave("figures/Fig4_vertical_biomass_profiles_20260318.png",
+       width = 10, height = 12, units = "in", bg = "white")
 
 # g1
 # ggsave("figures/Fig4a_vertical_biomass_profile.png",
@@ -537,26 +857,6 @@ ggplot(df.100m %>%
   xlab("Depth (m)") + ylab("Biomass (mg C m-3)")
 ```
 
-### OSM version
-- squares
-```{r}
-ggplot(biomass_vert_region_to_plot,
-             aes(x = Depth_100m, y = total_lipid_m3,
-                 color = region.inuktitut2)) +
-  geom_vline(xintercept = 200, linetype = "dashed", color = "gray40") +
-  geom_line(alpha = 0.5) +
-  geom_point(shape = 15, size = 3) +
-  coord_flip() +
-  scale_x_reverse(breaks = seq(0,2400,200), expand = c(0.02,0.02)) +
-  scale_y_continuous(expand = c(0.01,0.01)) +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  theme(legend.position = "none") +
-  xlab("Depth (m)") + ylab("Wax ester biomass (mg C m-3)")
-
-ggsave("figures/OSM_vertical_WE_m3.png", 
-       width = 4, height = 6, units = "in", bg = "white")
-```
 
 
 # 4. Statistical comparison
@@ -1108,8 +1408,8 @@ ggplot(df.region.dbins,
   ncol = 1, labels = "auto"
 )
 
-ggsave("figures/Supp_fig5_total_flux_by_depth_bins.png",
-       width = 6, height = 8, units = "in", bg = "white")
+# ggsave("figures/Supp_fig5_total_flux_by_depth_bins.png",
+#        width = 6, height = 8, units = "in", bg = "white")
 
 
 ```

@@ -11,9 +11,6 @@
 library(tidyverse)
 `%notin%` <- Negate(`%in%`)
 
-# Get the list of excluded UVP6 profiles
-load("data/UVP6_Calanus_metadata_20260129.RData")
-rm(volumes.df, region_rename, pg_meta)
 
 fol <- "C:/Sync/UVP6_Data/CTD_profiles/"
 file <- paste0(fol, "amundsen12713_317e_649b_ef03.csv")
@@ -44,8 +41,7 @@ ctd.5a <- ctd.5a %>%
   select(any_of(colnames(ctd)))
 
 
-# TODO Append the leg 5a data
-
+# Append the leg 5a data
 ctd <- ctd %>% 
   bind_rows(ctd.5a) %>% 
   arrange(datetime)
@@ -66,8 +62,6 @@ ctd_profiles <- ctd %>%
 # Open metadata for UVP6 casts (the xlsx file has more metadata)
 uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
                                    sheet = "ECOPART_summary") %>% 
-  filter(Profile %in% Amund_UVP6_meta$sample_id) %>% 
-  filter(Profile %notin% to_exclude$sample_id) %>% 
   # The UVP6 stations named MAK-2024-M1-Far and MAK-2024-M1-Near are called, MAK-2024-M1 only. Adjust the station names
   mutate(station = if_else(Profile == "am_leg2_makM1far_1", "MAK-2024-M1", station),
          station = if_else(Profile == "am_leg2_makM1near_1", "MAK-2024-M1", station)) %>% 
@@ -117,38 +111,63 @@ ctd <- ctd %>%
 
 ctd_cnames <- cnames
 
-save(file = "data/uvp6_associated_ctd_20260202.RData",
+# The raw CTD profiles
+save(file = "data/uvp6_associated_ctd_20260320.RData",
      ctd, ctd_profiles, uvp6_ctd_match, ctd_cnames)
 
 
-# ggplot(ctd %>% 
-#          filter(!is.na(te90)), 
-#        aes(x = depth, y = te90, color = psal) ) +
+
+# Average to 5m bins to match the UVP6 profiles
+temp_profiles <- ctd %>% 
+  mutate(depth_bin = floor(pressure/5)*5)  %>% 
+  group_by(filename, cruise_name, station, datetime, 
+           latitude, longitude, depth_bin) %>% 
+  summarise(temp.mean = mean(te90, na.rm = T),
+            temp.sd = sd(te90, na.rm = T),
+            ndepths = n(), .groups = "drop")
+
+# Calculate 100 m bin averages which might be useful to fill in missing depths
+temp_profiles_100 <- ctd %>% 
+  mutate(depth_bin = floor(pressure/100)*100)  %>% 
+  group_by(filename, cruise_name, station, datetime, 
+           latitude, longitude, depth_bin) %>% 
+  summarise(temp.mean = mean(te90, na.rm = T),
+            temp.sd = sd(te90, na.rm = T),
+            ndepths = n(), .groups = "drop")
+
+# save(file = "data/uvp6_associated_ctd_20260320.RData",
+#      temp_profiles, temp_profiles_100, uvp6_ctd_match)
+
+
+
+# # Inspect CTD profiles
+# AA <- ctd %>% filter(cruise_number == "2024_05")
+# ggplot(AA %>%
+#          filter(!is.na(te90)),
+#        aes(x = pressure, y = te90, color = psal) ) +
 #   geom_point() +
 #   coord_flip() +
 #   scale_x_reverse() +
 #   scale_color_viridis_c() +
 #   facet_wrap(~cruise_name, scales = "free")
 # 
-# 
-# ggplot(ctd %>% 
-#          filter(!is.na(psal)), 
-#        aes(x = depth, y = psal, color = te90) ) +
+# ggplot(AA %>%
+#          filter(!is.na(psal)),
+#        aes(x = pressure, y = psal, color = te90) ) +
 #   geom_point() +
 #   coord_flip() +
 #   scale_x_reverse() +
 #   scale_color_viridis_c() +
 #   facet_wrap(~cruise_name, scales = "free")
-
-AA <- ctd %>% filter(cruise_number == "2024_05")
-AA.ctd <- oce::as.ctd(salinity = AA$psal,
-                      temperature = AA$te90,
-                      pressure = AA$pressure,
-                      time = AA$datetime,
-                      ship = AA$platform_name,
-                      cruise = AA$cruise_name,
-                      station = AA$station,
-                      longitude = AA$longitude,
-                      latitude = AA$latitude)
-
-oce::plotTS(AA.ctd)
+# 
+# AA.ctd <- oce::as.ctd(salinity = AA$psal,
+#                       temperature = AA$te90,
+#                       pressure = AA$pressure,
+#                       time = AA$datetime,
+#                       ship = AA$platform_name,
+#                       cruise = AA$cruise_name,
+#                       station = AA$station,
+#                       longitude = AA$longitude,
+#                       latitude = AA$latitude)
+# 
+# oce::plotTS(AA.ctd)

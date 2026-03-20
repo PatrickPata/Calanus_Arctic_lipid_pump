@@ -36,8 +36,8 @@ rm(Amund_UVP6_meta, pg_meta, region_rename, volumes.df)
 load("data/uvp6_CNN_segmentations_morphotraits_20260317.RData")
 # load("data/uvp6_CNN_segmentations_morphotraits_20251208.RData")
 
-# The CTD data temperature and region names/color
-load("data/ctd_temperature_100m_averages_20260202.RData")
+# # The CTD data temperature and region names/color
+# load("data/ctd_temperature_100m_averages_20260202.RData")
 
 # The random forest model
 load("functions/random_forest_carbon_trait_models.RData")
@@ -192,15 +192,16 @@ indiv_traits <- segmented.images %>%
                      waxester_mass_mgC, lipid_fullness)) %>% 
   
   filter(sample_id %notin% to_exclude$sample_id) %>% 
-  # Assign 100 m depth bin
+  # Assign 100 m depth bin 
+  # TODO Change to 5m *************
   mutate(temp_depth_bin = floor(object_depth_max/100)*100) %>% 
   
   # Add the ctd temperature data for the depth where individual was captured
   # Assign the ctd file name for the profiles
-  left_join(uvp6_ctd_match %>% 
+  left_join(uvp6_ctd_match %>%
               distinct(sample_id,
                        ctd_filename, profile_group, region),
-            by = join_by(sample_id)) %>% 
+            by = join_by(sample_id)) %>%
   
   # Exclude the images from excluded region
   filter(!is.na(region))
@@ -497,8 +498,8 @@ plot_grid(
   
   nrow = 1)
 
-# ggsave("figures/indiv_trait_distribution_20251214.png",
-#        height = 7, width = 14, units = "in", bg = "white")
+ggsave("figures/indiv_trait_distribution_20251214.png",
+       height = 7, width = 14, units = "in", bg = "white")
 
 ggplot(df_to_plot,
            aes(x = diapauseDuration_day,

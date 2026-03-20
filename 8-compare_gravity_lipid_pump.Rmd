@@ -194,7 +194,7 @@ ggplot(pocFlux.region,
                     ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
                 linetype = "dashed") +
   geom_point(aes(fill = region.inuktitut), 
-             size = 4, color = "black", alpha = 0.8) +
+             size = 4, color = "black", alpha = 1) +
   scale_x_continuous(breaks = seq(0,40,2), limits = c(0, 38), expand = c(0,0)) +
   scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0.1)) +
   
@@ -211,9 +211,9 @@ ggplot(pocFlux.region,
         legend.title.text = element_text(size = 12),
         legend.justification = c(1, 1),
         legend.box.background = element_rect(fill = "white", color = "black")) +
-  guides(color = guide_legend(ncol = 2),
+  guides(fill = guide_legend(ncol = 2),
          shape = guide_legend(ncol = 2)) + 
-  xlab("POC flux 200 m-300 m (g C m⁻² y⁻¹)") +
+  xlab("POC flux (g C m⁻² y⁻¹)") +
   ylab("Lipid pump (g C m⁻² y⁻¹)")
 
 

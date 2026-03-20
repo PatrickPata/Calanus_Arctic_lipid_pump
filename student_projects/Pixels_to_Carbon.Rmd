@@ -68,6 +68,7 @@ df.segmentations <- df.segmentations %>%
   filter(prosome_pixels >= 249 & prosome_pixels <= 3282) %>% 
   filter(lipid_pixels >= 82 & lipid_pixels <= 1730)
 
+%>%
 print(paste("N =", nrow(uvp.meta)-nrow(df.segmentations),
             "images were excluded by the outlier filters."))
 
@@ -122,6 +123,27 @@ indiv.traits <- df.segmentations %>%
   # Calculate lipid fullness as % carbon in lipid sac WE
   mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100)
 ```
+
+
+
+
+```{r}
+ggplot(indiv.traits,
+        aes(x = waxester_mass_mgC, y = lipid_fullness,
+            color = prosome_length_mm)) +
+  geom_point() +
+  scale_color_viridis_c()
+
+
+ggplot(indiv.traits,
+        aes(x = waxester_mass_mgC, y = Depth_5m ,
+            color = lipid_fullness)) +
+  geom_point() +
+  scale_y_reverse() +
+  scale_color_viridis_c()
+```
+
+
 
 ## Inspect the distribution of traits for the individuals imaged
 ```{r, eval=FALSE}

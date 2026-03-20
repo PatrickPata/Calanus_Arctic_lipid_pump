@@ -26,9 +26,7 @@ hydrobios.meta <- hydrobios %>%
             n_nets = length(as.numeric(unlist(strsplit(SAMPLE_NETS, "\\+")))), 
             .groups = "drop")  
 
-
-
-# TODO Check if stations match
+# Check if stations match
 uvp6.meta <- uvp6_profiles %>% 
   select(sample_id = Profile,
          cruise_year, uvp_leg = Cruise,
@@ -47,13 +45,20 @@ uvp_net_match <- left_join(hydrobios.meta,
                            by = join_by(cruise_year, STATION_NAME)) 
 
 # Export the net match
+# 25 hydrobios stations with 1 UVP6 cast, 3 no uvp6 cast, 28 with > 1 uvp cast
 save(uvp_net_match,
      file = "data/uvp_hydrobios_station_match_20260203.RData")
+
+
+# ---------- Additional plots ----------
 
 #  CHECK can be multiple when there were more than one ctd cast/station
 AA <- uvp_net_match %>% 
   group_by(cruise_year, STATION_NAME) %>% 
-  filter(n() > 1)
+  filter(n() > 1) %>% 
+  distinct()
+  
+  filter(!is.na(uvp_stn))
 
 
 # These sites do not have matching station names:

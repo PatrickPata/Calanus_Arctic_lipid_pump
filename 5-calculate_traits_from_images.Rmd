@@ -292,6 +292,7 @@ indiv_traits <- indiv_traits %>%
 The indiv_traits dataframe includes images of individuals classified as "Calanus spp" and were segmented manually or with CNN (or the RF predictions when the CNN was bad). It also includes the RF predicted structural and lipid carbon values for images with major axis length >3 mm and were validated and classified as Calanoida/Copepoda, which are likely to be Calanus spp.
 ```{r, eval=FALSE}
 save(indiv_traits, 
+     volumes.df, region_rename, Amund_UVP6_meta,
      file = "data/uvp6_images_calculated_traits_20260321.RData")
 ```
 

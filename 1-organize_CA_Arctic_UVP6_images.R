@@ -399,7 +399,9 @@ region_rename <- data.frame(
 
 Amund_UVP6_meta <- Amund_UVP6_meta %>% 
   left_join(region_rename) %>% 
-  select(-region.color)
+  select(-region.color) %>%  
+  # Add the station_year to mark repeated profiles in the same station
+  mutate(station_year = paste(sample_stationid_ed, Year)) 
 
 # # 12. Export the curated data files
 #   save(Amund_UVP6_meta,

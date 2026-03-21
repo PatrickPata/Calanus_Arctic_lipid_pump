@@ -364,6 +364,7 @@ p3 <- ggplot(comp_uvp_net, aes(x = uvp_abundance_m2,
   theme(legend.position = "none")
 
 p2
+p3
 ```
 
 

@@ -26,16 +26,22 @@ hydrobios.meta <- readxl::read_xlsx(fname,
 
 
 # --- Match the Hydrobios and net data ----
-
-# List of UVP casts for 2023 and 2024
-uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
-                                   sheet = "ECOPART_summary") %>% 
-  filter(!is.na(region)) %>% 
-  filter(Cruise != "darkedge") %>% 
-  mutate(cruise_year = year(`yyyy-mm-dd hh:mm`)) %>%  # assign year
-  select(region, sample_id = Profile, cruise_year, uvp_leg = Cruise,
-         STATION_NAME = Site, uvp_stn = station, uvp_Date = `yyyy-mm-dd hh:mm`,
-         uvp_Longtiude = Longitude, uvp_Latitude = Latitude)
+# TODO use the station_year instead of sample_id
+load("data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
+rm(all.copepods.uvp6, region_rename, segmented.images, volumes.df)
+uvp6_profiles <- Amund_UVP6_meta %>% 
+  arrange(-bottom_depth_m) %>% 
+  distinct(station_year, .keep_all = T) %>% 
+  select(region.inuktitut, reg.inuk, station_year, 
+         cruise_year = Year, uvp_leg = sample_cruise,
+         STATION_NAME = sample_stationid_ed, 
+         uvp_stn = sample_stationid, uvp_Date = object_date,
+         uvp_Longtiude = object_lon, uvp_Latitude = object_lat) %>% 
+  # manually edit the UVP station name to match net names
+  mutate(STATION_NAME = if_else(STATION_NAME == "TCA_BB2",
+                                "TCA-BB2", STATION_NAME),
+         STATION_NAME = if_else(STATION_NAME == "CA4-23",
+                                "C4-23", STATION_NAME)) 
 
 # List of hydrobios stations 
 hydrobios.meta2 <- hydrobios.meta %>% 
@@ -51,14 +57,10 @@ hydrobios.meta2 <- hydrobios.meta %>%
 # Match stations
 # Note that some will be excluded later if the UVP6 profile will not be used
 uvp_net_match <- left_join(hydrobios.meta2,
-                           uvp6_profiles %>% 
-                             # manually edit the UVP station name to match here
-                             mutate(STATION_NAME = if_else(STATION_NAME == "TCA_BB2",
-                                                           "TCA-BB2", STATION_NAME),
-                                    STATION_NAME = if_else(STATION_NAME == "CA4-23",
-                                                           "C4-23", STATION_NAME)),
+                           uvp6_profiles,
                            by = join_by(cruise_year, STATION_NAME)) %>% 
   filter(!is.na(uvp_stn)) 
+
 
 # subset the hydrobios metadata to only include samples in uvp_net_match
 hydrobios.meta <- hydrobios.meta %>% 
@@ -109,6 +111,6 @@ net.integ <- calanus %>%
 
 # ---- Export ----
 save(uvp_net_match, hydrobios.meta, calanus, net.integ, 
-     file = "data/hydrobios_net_calanus_20263020.RData")
+     file = "data/hydrobios_net_calanus_20260321.RData")
 
 

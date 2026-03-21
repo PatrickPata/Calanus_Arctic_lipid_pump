@@ -1,0 +1,403 @@
+---
+title: "Organize hydrobios net data"
+author: "Patrick Pata"
+date: "2026-02-03"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+This script curates the 2023 and 2024 hydrobios stratified net data provided by the KEBABB project through C. Aubry. The data will then be explore and organized for comparison with the UVP6 copepod count data for similar stations.
+
+The data file is an .xlsx spreadsheet with tabs named "zooplankton abundances" and "sampling details".
+
+The stratified nets typically have 0-20, 20-60, 60-100, 100-150, 150-250, then the rest depends on bottom depth.
+
+Notes from C. Aubry:
+- A note on station RA62, nets 6 and 7 were analyzed by Zoé and then she decided to pool together a ½ subsample of nets 6+7+8+9 that she analyzed. So, beware of this tricky trick.
+- Resolution for RA62: retain only 6+7+8+9 to get 2-100m abundance, exclude 6 & 7
+- Also, for the KEBABB protocol, there is an extra “fraction” referred as “100% macro crustacean” (>7,5mm). This fraction was not included in the computation of the total abundance. Only fractions for std taxo analysis protocol - 2 fractions: large(>1mm), small were used for each analysis (sieved over 1mm sieve. Large fraction retained on it, small fraction through it (1mm-200um))
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load libaries and data files
+```{r}
+library(tidyverse)
+library(cowplot)
+library(here)
+library(ggpattern)
+
+`%notin%` <- Negate(`%in%`)
+
+# Net data
+load("data/hydrobios_net_calanus_20260321.RData")
+# UVP indiv data
+load("data/profile_integrated_cflux_20260321.RData")
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+
+clrs <- c("sienna2","deeppink1","forestgreen","goldenrod2","turquoise3","purple2","blue1")
+```
+
+
+
+# Species composition of nets by region
+```{r}
+# Calculate net integrated abundance and biomass
+species.comp.region <- calanus %>%
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
+           TAXON_ID) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
+            total_indiv_count = sum(indiv_count),
+            maxDepth = max(MAX_SAMPLE_DEPTH),
+            nbins = n(),
+            .groups = "drop") %>% 
+  left_join(uvp_net_match %>% 
+              distinct(STATION_NAME, reg.inuk),
+            by = "STATION_NAME") %>% 
+  group_by(reg.inuk, TAXON_ID) %>% 
+  summarise(mean_total_abund_m2 = mean(total_abundance_m2),
+            mean_mean_abund_m3 = mean(mean_abundance_m3),
+            n = n(),
+            .groups = "drop") %>% 
+  mutate(TAXON_ID = case_match(TAXON_ID,
+                               "Calanus finmarchicus" ~ "Cfin CV-F",
+                               "Calanus glacialis" ~ "Cgla CIV-F",
+                               "Calanus hyperboreus" ~ "Chyp CIV-F"))
+  # mutate(TAXON_ID = case_match(TAXON_ID,
+  #                              "Calanus finmarchicus" ~ "C. finmarchicus CV-F",
+  #                              "Calanus glacialis" ~ "C. glacialis CIV-F",
+  #                              "Calanus hyperboreus" ~ "C. hyperboreus CIV-F"))
+
+ggplot(species.comp.region, aes(x = reg.inuk, y = mean_total_abund_m2,
+                                fill = TAXON_ID)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_fill_manual(values = c("gray10","gray90","gray50"),
+                    name = "Calanus\nspecies",
+                    guide = guide_legend(reverse = TRUE) )+
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  scale_x_discrete(limits = rev) +
+  ylab("% Abundance") +
+  coord_flip() +
+  theme(axis.title.y = element_blank())
+
+```
+
+# Match UVP casts
+
+
+# Calculate difference in integrated abundance between nets and uvp
+```{r}
+comp_uvp_net <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  select(station_year, uvp_abundance_m2 = abundance_m2, 
+         region.inuktitut:bottom_depth_m) %>% 
+  left_join(uvp_net_match %>% 
+              select(station_year, STATION_NAME, DEPLOYMENT_DATE_START),
+            by = "station_year") %>% 
+  filter(!is.na(STATION_NAME)) %>% 
+  
+  # join net abundance
+  left_join(net.integ %>% 
+              select(STATION_NAME, DEPLOYMENT_DATE_START,
+                     net_abundance_m2 = total_abundance_m2),
+            by = join_by(STATION_NAME, DEPLOYMENT_DATE_START)) %>% 
+  
+  # calculate abundance difference
+  mutate(rel_diff_net = (net_abundance_m2 - uvp_abundance_m2) / net_abundance_m2) %>% 
+  mutate(net_factor = net_abundance_m2/uvp_abundance_m2)
+
+# Median 1.4x conversion of UVP to net abundance
+summary(comp_uvp_net$net_factor)
+summary(comp_uvp_net$rel_diff_net)
+
+# major axis regression to check bias 
+# slope >1, accellerating (overestimation by UVP at high abundance), underestimation at low
+# SMA intercept -0.802, which is 10^(-0.802), so 16% underestimation multiplicative bias factor, on average
+reg.model <- lmodel2::lmodel2(log10(net_abundance_m2) ~ log10(uvp_abundance_m2), 
+           data = comp_uvp_net)
+sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]
+10^(sma$Intercept)*100 # average bias factor
+
+# *** For the CI area in the figure **
+# SMA slope CI from lmodel2 output
+sma_ci <- reg.model$confidence.intervals[ reg.model$confidence.intervals$Method == "SMA",]
+# Means on the fitted (log10) scale
+xbar <- mean(log10(comp_uvp_net$uvp_abundance_m2), na.rm = TRUE)
+ybar <- mean(log10(comp_uvp_net$net_abundance_m2), na.rm = TRUE)
+# Fitted slope/intercept
+b1 <- sma$Slope
+b0 <- ybar - b1 * xbar
+# CI slopes
+b1_lo <- sma_ci$`2.5%-Slope`
+b1_hi <- sma_ci$`97.5%-Slope`
+# Corresponding intercepts so each CI line passes through the centroid
+b0_lo <- ybar - b1_lo * xbar
+b0_hi <- ybar - b1_hi * xbar
+# x grid on original scale
+x_seq <- 10^seq(log10(min(comp_uvp_net$uvp_abundance_m2, na.rm = TRUE)),
+                log10(max(comp_uvp_net$uvp_abundance_m2, na.rm = TRUE)),
+                length.out = 200)
+# Build fitted and CI lines back on original scale
+line_df <- data.frame(uvp_abundance_m2 = x_seq,
+                      fit = 10^(b0 + b1 * log10(x_seq)),
+                      lo  = 10^(b0_lo + b1_lo * log10(x_seq)),
+                      hi  = 10^(b0_hi + b1_hi * log10(x_seq)))
+
+
+
+ggplot(comp_uvp_net, aes(x = uvp_abundance_m2, 
+                         y = net_abundance_m2)) +
+  geom_abline() +
+  geom_ribbon(data = line_df,
+              aes(x = uvp_abundance_m2, ymin = lo, ymax = hi),
+              inherit.aes = FALSE,
+              alpha = 0.15) +
+  geom_line(data = line_df,
+            aes(x = uvp_abundance_m2, y = fit),
+            linetype = "dashed") +
+  geom_point(aes(color = region.inuktitut), size = 2) +
+  geom_abline(intercept = b1, slope = b0, 
+              linetype = "dashed") +
+  
+  geom_point(aes(color = region.inuktitut),
+             size = 2) +
+  scale_x_log10() + scale_y_log10() +
+  scale_color_manual(values = clrs,
+                     name = "Region") +
+  coord_fixed(ratio = 1) +
+  xlab("UVP6 abundance (# m⁻²)") + 
+  ylab("Hydrobios abundance (# m⁻²)") +
+  theme(legend.position = "none")
+
+
+ggplot(comp_uvp_net, aes(x = net_factor)) +
+  geom_histogram()
+```
+
+# Temporary export just to plot figure 3b
+```{r}
+reg.model
+
+save(comp_uvp_net, species.comp.region, net.integ, net.integ.species, calanus,
+     line_df, b0, b1,
+     file = "data/temporary_net_uvp_match_20260321.RData")
+
+```
+
+
+
+# --- old scripts Feb 2026 ----
+
+## Overall regional averages
+Instead of the pairwise casts, calculate the averages of abundances per region. 
+```{r}
+df <- comp_uvp_net %>% 
+  group_by(region.inuktitut) %>% 
+  summarise(across(c(net_abundance_m2, uvp_abundance_m2),
+            list(mean = mean, sd = sd, min = min, max = max),
+              na.rm = TRUE),
+            n = n(), .groups = "drop") %>% 
+  # Calculate standard errors
+  mutate(net_abundance_m2_se = net_abundance_m2_sd / sqrt(n)) %>% 
+  mutate(uvp_abundance_m2_se = uvp_abundance_m2_sd / sqrt(n))
+
+ggplot(df, aes(x = net_abundance_m2_mean, y = uvp_abundance_m2_mean)) +
+  geom_abline() +
+  geom_smooth(method = "lm", se = F, linetype = "dashed", color = "black") +
+  geom_point(size = 5, aes(color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = net_abundance_m2_mean-net_abundance_m2_se,
+                    xmax = net_abundance_m2_mean+net_abundance_m2_se,
+                    color = region.inuktitut), 
+                show.legend = FALSE) +
+  geom_errorbar(aes(ymin = uvp_abundance_m2_mean-uvp_abundance_m2_se,
+                    ymax = uvp_abundance_m2_mean+uvp_abundance_m2_se,
+                    color = region.inuktitut), 
+                show.legend = FALSE) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  # geom_text(aes(label = n.x), color = "black") +
+  coord_flip() +
+  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+
+
+# ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_49stns_SE.png",
+#        width = 7, height = 4, units = "in", bg = "white")
+
+# Include region averages
+ggplot(comp_uvp_net) +
+  geom_abline() +
+  geom_ribbon(data = line_df,
+              aes(x = uvp_abundance_m2, ymin = lo, ymax = hi),
+              inherit.aes = FALSE,
+              alpha = 0.15) +
+  geom_line(data = line_df,
+            aes(x = uvp_abundance_m2, y = fit),
+            linetype = "dashed") +
+  geom_point(aes(x = uvp_abundance_m2, 
+                 y = net_abundance_m2,
+                 color = region.inuktitut), size = 2, alpha = 0.7) +
+  
+  scale_x_log10() + scale_y_log10() +
+  scale_color_manual(values = clrs,
+                     name = "Region") +
+ # geom_point(data = df,
+ #            aes(x = uvp_abundance_m2_mean, y = net_abundance_m2_mean,
+ #                color = region.inuktitut),
+ #            shape = 5, size = 5) +
+ #  geom_errorbar(data = df,
+ #                aes(ymin = net_abundance_m2_mean-net_abundance_m2_se,
+ #                    ymax = net_abundance_m2_mean+net_abundance_m2_se,
+ #                    x = uvp_abundance_m2_mean, width = 0,
+ #                    color = region.inuktitut), 
+ #                show.legend = FALSE) +
+ #  geom_errorbar(data = df,
+ #                aes(xmin = uvp_abundance_m2_mean-uvp_abundance_m2_se,
+ #                    xmax = uvp_abundance_m2_mean+uvp_abundance_m2_se,
+ #                    y = net_abundance_m2_mean,  width = 0,
+ #                    color = region.inuktitut), 
+ #                show.legend = FALSE) +
+ #  
+  coord_fixed(ratio = 1) +
+  xlab("UVP6 abundance (# m⁻²)") + 
+  ylab("Hydrobios abundance (# m⁻²)") +
+  theme(legend.position = "none")
+
+```
+
+
+```{r}
+# If including all UVP casts for a region
+region.uvpALL <- df.5m.zero %>% 
+  # Sum across 3 taxa
+  filter(taxa == "Calanus") %>%
+  group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = sum(abundance),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance/Sampled_volume_m3,
+         abundance_m2 = abundance_m3 * 5) %>% 
+  # vertically integrate
+  group_by(sample_id) %>% 
+  summarise(total_uvp_abundance_m2 = sum(abundance_m2),
+            mean_uvp_abundance_m3 = mean(abundance_m3)) %>% 
+  # Add region information
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region, region.inuktitut),
+            by = "sample_id") %>% 
+    group_by(region.inuktitut) %>% 
+  summarise(across(c(total_uvp_abundance_m2),
+            list(mean = mean, sd = sd, min = min, max = max),
+              na.rm = TRUE),
+            n = n(), .groups = "drop") %>% 
+  # Calculate standard errors
+  mutate(total_uvp_abundance_m2_se = total_uvp_abundance_m2_sd / sqrt(n))
+
+df2 <- left_join(region.hydrobios, region.uvpALL, by = "region.inuktitut")
+
+ggplot(df2, aes(x = total_net_abundance_m2_mean, y = total_uvp_abundance_m2_mean)) +
+  geom_abline() +
+  geom_smooth(method = "lm", se = F) +
+  geom_point(size = 5, aes(color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = total_net_abundance_m2_mean-total_net_abundance_m2_se,
+                    xmax = total_net_abundance_m2_mean+total_net_abundance_m2_se,
+                    color = region.inuktitut), 
+                show.legend = FALSE) +
+  geom_errorbar(aes(ymin = total_uvp_abundance_m2_mean-total_uvp_abundance_m2_se,
+                    ymax = total_uvp_abundance_m2_mean+total_uvp_abundance_m2_se,
+                    color = region.inuktitut), 
+                show.legend = FALSE) +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  geom_text(aes(label = n.x), color = "black") +
+  coord_flip() +
+  xlab("Hydrobios (indiv m-2)") + ylab("UVP6 (indiv m-2)")
+
+# ggsave("figures/NET_UVP_match_regional_integrated_abundance_m2_SE.png",
+#        width = 7, height = 4, units = "in", bg = "white")
+
+```
+
+
+## Check match for 1 station
+```{r, eval=FALSE}
+AA <- df.5m.zero %>% 
+  filter(sample_id == "amundsen2023_a3_2") %>% 
+  group_by(sample_id, Depth_5m, Sampled_volume_m3) %>% 
+  summarise(abundance = sum(abundance),
+            .groups = "drop") %>% 
+  mutate(abundance_m3 = abundance/Sampled_volume_m3) 
+
+BB <- calanus %>% 
+  filter(STATION_NAME %in% c("A3")) %>% 
+  filter(YEAR == 2023) %>% 
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START, 
+           SAMPLING_NET_ID, volume_filtered_m3, Depth_mid, Depth_range,
+           MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
+           TAXON_ID, stage) %>% 
+  summarise(abundance_m3 = sum(abundance_m3),
+            abundance_m2 = sum(abundance_m2),
+            indiv_count = sum(indiv_count),
+            n = n(), .groups = "drop") %>% 
+  mutate(specieStage = substr(TAXON_ID,9,11)) %>% 
+  mutate(specieStage = paste0("C",specieStage," ",stage))
+
+
+# for different depth bin widths
+ggplot(BB, aes(x = Depth_mid, y = abundance_m3)) +
+  geom_col(aes(width = Depth_range, fill = specieStage),
+    position = "stack",color = "black") +
+  coord_flip() +
+  scale_x_reverse() +
+  theme(legend.position = "right") 
+
+ggplot(AA %>% 
+         filter(abundance_m3 > 0), aes(x = Depth_5m, y = abundance_m3)) +
+  geom_bar(stat = "identity") +
+  coord_flip() + scale_x_reverse()
+
+# Reorganize UVP 5m to binning of the net cast
+BB.total <- BB %>% 
+  group_by(YEAR_STATION, volume_filtered_m3,
+           MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
+           Depth_mid, Depth_range) %>% 
+  summarise(net_abundance_m3 = sum(abundance_m3),
+            net_abundance_m2 = sum(abundance_m2),
+            .groups = "drop")
+
+# Left join to match the Depth_5m in AA according to the MIN_SAMPLE_DEPTH and MAX_SAMPLE_DEPTH in BB
+CC <- AA %>% 
+  left_join(BB.total, by = join_by(Depth_5m >= MIN_SAMPLE_DEPTH,
+                             Depth_5m < MAX_SAMPLE_DEPTH)) %>% 
+  # add NAs: UVP cast deeper than net
+  mutate(Depth_mid = if_else(is.na(Depth_mid), 
+                             max(Depth_5m), Depth_mid)) %>% 
+  group_by(MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
+           Depth_mid, Depth_range) %>% 
+  summarise(uvp_abundance_m2 = sum(abundance_m3 *5),
+            uvp_abundance_m3 = mean(abundance_m3),
+            uvp_abundance_m3_sd = sd(abundance_m3),
+            n5mbins = n(),
+            .groups = "drop")
+
+ggplot(BB.total, aes(x = Depth_mid)) +
+  geom_col(aes(y = net_abundance_m3, width = Depth_range),
+    position = "stack", color = "black", fill = "white") +
+  coord_flip() +
+  scale_x_reverse() +
+  geom_point(data = CC,
+             aes(x = Depth_mid, y = uvp_abundance_m3),
+             color = "red") +
+  # geom_errorbar(data = CC, aes(x = Depth_mid, 
+  #                ymin = uvp_abundance_m3 - uvp_abundance_m3_sd,
+  #                ymax = uvp_abundance_m3 + uvp_abundance_m3_sd), color = "red") +
+  theme(legend.position = "right") 
+```
+
+

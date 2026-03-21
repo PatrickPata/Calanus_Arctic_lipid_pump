@@ -111,11 +111,6 @@ ctd <- ctd %>%
 
 ctd_cnames <- cnames
 
-# The raw CTD profiles
-save(file = "data/uvp6_associated_ctd_20260320.RData",
-     ctd, ctd_profiles, uvp6_ctd_match, ctd_cnames)
-
-
 
 # Average to 5m bins to match the UVP6 profiles
 temp_profiles <- ctd %>% 
@@ -135,8 +130,8 @@ temp_profiles_100 <- ctd %>%
             temp.sd = sd(te90, na.rm = T),
             ndepths = n(), .groups = "drop")
 
-# save(file = "data/uvp6_associated_ctd_20260320.RData",
-#      temp_profiles, temp_profiles_100, uvp6_ctd_match)
+save(file = "data/uvp6_associated_ctd_20260320.RData",
+     ctd_profiles, temp_profiles, temp_profiles_100, uvp6_ctd_match)
 
 
 

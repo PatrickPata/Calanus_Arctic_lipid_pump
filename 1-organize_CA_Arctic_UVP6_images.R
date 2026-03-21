@@ -403,9 +403,9 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
   # Add the station_year to mark repeated profiles in the same station
   mutate(station_year = paste(sample_stationid_ed, Year)) 
 
-# # 12. Export the curated data files
-#   save(Amund_UVP6_meta,
-#        segmented.images, all.copepods.uvp6,
-#        volumes.df, region_rename, excluded_profiles,
-#        file = "data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
+# 12. Export the curated data files
+  save(Amund_UVP6_meta,
+       segmented.images, all.copepods.uvp6,
+       volumes.df, region_rename, excluded_profiles,
+       file = "data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
 

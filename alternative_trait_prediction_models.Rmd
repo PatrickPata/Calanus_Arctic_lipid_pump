@@ -15,9 +15,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(randomForest)
 library(randomForestExplainer)
-
 ```
 
+# 1. Prepare data
 1. Load the manual segmentations + Ecotaxa morpho traits then calculate traits
 N = 1,806
 ```{r}
@@ -35,14 +35,13 @@ res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-cont
 # UVP6 Resolution
 uvpRes <- 0.073
 
-# Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 based on 36-carbon chain lengths in (Kattner & Graeve 1991) 
-lambda <- (36*12) / (36*12 + 2*36 + 2*16)
+# Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 
+lambda <- 0.81
 
 # Conversion factor from mm3 -> WW -> C
 # If density asssumed as 1, the value below is the Carbon % Wet weight
 # 0.09 is the average for all calanoid copepod species
-# 0.0766 is the average for calanoid copepod species except lipid sac forming species
-prosomeWW2C <- 0.09 # 0.07666
+prosomeWW2C <- 0.09 
 
 
 # inner join to retain only images that have both segmentations
@@ -81,6 +80,7 @@ df.segmented <- inner_join(res.prosome, res.lipid.crop,
   
   # Streamline variables
   select(object_id, prosome_total_mgC, structural_carbon_mgC,
+         prosome_length_mm,
          waxester_mass_mgC, lipid_fullness)
 
 
@@ -106,17 +106,186 @@ rm(res.prosome, res.lipid.crop, Amund_UVP6, Amund_UVP6_meta, taxamatch)
 
 ## Plot a distribution
 ```{r, eval=FALSE}
-
 ggplot(df.segmented, aes(x = lipid_fullness)) + 
   geom_histogram(aes(y = ..count..), bins = 50, position = "identity", alpha = 0.4) +  # Histogram with counts
   geom_density(aes(y = ..density.. * nrow(df.segmented) * diff(range(df.segmented$lipid_fullness)) / 50), size = 1) +   # Scale density to match histogram
   xlim(c(20,80))
 
-# TODO Can add ranges of literature values
 ```
 
 
-# 2. Regression models
+# 2. Random forest model
+```{r}
+# subset data to simply be StructCarbon, WaxEster, + predictors
+df_for_rf <- df.segmented %>% 
+  select(c(structural_carbon_mgC, waxester_mass_mgC, 
+           prosome_length_mm, Major:PerimMajor))
+
+# Random forest regression on structural carbon mass
+set.seed(888)
+rf.model.prosome.mgC <- randomForest(structural_carbon_mgC ~ .,
+                      data = df_for_rf %>% 
+                        select(-c(waxester_mass_mgC, prosome_length_mm)), 
+                      importance = TRUE, proximity = TRUE)
+
+# Random forest regression on prosome length
+set.seed(888)
+rf.model.prosome.mm <- randomForest(prosome_length_mm ~ .,
+                      data = df_for_rf %>% 
+                        select(-c(structural_carbon_mgC, waxester_mass_mgC)), 
+                      importance = TRUE, proximity = TRUE)
+
+# Random forest regression on lipid (wax ester) mass
+set.seed(888)
+rf.model.lipid.mgC <- randomForest(waxester_mass_mgC ~ .,
+                      data = df_for_rf %>% 
+                        select(-c(structural_carbon_mgC, prosome_length_mm)), 
+                      importance = TRUE, proximity = TRUE)
+rf.model.prosome.mgC 
+rf.model.prosome.mm
+rf.model.lipid.mgC 
+
+
+
+save(rf.model.prosome.mgC, rf.model.prosome.mm, rf.model.lipid.mgC,
+     file = "functions/random_forest_carbon_trait_models_20260321.RData")
+```
+
+### Get SE of the predictions
+```{r, eval=FALSE}
+# Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
+prosome_predicted <-  predict(rf.model.prosome.mgC,
+               newdata = df.segmented %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+lipid_predicted <- predict(rf.model.lipid.mgC,
+               newdata = df.segmented %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+prosome_length_predicted <- predict(rf.model.prosome.mm,
+               newdata = df.segmented %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+df <- df.segmented %>% 
+  select(structural_carbon_mgC, waxester_mass_mgC, prosome_length_mm)
+df$structural_carbon_mgC_pred <- prosome_predicted$aggregate
+df$waxester_mass_mgC_pred <- lipid_predicted$aggregate
+df$prosome_length_predicted <- prosome_length_predicted$aggregate
+
+# Row-wise standard error (SD across trees)
+df$structural_carbon_mgC_se <- apply(prosome_predicted$individual, 1, sd)
+df$waxester_mass_mgC_se <- apply(lipid_predicted$individual, 1, sd)
+df$prosome_length_mm_se <- apply(prosome_length_predicted$individual, 1, sd)
+
+ggplot(df, aes(x = structural_carbon_mgC, y = structural_carbon_mgC_pred)) +
+  geom_abline() +
+  geom_point() +
+  geom_smooth(method = "lm", se = T)
+
+ggplot(df, aes(x = prosome_length_mm, y = prosome_length_predicted)) +
+  geom_abline() +
+  geom_point() +
+  geom_smooth(method = "lm", se = T)
+
+mean(df$structural_carbon_mgC)
+mean(df$structural_carbon_mgC_pred)
+mean(df$structural_carbon_mgC_se)
+sd(df$structural_carbon_mgC_se)
+
+
+mean(df$waxester_mass_mgC)
+mean(df$waxester_mass_mgC_pred)
+mean(df$waxester_mass_mgC_se)
+sd(df$waxester_mass_mgC_se)
+```
+
+
+### Get RMSE of random forest model
+```{r, eval=FALSE}
+calc_r2 <- function(x, y) {
+  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
+    df <- data.frame(x = x, y = y)
+    model <- lm(y ~ x, data = df, na.action = na.omit)
+    return(round(summary(model)$r.squared, 3))
+  } else {
+    return(NA) # Return NA if column is not numeric or has insufficient data
+  }
+}
+
+df.segmented$rf_pred_prosome <- predict(rf.model.prosome, newdata = df.segmented %>% 
+                             select(Major:PerimMajor))
+df.segmented$rf_pred_lipid <- predict(rf.model.lipid, newdata = df.segmented %>% 
+                             select(Major:PerimMajor))
+
+# Calculate RMSE
+rf_rmse_prosome = sqrt(mean((df.segmented$structural_carbon_mgC - 
+                               df.segmented$rf_pred_prosome)^2))
+rf_rmse_lipid = sqrt(mean((df.segmented$waxester_mass_mgC - 
+                             df.segmented$rf_pred_lipid)^2))
+
+# Plot comparison
+cowplot::plot_grid(
+  ggplot(df.segmented, aes(x = structural_carbon_mgC, 
+                             y = rf_pred_prosome)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", 
+             x = max(df.segmented$structural_carbon_mgC, na.rm = TRUE),
+             y = min(df.segmented$rf_pred_prosome, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df.segmented$structural_carbon_mgC,      
+                                             df.segmented$rf_pred_prosome)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Structural carbon - segmentation") + 
+    ylab("Structural carbon - random forest"),
+  
+   ggplot(df.segmented, aes(x = waxester_mass_mgC, 
+                              y = rf_pred_lipid)) +
+    geom_abline() +
+    geom_point(alpha = 0.4) +
+    geom_smooth(method = "lm") +
+    annotate("text", 
+             x = max(df.segmented$waxester_mass_mgC, na.rm = TRUE),
+             y = min(df.segmented$rf_pred_lipid, na.rm = TRUE),
+             label = paste0("R² = ", calc_r2(df.segmented$waxester_mass_mgC,
+                                             df.segmented$rf_pred_lipid)),
+             hjust = 1, vjust = 0, size = 5) +
+    xlab("Wax ester - segmentation") + 
+    ylab("Wax ester - random forest"),
+  
+  labels = "auto"
+)
+
+# ggsave("figures/UVP6_comparison_predictions_seg_rf.png",
+#        height = 4, width = 6, units = "in")
+
+```
+
+### importance of parameters
+Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
+```{r, eval=FALSE}
+cowplot::plot_grid(
+  plot_multi_way_importance(rf.model.prosome, size_measure = "no_of_nodes"),
+  plot_multi_way_importance(rf.model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
+  labels = "auto")
+
+# ggsave("figures/UVP6_rf_structural_importance.png",
+#        height = 4, width = 9, units = "in")
+
+
+cowplot::plot_grid(
+  plot_multi_way_importance(rf.model.lipid, size_measure = "no_of_nodes"),
+  plot_multi_way_importance(rf.model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
+  labels = "auto")
+
+# ggsave("figures/UVP6_rf_waxester_importance.png",
+#        height = 4, width = 9, units = "in")
+```
+
+
+
+
+# 3. Regression models
 ## Loop through predictors
 ```{r, eval=FALSE}
 # OLS regression model function
@@ -225,167 +394,7 @@ ggplot(df.segmented, aes(x = Area, y = waxester_mass_mgC)) +
   geom_point(aes(color = lipid_fullness), alpha = 0.6) +
   scale_color_viridis_c(guide = F) +
   geom_smooth(method = "lm", color = "red")
-
-
-
-
 ```
-
-
-
-
-
-# 3. Random forest model
-```{r}
-
-# subset data to simply be StructCarbon, WaxEster, + predictors
-df_for_rf <- df.segmented %>% 
-  select(c(structural_carbon_mgC, waxester_mass_mgC, Major:PerimMajor))
-
-# Random forest regression on structural carbon mass
-set.seed(888)
-rf.model.prosome <- randomForest(structural_carbon_mgC ~ .,
-                      data = df_for_rf %>% 
-                        select(-waxester_mass_mgC), 
-                      importance = TRUE, proximity = TRUE)
-
-# Try random forest regression on lipid (wax ester) mass
-set.seed(888)
-rf.model.lipid <- randomForest(waxester_mass_mgC ~ .,
-                      data = df_for_rf %>% 
-                        select(-c(structural_carbon_mgC)), 
-                      importance = TRUE, proximity = TRUE)
-rf.model.prosome 
-rf.model.lipid 
-
-plot(rf.model.prosome)
-plot(rf.model.lipid)
-
-
-# save(rf.model.prosome, rf.model.lipid,
-#      file = "functions/random_forest_carbon_trait_models.RData")
-```
-
-### Get SE of the predictions
-```{r, eval=FALSE}
-# Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
-prosome_predicted <-  predict(rf.model.prosome,
-               newdata = df.segmented %>% 
-                 select(Major:PerimMajor), predict.all = T)
-
-lipid_predicted <- predict(rf.model.lipid,
-               newdata = df.segmented %>% 
-                 select(Major:PerimMajor), predict.all = T)
-
-df <- df.segmented %>% 
-  select(structural_carbon_mgC, waxester_mass_mgC)
-df$structural_carbon_mgC_pred <- prosome_predicted$aggregate
-df$waxester_mass_mgC_pred <- lipid_predicted$aggregate
-
-# Row-wise standard error (SD across trees)
-df$structural_carbon_mgC_se <- apply(prosome_predicted$individual, 1, sd)
-df$waxester_mass_mgC_se <- apply(lipid_predicted$individual, 1, sd)
-
-ggplot(df, aes(x = structural_carbon_mgC, y = structural_carbon_mgC_pred)) +
-  geom_abline() +
-  geom_point() +
-  geom_smooth(method = "lm", se = T)
-
-mean(df$structural_carbon_mgC)
-mean(df$structural_carbon_mgC_pred)
-mean(df$structural_carbon_mgC_se)
-sd(df$structural_carbon_mgC_se)
-
-
-mean(df$waxester_mass_mgC)
-mean(df$waxester_mass_mgC_pred)
-mean(df$waxester_mass_mgC_se)
-sd(df$waxester_mass_mgC_se)
-```
-
-
-### Get RMSE of random forest model
-```{r, eval=FALSE}
-calc_r2 <- function(x, y) {
-  if (is.numeric(x) && is.numeric(y) && length(na.omit(x)) > 1 && length(na.omit(y)) > 1) {
-    df <- data.frame(x = x, y = y)
-    model <- lm(y ~ x, data = df, na.action = na.omit)
-    return(round(summary(model)$r.squared, 3))
-  } else {
-    return(NA) # Return NA if column is not numeric or has insufficient data
-  }
-}
-
-df.segmented$rf_pred_prosome <- predict(rf.model.prosome, newdata = df.segmented %>% 
-                             select(Major:PerimMajor))
-df.segmented$rf_pred_lipid <- predict(rf.model.lipid, newdata = df.segmented %>% 
-                             select(Major:PerimMajor))
-
-# Calculate RMSE
-rf_rmse_prosome = sqrt(mean((df.segmented$structural_carbon_mgC - 
-                               df.segmented$rf_pred_prosome)^2))
-rf_rmse_lipid = sqrt(mean((df.segmented$waxester_mass_mgC - 
-                             df.segmented$rf_pred_lipid)^2))
-
-# Plot comparison
-cowplot::plot_grid(
-  ggplot(df.segmented, aes(x = structural_carbon_mgC, 
-                             y = rf_pred_prosome)) +
-    geom_abline() +
-    geom_point(alpha = 0.4) +
-    geom_smooth(method = "lm") +
-    annotate("text", 
-             x = max(df.segmented$structural_carbon_mgC, na.rm = TRUE),
-             y = min(df.segmented$rf_pred_prosome, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(df.segmented$structural_carbon_mgC,      
-                                             df.segmented$rf_pred_prosome)),
-             hjust = 1, vjust = 0, size = 5) +
-    xlab("Structural carbon - segmentation") + 
-    ylab("Structural carbon - random forest"),
-  
-   ggplot(df.segmented, aes(x = waxester_mass_mgC, 
-                              y = rf_pred_lipid)) +
-    geom_abline() +
-    geom_point(alpha = 0.4) +
-    geom_smooth(method = "lm") +
-    annotate("text", 
-             x = max(df.segmented$waxester_mass_mgC, na.rm = TRUE),
-             y = min(df.segmented$rf_pred_lipid, na.rm = TRUE),
-             label = paste0("R² = ", calc_r2(df.segmented$waxester_mass_mgC,
-                                             df.segmented$rf_pred_lipid)),
-             hjust = 1, vjust = 0, size = 5) +
-    xlab("Wax ester - segmentation") + 
-    ylab("Wax ester - random forest"),
-  
-  labels = "auto"
-)
-
-# ggsave("figures/UVP6_comparison_predictions_seg_rf.png",
-#        height = 4, width = 6, units = "in")
-
-```
-
-### importance of parameters
-Generally, the RF models mainly use area, and dimensions (major, feret, minor, perim) to model both prosome and lipid mass. Is this just a fancy allometric scaling model? The lipid mass predictor does value Fractal more which indicates that there is something more to this.
-```{r, eval=FALSE}
-cowplot::plot_grid(
-  plot_multi_way_importance(model.prosome, size_measure = "no_of_nodes"),
-  plot_multi_way_importance(model.prosome, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
-  labels = "auto")
-
-# ggsave("figures/UVP6_rf_structural_importance.png",
-#        height = 4, width = 9, units = "in")
-
-
-cowplot::plot_grid(
-  plot_multi_way_importance(model.lipid, size_measure = "no_of_nodes"),
-  plot_multi_way_importance(model.lipid, x_measure = "mse_increase", y_measure = "node_purity_increase", size_measure = "p_value", no_of_labels = 5),
-  labels = "auto")
-
-# ggsave("figures/UVP6_rf_waxester_importance.png",
-#        height = 4, width = 9, units = "in")
-```
-
 
 
 

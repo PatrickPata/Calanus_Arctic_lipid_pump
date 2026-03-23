@@ -7,21 +7,10 @@ output:
   pdf_document: default
 ---
 
-This script curates the 2023 and 2024 hydrobios stratified net data provided by the KEBABB project through C. Aubry. The data will then be explore and organized for comparison with the UVP6 copepod count data for similar stations.
-
-The data file is an .xlsx spreadsheet with tabs named "zooplankton abundances" and "sampling details".
-
-The stratified nets typically have 0-20, 20-60, 60-100, 100-150, 150-250, then the rest depends on bottom depth.
-
-Notes from C. Aubry:
-- A note on station RA62, nets 6 and 7 were analyzed by Zoé and then she decided to pool together a ½ subsample of nets 6+7+8+9 that she analyzed. So, beware of this tricky trick.
-- Resolution for RA62: retain only 6+7+8+9 to get 2-100m abundance, exclude 6 & 7
-- Also, for the KEBABB protocol, there is an extra “fraction” referred as “100% macro crustacean” (>7,5mm). This fraction was not included in the computation of the total abundance. Only fractions for std taxo analysis protocol - 2 fractions: large(>1mm), small were used for each analysis (sieved over 1mm sieve. Large fraction retained on it, small fraction through it (1mm-200um))
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
 
 # Load libaries and data files
 ```{r}
@@ -40,9 +29,9 @@ load("data/profile_integrated_cflux_20260321.RData")
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 
-clrs <- c("sienna2","deeppink1","forestgreen","goldenrod2","turquoise3","purple2","blue1")
+clrs <- c("sienna2","deeppink1","forestgreen","goldenrod2","turquoise3",
+          "purple2","blue1")
 ```
-
 
 
 # Species composition of nets by region
@@ -90,10 +79,7 @@ ggplot(species.comp.region, aes(x = reg.inuk, y = mean_total_abund_m2,
 
 ```
 
-# Match UVP casts
-
-
-# Calculate difference in integrated abundance between nets and uvp
+# Compare net and uvp abundances
 ```{r}
 comp_uvp_net <- df.profile %>% 
   filter(taxa == "Calanus") %>% 
@@ -111,7 +97,7 @@ comp_uvp_net <- df.profile %>%
             by = join_by(STATION_NAME, DEPLOYMENT_DATE_START)) %>% 
   
   # calculate abundance difference
-  mutate(rel_diff_net = (net_abundance_m2 - uvp_abundance_m2) / net_abundance_m2) %>% 
+  mutate(rel_diff_net = (net_abundance_m2 - uvp_abundance_m2) / net_abundance_m2) %>%
   mutate(net_factor = net_abundance_m2/uvp_abundance_m2)
 
 # Median 1.4x conversion of UVP to net abundance
@@ -182,13 +168,13 @@ ggplot(comp_uvp_net, aes(x = net_factor)) +
   geom_histogram()
 ```
 
-# Temporary export just to plot figure 3b
+# Export comparison results for figure 3b
 ```{r}
 reg.model
 
-save(comp_uvp_net, species.comp.region, net.integ, net.integ.species, calanus,
-     line_df, b0, b1,
-     file = "data/temporary_net_uvp_match_20260321.RData")
+save(comp_uvp_net, species.comp.region, 
+     reg.model, line_df, b0, b1,
+     file = "data/comparison_net_uvp_abundance_20260321.RData")
 
 ```
 

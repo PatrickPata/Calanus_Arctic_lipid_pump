@@ -28,6 +28,9 @@ library(tidyverse)
 theme_set(theme_bw())
 `%notin%` <- Negate(`%in%`)
 
+load("data/UVP6_ECOPART_Data_20260320.RData")
+
+
 cnames <- read.csv('data/Ecopart_UVP6_detailed_PAR_file_column_names.csv')
 
 # Note the the column headers need to be formatted properly

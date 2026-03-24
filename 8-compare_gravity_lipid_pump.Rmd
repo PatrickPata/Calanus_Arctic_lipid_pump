@@ -5,6 +5,7 @@ date: "2025-12-01"
 output: html_document
 ---
 
+Note that for UVP5, in Barth and Stone (2022), they removed the bottom 50m of each profile because they observed that the slowing of the CTD-rosette leads to high potential reimaging of particles.
 
 
 ```{r setup, include=FALSE}
@@ -22,13 +23,20 @@ load("data/POC_flux_temporary_20260323_ESDdirect.RData")
 
 # filter the poc flux data to samples in the image analysis
 pocFlux_station_year <- pocFlux_UVP6 %>% 
+    # Apply the correction in Barth and Stone (2022) wherein the bottom 50 m of each profile was removed due to observed high reimaging of particles as the UVP6 slows down.
+  group_by(sample_id) %>% 
+  mutate(maxSampleDepth = max(Depth_5m)) %>% 
+  ungroup() %>% 
+  filter(Depth_5m <= maxSampleDepth-50) %>% 
+  
   filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
-# merge to station-year
+  # merge to station-year
   left_join(Amund_UVP6_meta %>% 
-              select(sample_id, station_year, bottom_depth_m),
+              select(sample_id, station_year, 
+                     bottom_depth_m, Month, reg.inuk),
             by = "sample_id") %>% 
   select(-c(sample_id, project, date, time)) %>% 
-  group_by(station_year, Depth_5m) %>% 
+  group_by(station_year, Depth_5m, Month, reg.inuk) %>% 
   # Average all variables per 100m layer
   summarise(across(where(is.numeric),  
                    ~ mean(.x, na.rm = TRUE)),
@@ -44,12 +52,58 @@ pocFlux.ave <- pocFlux_station_year %>%
   filter(Depth_5m >= 150 & Depth_5m < 250) %>% 
 
   # calculate the total flux per profile
-  group_by(station_year, bottom_depth_m) %>% 
+  group_by(station_year, bottom_depth_m, Month, reg.inuk) %>% 
   summarise(n5mbins = n(),
             poc_model = mean(ModelFlux, na.rm = T),
             poc_error = mean(fluxErr, na.rm = T),
+            .groups = "drop") 
+  
+
+pocFlux.monthly <- pocFlux.ave %>% 
+  # TODO this should be done at the regional level
+  select(-c(station_year, n5mbins)) %>% 
+  group_by(reg.inuk, Month) %>% 
+  summarise(n = n(),
+            across(where(is.numeric),  
+                   list(mean = mean, sd = sd),
+                   na.rm = TRUE),
             .groups = "drop") %>% 
-  # Convert to annual flux... 
+  mutate(poc_model_se = poc_model_sd / sqrt(n))
+
+g2 <- ggplot(pocFlux.monthly, aes(x = as.factor(Month), y = poc_model_mean)) +
+  geom_bar(aes(fill = reg.inuk), stat = "identity") +
+  geom_errorbar(aes(ymin = poc_model_mean - poc_model_se,
+                    ymax = poc_model_mean + poc_model_se),
+                color = "black", width = 0) +
+  facet_wrap(~reg.inuk, nrow = 1) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = unique(region_rename$region.color)) +
+  ylab("POC flux (UVP6 200m)\n(mg C m-2 d-1)") +
+  xlab("Month")
+
+# TODO vertical profiles
+g1 <- ggplot(pocFlux_station_year %>% 
+         filter(bottom_depth_m >= 300), 
+       aes(group = station_year)) +
+  geom_line(aes(y = ModelFlux, x = Depth_5m, color = reg.inuk),
+            alpha = 0.5) +
+  geom_vline(xintercept = c(150,250), linetype = "dashed") +
+  coord_flip() +
+  scale_x_reverse() +
+  theme(legend.position = "none") +
+  facet_wrap(~reg.inuk, nrow = 1, scales = "free") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  ylab("POC flux (UVP6 200m)\n(mg C m-2 d-1)") 
+
+# cowplot::plot_grid(g1,g2, ncol = 1)
+# ggsave("figures/POC_supplementary_2026020324.png",
+#        width = 12, height = 6, units = "in", bg = "white")
+
+```
+
+
+```{r}
+# Convert to annual flux... 
   # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
   
   # Use the observations as the productive period which is6 months (May-October) for full POC value. Assume that the winter period has 1/4 of the flux of the productive period? ... or not include that at all.
@@ -159,8 +213,10 @@ p5 <- ggplot(pocFlux.region,
 p5 + ggtitle("To update figure after data curation n = 141 profiles")
 
 
-ggsave("figures/Fig5_temp_2026020324.png",
-       width = 8, height = 5, units = "in", bg = "white")
+# ggsave("figures/Fig5_temp_2026020324.png",
+#        width = 8, height = 5, units = "in", bg = "white")
+
+
 # # check observed vs modelled flux
 # ggplot(pocFlux_UVP6, aes(x = ObsFlux, y = ModelFlux)) +
 #   geom_abline() +

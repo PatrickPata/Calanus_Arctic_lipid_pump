@@ -11,6 +11,170 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# March 2026
+```{r}
+library(tidyverse)
+`%notin%` <- Negate(`%in%`)
+
+load("data/uvp6_images_calculated_traits_20260321.RData")
+load("data/profile_integrated_cflux_20260321.RData")
+load("data/POC_flux_temporary_20260323_ESDdirect.RData")
+
+# filter the poc flux data to samples in the image analysis
+pocFlux_station_year <- pocFlux_UVP6 %>% 
+  filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
+# merge to station-year
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, station_year, bottom_depth_m),
+            by = "sample_id") %>% 
+  select(-c(sample_id, project, date, time)) %>% 
+  group_by(station_year, Depth_5m) %>% 
+  # Average all variables per 100m layer
+  summarise(across(where(is.numeric),  
+                   ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") 
+
+# Calculate POC flux at 200 m (+- 50m)
+pocFlux.ave <- pocFlux_station_year %>% 
+  # TODO try to remove benthic nephroid layer?
+  
+   # consider only stations with at least 300m depth?
+  filter(bottom_depth_m >= 300) %>% 
+  
+  filter(Depth_5m >= 150 & Depth_5m < 250) %>% 
+
+  # calculate the total flux per profile
+  group_by(station_year, bottom_depth_m) %>% 
+  summarise(n5mbins = n(),
+            poc_model = mean(ModelFlux, na.rm = T),
+            poc_error = mean(fluxErr, na.rm = T),
+            .groups = "drop") %>% 
+  # Convert to annual flux... 
+  # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
+  
+  # Use the observations as the productive period which is6 months (May-October) for full POC value. Assume that the winter period has 1/4 of the flux of the productive period? ... or not include that at all.
+  mutate(poc_model_184 = (poc_model * 184 / 1000), 
+         poc_error_184 = (poc_error * 184 / 1000),
+         poc_model_365 = (poc_model * 184 / 1000) + (poc_model/4 * 181 / 1000),
+         poc_error_365 = (poc_error * 184 / 1000) + (poc_error/4 * 181 / 1000)) 
+
+
+
+# Pairwise matching of POC flux and lipid flux
+AA <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  filter(station_year %in% pocFlux.ave$station_year) %>% 
+  select(station_year, total_gC_flux_m2)
+
+pocFlux.ave <- pocFlux.ave %>% 
+  left_join(AA, by = join_by(station_year)) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              distinct(station_year, region.inuktitut, reg.inuk),
+            by = "station_year")
+
+# Pairwise comparison
+ggplot(pocFlux.ave, 
+       aes(x = poc_model, y = total_gC_flux_m2, color = region.inuktitut)) +
+  geom_errorbar(aes(xmin = poc_model-poc_error,
+                    xmax = poc_model+poc_error)) +
+  geom_point() +
+  geom_abline() +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme(legend.position = "none") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
+  ylab("Lipid Pump (g C m-2 y-1)")
+
+
+# Distribution of the modeled POC flux out of 200-300m
+ggplot(pocFlux.ave, aes(x = region.inuktitut,
+                        y = poc_model_184)) +
+  geom_boxplot() +
+  coord_flip() +
+  ylab("POC Flux (g C m-2 y-1)")
+
+
+# Region-average comparison
+pocFlux.region <- pocFlux.ave %>% 
+  group_by(region.inuktitut, reg.inuk) %>% 
+  summarise(poc_model_184_mean = mean(poc_model_184),
+            poc_error_184_mean = mean(poc_error_184),
+            poc_model_184_sd = sd(poc_model_184),
+            poc_error_184_sd = sd(poc_error_184),
+            n = n(),
+            total_gC_flux_m2_mean = mean(total_gC_flux_m2),
+            total_gC_flux_m2_sd = sd(total_gC_flux_m2),
+            poc_model_365_mean = mean(poc_model_365),
+            poc_error_365_mean = mean(poc_error_365),
+            poc_model_365_sd = sd(poc_model_365),
+            poc_error_365_sd = sd(poc_error_365),
+            .groups = "drop")
+  
+# TODO decide if 184 or 365
+
+
+
+p5 <- ggplot(pocFlux.region, 
+       aes(x = poc_model_365_mean, y = total_gC_flux_m2_mean, 
+           color = reg.inuk, shape = reg.inuk)) +
+  
+  geom_abline() +
+  geom_point(data = pocFlux.ave, 
+       aes(x = poc_model_184, y = total_gC_flux_m2),
+       # color = "black",
+       alpha = 0.6) +
+  
+  geom_errorbar(aes(xmin = poc_model_365_mean-poc_model_365_sd,
+                    xmax = poc_model_365_mean+poc_model_365_sd),
+                width = 0) +
+  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
+                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
+                width = 0) +
+  # geom_text(aes(label = n), color = "black") +
+  geom_point(aes(fill = reg.inuk), 
+             size = 4, color = "black", alpha = 1) +
+  scale_x_continuous(breaks = seq(0,40,1), limits = c(0, 17), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0.1)) +
+  
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), 
+                      name = "Region") +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region", guide = "none") +
+  scale_fill_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  # scale_x_log10() +
+  # scale_y_log10() +
+  theme(legend.position = "right") +
+  # theme(legend.position = c(0.98, 0.98),
+  #       legend.text = element_text(size = 12),
+  #       legend.title.text = element_text(size = 12),
+  #       legend.justification = c(1, 1),
+  #       legend.box.background = element_rect(fill = "white", color = "black")) +
+  # guides(fill = guide_legend(ncol = 2),
+  #        shape = guide_legend(ncol = 2)) + 
+  xlab("POC flux (g C m⁻² y⁻¹)") +
+  ylab("Lipid pump (g C m⁻² y⁻¹)")
+
+p5 + ggtitle("To update figure after data curation n = 141 profiles")
+
+
+ggsave("figures/Fig5_temp_2026020324.png",
+       width = 8, height = 5, units = "in", bg = "white")
+# # check observed vs modelled flux
+# ggplot(pocFlux_UVP6, aes(x = ObsFlux, y = ModelFlux)) +
+#   geom_abline() +
+#   geom_point()
+
+```
+
+
+
+
+
+
+
+# --- old scripts ---
 ```{r}
 # load("data/lipidflux_calculations_20251211.RData")
 load("data/pocFlux_estimates_23sc_2025 12 10.RData")
@@ -33,7 +197,7 @@ load("data/UVP6_Calanus_metadata_20260129.RData")
 # The cdom data from the CTD does not show this and there is not turbidity data.
 
 #  Average POC flux for a selected depth range
-pocFlux.sub <- pocFlux %>% 
+pocFlux.sub <- pocFlux_UVP6 %>% 
   filter(sample_id %in% df.profile$sample_id) %>% 
   left_join(Amund_UVP6_meta %>% 
               distinct(sample_id, region.inuktitut, region, Year, Month,

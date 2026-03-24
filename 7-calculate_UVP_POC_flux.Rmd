@@ -8,6 +8,9 @@ output: html_document
 # TODO Calculate PSD and POC flux for the 2021 and 2023 data
 This uses the _PAR_Aggregated files from Ecopart.
 
+The POC calculation scripts here copy the Matlab functions in the file processPocFluxFromUvp.m associated with the Rufas et al. (2025) GRL paper. Some lines and functions were recoded to follow R conventions.
+https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m
+
 The methods explained in Rufas et al. 2025 adapting the Bisson et al. 2022 approach of the truncated power law. Additionally, a MC Error propagation can be applied to account for the uncertainty in the sampling volume simular to Rufas et al. 2025.
 
 Note that seasonal variation in POC flux is expected based on the results in the Rufas et al. 2025 aggregation (i.e., decrease in flux post-bloom).
@@ -24,28 +27,17 @@ knitr::opts_chunk$set(echo = TRUE)
 Load libraries and data
 ```{r}
 library(tidyverse)
+# library(stats)
 
 theme_set(theme_bw())
 `%notin%` <- Negate(`%in%`)
 
 load("data/UVP6_ECOPART_Data_20260320.RData")
-
-
-cnames <- read.csv('data/Ecopart_UVP6_detailed_PAR_file_column_names.csv')
-
-# Note the the column headers need to be formatted properly
-ecopart_2021_5 <- read.table("C:/Sync/UVP6_Data/Ecopart/2024_Leg4/living_particles/export_detailed_20251120_16_26_PAR_Aggregated.tsv",  header = FALSE, skip = 1) 
-colnames(ecopart_2021_5) <- cnames$AnnotatedColumnName
-
-# Will only have values starting size class 18 (50.8-64 um)
-ecopart_2021_5 <- ecopart_2021_5 %>% 
-  select(-c(concentration_sc_1:concentration_sc_17,
-            biovolume_sc_1:biovolume_sc_17))
 ```
 
 # Functions for calculating and modeling the POC flux at each depth
 The PSD is based on the LPM (large particulate material) concentrations (# L-1) by size classes.
-- In the calculatePocFlux function: the psd and binMiddle inputs are arrays for each depth bin. The zeros are not removed since these are summed anyway.
+- In the calculatePocFlux function: the psd and binMiddle inputs are arrays for each depth bin. The zeros are not removed since these are summed.
 - In the calculateModelledPsd: observedVol is a single value, and observedN/binWidth/binMiddle are arrays
 
 alpha: particle dominance (smaller value, larger particles dominate)
@@ -61,8 +53,9 @@ calculatePOCFlux <- function(psd, binMiddle) {
   # Output:
   #   pocFlux, mg C m-2 d-1
   
-  particleRadius <- (binMiddle / ((4/3) * pi))^(1/3)
-  particleEsd <- particleRadius * 2
+  # particleRadius <- (binMiddle / ((4/3) * pi))^(1/3)
+  # particleEsd <- particleRadius * 2
+  particleEsd <- binMiddle
 
   # Flux factor function from Eq. 5 in Bisson et al. (2022)
   # The parameter values are based on the Cael et al. (2021) size-sinking speed scaling relationship.
@@ -75,8 +68,6 @@ calculatePOCFlux <- function(psd, binMiddle) {
 
 # For the truncated power law method in Bisson et al. (2022)
 # NOTE observedN is the concentration * volume sampled
-
-# library(stats)
 calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
   # Modelled particle number (# part./um), Eq. 1 in Bisson et al. (2022)
   modelledN <- function(x, d) {
@@ -93,9 +84,9 @@ calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
   binMiddle_good <- binMiddle[-bad]
   
   # Initial guess and bounds for model parameters
-  # PP: Originally, x0 is c(40, 4, 0.1) but I changed it to c(10, 4, 0.1) to remove the error "Error in optim(par = x0, fn = function(x) { :  L-BFGS-B needs finite values of 'fn'"
+  # PP: Originally, x0 is c(40, 4, 0.1) but I changed it to c(10, 4, 0.1) to reduce the warning "Error at i = ___ :  L-BFGS-B needs finite values of 'fn'"
   #       C1    alpha lambda
-  x0 <- c(10, 4, 0.1) # # part L-1 / unitless / mm
+  x0 <- c(10, 4, 0.1) # part L-1 / unitless / mm
   lower <- c(-Inf, 0, min(binMiddle_good))
   upper <- c(Inf, 6, max(binMiddle_good))
   
@@ -123,11 +114,10 @@ calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
   list(estimNbl = estimNbl, C1 = C1, alpha = alpha, lambda = lambda)
 }
 
+# This approach also follows Bisson et al. (2022) but based on Rufas et al. (2025) codes
 generateRandomSamplesOfParticleNumber <- function(observedNbl, observedVol, 
-                                                  nIterations = 100, 
-                                                  N_sizebins = 15) {
-  # Assume observedNbl follows a negative binomial distribution and draw nIterations 
-  # samples from it to obtain simulatedN
+                                                  nIterations, N_sizebins) {
+  # Assume observedNbl follows a negative binomial distribution and draw nIterations  samples from it to obtain simulatedN
   
   simulatedN <- matrix(NA, nrow = nIterations, ncol = N_sizebins)
   simulatedNbl <- matrix(NA, nrow = nIterations, ncol = N_sizebins)
@@ -136,85 +126,167 @@ generateRandomSamplesOfParticleNumber <- function(observedNbl, observedVol,
     if (observedNbl[iSc] > 0) {
       size_param <- as.numeric(observedNbl[iSc] + 1/2)
       prob_param <- 1 / (observedVol + 1)
-      simulatedN[, iSc] <- rnbinom(nIterations, size = size_param, prob = prob_param)
+      simulatedN[, iSc] <- rnbinom(nIterations, 
+                                   size = size_param, 
+                                   prob = prob_param)
       simulatedNbl[, iSc] <- simulatedN[, iSc] / observedVol
     }
   }
   
   return(simulatedNbl)
 }
-
-
-# Test random sampler
-nIterations <- 100
-simulatedNbl <- generateRandomSamplesOfParticleNumber(a_par, a_vol)
-
-fluxIter <- rep(NA, nIterations)
-for (iIter in seq_len(nIterations)) {
-  if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
-    fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ], UVP6_sizebins_mid)
-  }
-}
-fluxErr <- sd(fluxIter, na.rm = TRUE)
-
-
-# Test
-depth_i <- 50 # the depth bin to analyze
-a_par <- ecopart_2021_5[depth_i,7:21]
-a_vol <- ecopart_2021_5$Sampled_volume_L[depth_i]
-a_binm <- UVP6_sizebins_mid
-a_binw <- UVP6_sizebins_width
-
-# What if no <100um like UVP5 ---> an order of magnitude lower!
-a_par2 <- a_par
-a_par2[6:7] <- 0
-
-# No modelling
-calculatePOCFlux(a_par, a_binm)
-calculatePOCFlux(a_par2, a_binm)
-
-# With truncated power law model
-observedN <- round( a_par * a_vol )
-trunc <- calculateModelledPsd(observedN, a_vol, a_binw, a_binm )
-calculatePOCFlux(trunc$estimNbl, a_binm)
 ```
 
-# Historical Sediment trap data
-Some values not from Baffin Bay
-Annual POC Flux: (g C m-2 y-1)
-Daily POC Flux: (mg C m-2 y-1)
+# Calculate POC flux with 45-size class detailed particle data
+```{r, eval=FALSE}
+aa <- uvp6_PAR %>% 
+  select(sample_id, concentration_sc_18:concentration_sc_45) %>% 
+  pivot_longer(cols = concentration_sc_18:concentration_sc_45,
+               names_to = "sizeClass", values_to = "vals") %>% 
+  filter(vals > 0) %>% 
+  group_by(sizeClass) %>% 
+  summarise(nbins = n(), .groups = "drop") %>% 
+  left_join(uvp6_par_cnames %>% 
+              select(sizeClass = AnnotatedColumnName,
+                     Lower_limit_um:Size_class_midpoint_mm))
+
+ggplot(aa, aes(x = Lower_limit_um, y = nbins)) +
+  geom_point() +
+  scale_x_log10()
+```
+
+## Establish the size class bins and bin width
 ```{r}
-sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
-  # Remove the anomalously high value for Mackenzie shelf
-  filter(Daily_Flux != 7000) %>% 
-  # mutate(Area = if_else(AreaCode == "NOW", "Baffin-NOW", "Other-Arctic")) %>% 
-         # filter(Area == "Baffin-NOW") %>% 
-  filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
-                                  "100-120POC","120POC",
-                                  "MaxTPOC","MeanTPOC"))
+# For the 15 size bin reduced dataset
+bins <- uvp6_par_cnames %>% 
+  filter(grepl("concentration", AnnotatedColumnName)) %>% 
+  filter(Lower_limit_um >= 128 & Lower_limit_um <= 16400) %>% # to match the 0.14-16.88 mm size range in Bisson et al. (2022)
+  # calculate the midpoint as the geometric mean instead
+  mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
+  
 
-# Annual averages
-sedTrap %>% 
-  mutate(Annual_Flux = as.numeric(Annual_Flux)) %>% 
-  filter(!is.na(Annual_Flux)) %>% 
-  group_by(RefID, AreaCode) %>% 
-  summarise(flux_mean = mean(Annual_Flux, na.rm = T),
-            flux_sd = sd(Annual_Flux, na.rm = T),
-            min = min(Annual_Flux),
-            max = max(Annual_Flux),
-            n = n(), .groups = "drop")
+colStart <- which(uvp6_par_cnames$Lower_limit_um == 128)[1]-17
+colEnd <- which(uvp6_par_cnames$Lower_limit_um == 16400)[1]-17
 
-ggplot(sedTrap, 
-       aes(x = Depth_m, y = Daily_Flux)) +
-  geom_point(aes(color = VarCode, shape = Area),
-             size = 3, alpha = 0.8) +
-  coord_flip() +
-  scale_x_reverse() +
-  ylab("POC flux (mg C m-2 d-1)") +
-  xlab("Depth (m)") 
+# number of bins
+UVP6_N_sizebins <- nrow(bins)
+# Convert um to mm
+UVP6_sizebins_edges_mm <- c(bins$Lower_limit_um) / 1000
+# Get width of size bins
+UVP6_sizebins_width <- bins$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
+
 ```
 
 
+
+## Calculations
+```{r}
+nIterations <- 100
+
+pocFlux_UVP6 <- uvp6_PAR %>% 
+  select(sample_id, project,
+         date, time, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, fluxErr = NA,
+         C1 = NA, alpha = NA, lambda = NA)
+
+# This loop copies the script in Section 3 of processPocFluxFromUvp.m (Rufas et al. 2025). 
+for (i in c(1:nrow(pocFlux_UVP6))) {
+  a_par <- uvp6_PAR[i, colStart:colEnd]
+  a_vol <- uvp6_PAR$Sampled_volume_L[i]
+  
+  # No model
+  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  if(sum(observedN) > 0){
+    tryCatch( {
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      
+      pocFlux_UVP6$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl,
+                                                    UVP6_sizebins_mid)
+      pocFlux_UVP6$C1[i] <- trunc$C1
+      pocFlux_UVP6$alpha[i] <- trunc$alpha
+      pocFlux_UVP6$lambda[i] <- trunc$lambda
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+    
+    
+    # Add the random samples function for sample volume error
+    simulatedNbl <- generateRandomSamplesOfParticleNumber(
+      a_par, a_vol, nIterations, 
+      N_sizebins = UVP6_N_sizebins)
+    
+    fluxIter <- rep(NA, nIterations)
+    for (iIter in seq_len(nIterations)) {
+      if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
+        fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ],
+                                            UVP6_sizebins_mid)
+      }
+    }
+    pocFlux_UVP6$fluxErr[i] <- sd(fluxIter, na.rm = TRUE)
+    # TODO add sample size?
+    pocFlux_UVP6$fluxErrN[i] <- length(!is.na(fluxIter))
+  } 
+}
+
+pocFluxErr_UVP6 <- pocFlux_UVP6 %>%
+  filter(is.na(ModelFlux))
+
+# temporary save of results
+save(pocFlux_UVP6, bins,
+     file = "data/POC_flux_temporary_20260323_ESDdirect.RData")
+```
+
+
+## exploratory plots
+```{r}
+# TODO remove benthic nephroid layer
+
+# Relationship between calculated POC flux and sampled volume
+ggplot(pocFlux_UVP6, aes(x = Sampled_volume_L, y = ModelFlux,
+                    color = Depth_5m)) +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_c() +
+  scale_x_log10() + 
+  scale_y_log10()
+
+
+# Average across depth_bins (all casts)
+pocFlux_depthAve <- pocFlux_UVP6 %>% 
+  filter(!is.na(ModelFlux)) %>% 
+  group_by(Depth_5m) %>% 
+  summarise(across(ObsFlux:fluxErr, 
+            list(mean = mean, sd = sd)),
+            .groups = "drop") 
+ ggplot(pocFlux_depthAve, aes(x = ObsFlux_mean, y = Depth_5m)) +
+    geom_point() +
+    geom_point(aes(x = ModelFlux_mean), color = "blue") +
+    geom_errorbar(aes(xmin = ModelFlux_mean - fluxErr_mean, 
+                      xmax = ModelFlux_mean + fluxErr_mean), 
+ width = 0, color = "blue") +
+    scale_y_reverse()
+ 
+ 
+ ggplot(pocFlux_UVP6 %>% 
+          filter(sample_id == "am_leg5_TCA_BB2_02"), 
+        aes(x = ObsFlux, y = Depth_5m)) +
+   geom_point() +
+   geom_point(aes(x = ModelFlux), color = "deepskyblue") +
+   geom_errorbar(aes(xmin = ModelFlux - fluxErr, 
+                     xmax = ModelFlux + fluxErr), 
+                 width = 0, color = "deepskyblue") +
+   geom_point(aes(x = ObsFlux), color = "pink") +
+   scale_y_reverse() 
+
+```
+
+
+# ------- OLD SCRIPTS ------
 # UVP Data processing
 Following the matlab scripts in the Rufas et al. (2024) paper.
 https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m
@@ -222,7 +294,7 @@ https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFlux
 ## Establish the size class bins and bin width
 Note that the last size class is >16.4 mm but set the max bin to 32.768mm. This size bin seldom has any observations so can be discarded later.
 ```{r}
-# 
+# For the 15 size bin reduced dataset
 UVP6_sizebins_edges_um <- c(1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768)
 UVP6_N_sizebins <- 15
 
@@ -578,6 +650,41 @@ basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 ## TODO: Apply the error propagations in plots (simply add the SD)
 
 
+# Historical Sediment trap data
+Some values not from Baffin Bay
+Annual POC Flux: (g C m-2 y-1)
+Daily POC Flux: (mg C m-2 y-1)
+```{r}
+sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
+  # Remove the anomalously high value for Mackenzie shelf
+  filter(Daily_Flux != 7000) %>% 
+  mutate(Area = if_else(AreaCode == "NOW", "Baffin-NOW", "Other-Arctic")) %>%
+  filter(Area == "Baffin-NOW") %>%
+  filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
+                                  "100-120POC","120POC",
+                                  "MaxTPOC","MeanTPOC"))
+
+# Annual averages
+sedTrap %>% 
+  mutate(Annual_Flux = as.numeric(Annual_Flux)) %>% 
+  filter(!is.na(Annual_Flux)) %>% 
+  group_by(RefID, AreaCode) %>% 
+  summarise(flux_mean = mean(Annual_Flux, na.rm = T),
+            flux_sd = sd(Annual_Flux, na.rm = T),
+            min = min(Annual_Flux),
+            max = max(Annual_Flux),
+            n = n(), .groups = "drop")
+
+ggplot(sedTrap, 
+       aes(x = Depth_m, y = Daily_Flux)) +
+  geom_point(aes(color = VarCode, shape = Area),
+             size = 3, alpha = 0.8) +
+  coord_flip() +
+  scale_x_reverse() +
+  ylab("POC flux (mg C m-2 d-1)") +
+  xlab("Depth (m)") 
+```
+
 # ** UVP6 All data processing **
 ## Aggregate all data with particle concentrations
 ```{r}
@@ -681,7 +788,7 @@ ggplot(pocFlux_UVP6, aes(x = Sampled_volume_L, y = ModelFlux,
 pocFlux_depthAve <- pocFlux_UVP6 %>% 
   filter(!is.na(ModelFlux)) %>% 
   group_by(Depth_5m) %>% 
-  summarise(across(ObsFlux:ModelFlux128, 
+  summarise(across(ObsFlux:ModelFlux, 
             list(mean = mean, sd = sd)),
             .groups = "drop") 
 

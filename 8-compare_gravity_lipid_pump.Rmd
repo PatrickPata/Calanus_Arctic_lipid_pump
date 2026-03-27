@@ -19,7 +19,7 @@ library(tidyverse)
 
 load("data/uvp6_images_calculated_traits_20260321.RData")
 load("data/profile_integrated_cflux_20260321.RData")
-load("data/POC_flux_temporary_20260324_Bisson.RData")
+load("data/POC_flux_UVP6_confident_20260326.RData")
 
 # filter the poc flux data to samples in the image analysis
 pocFlux_station_year <- pocFlux_UVP6 %>% 
@@ -55,7 +55,7 @@ pocFlux.ave <- pocFlux_station_year %>%
   group_by(station_year, bottom_depth_m, Month, reg.inuk) %>% 
   summarise(n5mbins = n(),
             poc_model = mean(ModelFlux, na.rm = T),
-            poc_error = mean(fluxErrSD, na.rm = T),
+            poc_error = mean(fluxIterSD, na.rm = T),
             .groups = "drop") 
   
 
@@ -100,6 +100,34 @@ cowplot::plot_grid(g1,g2, ncol = 1)
 #        width = 12, height = 6, units = "in", bg = "white")
 
 ```
+
+## TODELETE Check the pikia profile with high total flux
+	
+NaresW23 2023  -- the high flux value... the bottom depth of the station is 301m but the profile is deep...
+NaresE23 2023
+```{r}
+AA <- pocFlux.ave %>% 
+  filter(reg.inuk == "Pikia") %>% 
+  arrange(-poc_model)
+
+BB <- pocFlux_station_year %>% 
+  filter(station_year %in% c("NaresW23 2023","NaresE23 2023"))
+
+ggplot(BB, 
+       aes(group = station_year)) +
+  geom_line(aes(y = ModelFlux, x = Depth_5m, color = station_year),
+            alpha = 0.5) +
+  geom_line(aes(y = ObsFlux, x = Depth_5m, color = station_year),
+            alpha = 0.5, linetype = "dotted") +
+  geom_vline(xintercept = c(150,250), linetype = "dashed") +
+  coord_flip() +
+  scale_x_reverse() +
+  # theme(legend.position = "none") +
+  facet_wrap(~reg.inuk, nrow = 1, scales = "free") +
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  ylab("POC flux (UVP6 200m)\n(mg C m-2 d-1)") 
+```
+
 
 ## Plot individual profiles
 ```{r}
@@ -178,28 +206,28 @@ pocFlux.region <- pocFlux.ave %>%
          poc_model_365_se = poc_model_365_sd / sqrt(n))
   
 # TODO decide if 184 or 365
-
+# Note: use standard deviation because we need to visualize the variability of the samples associated with each region. (Use of SE is for the precision/uncertainity of the MEAN fluxes... but not for comparisons such as this.)
 p5 <- ggplot(pocFlux.region, 
        aes(x = poc_model_365_mean, y = total_gC_flux_m2_mean, 
            color = reg.inuk, shape = reg.inuk)) +
   
   geom_abline() +
-  geom_point(data = pocFlux.ave, 
-       aes(x = poc_model_184, y = total_gC_flux_m2),
-       # color = "black",
-       alpha = 0.6) +
+  geom_point(data = pocFlux.ave,
+       aes(x = poc_model_184, y = total_gC_flux_m2), # color = "black",
+       alpha = 0.3) +
   
-  geom_errorbar(aes(xmin = poc_model_365_mean-poc_model_365_se,
-                    xmax = poc_model_365_mean+poc_model_365_se),
+  geom_errorbar(aes(xmin = poc_model_365_mean-poc_model_365_sd,
+                    xmax = poc_model_365_mean+poc_model_365_sd),
                 width = 0) +
-  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_se,
-                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_se),
+  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
+                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
                 width = 0) +
   # geom_text(aes(label = n), color = "black") +
   geom_point(aes(fill = reg.inuk), 
              size = 4, color = "black", alpha = 1) +
-  scale_x_continuous(breaks = seq(0,40,1), limits = c(0, 17), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0.1)) +
+  scale_x_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 19), ylim = c(0, 9)) +
   
   scale_shape_manual(values = c(21,22,23,24,25,22,23), 
                       name = "Region") +
@@ -220,11 +248,11 @@ p5 <- ggplot(pocFlux.region,
   xlab("POC flux (g C m⁻² y⁻¹)") +
   ylab("Lipid pump (g C m⁻² y⁻¹)")
 
-p5 + ggtitle("To update figure after data curation n = 141 profiles")
+p5 + ggtitle("To update figure after data curation n = 141 profiles, truncated zero")
 
 
-# ggsave("figures/Fig5_temp_2026020324.png",
-#        width = 8, height = 5, units = "in", bg = "white")
+ggsave("figures/Fig5_temp_2026020326.png",
+       width = 8, height = 5, units = "in", bg = "white")
 
 
 # # check observed vs modelled flux

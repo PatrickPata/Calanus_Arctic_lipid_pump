@@ -208,6 +208,7 @@ save(df.5m.zero, df.100m, df.station.100m, df.profile, df.region,
 
 # 4. Summary stats of integrated values
 ```{r}
+load("data/profile_integrated_cflux_20260321.RData")
 # Average contributions ***
 # 1. fraction of the biomass contributed to C flux
 # 2. fraction of the total flux due to respiration, mortality
@@ -229,11 +230,6 @@ df %>% group_by(region.inuktitut) %>%
             frac_resp_mean = mean(frac_resp_total),
             frac_resp_sd = sd(frac_resp_total),
             .groups = "drop")
-
-indiv_traits %>% 
-  group_by(taxa) %>% 
-  count()
-
 
 # Format csv for Table 3: Regional averages
 table3 <- df.region %>% 
@@ -467,6 +463,8 @@ ggsave("figures/Fig3_temp.png", width = 12, height = 14,
 
 
 ## Extra: % biomass per depth layer - for supplementary?
+What is the % of the total biomass found below 500 m for each region?
+
 ```{r}
 df.profile.dbins <- df.100m %>% 
   filter(taxa == "Calanus") %>% 
@@ -481,6 +479,7 @@ df.profile.dbins <- df.100m %>%
             Sampled_volume_m3 = sum(Sampled_volume_m3),
             abundance_m2 = sum(abundance_m2),
             biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
+            biomass_WE_gC_m2 = sum(waxester_mgC_m2) / 1000,
             total_gC_flux_m2 = sum(total_gC_flux_m2),
             .groups = "drop") %>% 
   # Add metadata
@@ -504,9 +503,11 @@ df.region.dbins <- df.profile.dbins %>%
   # Calculate total and percentage of C-flux in the depth bin
   group_by(region.inuktitut) %>% 
   mutate(total_biomass_gC_m2 = sum(biomass_gC_m2_mean)) %>% 
+  mutate(total_biomass_WE_gC_m2 = sum(biomass_WE_gC_m2_mean)) %>% 
   ungroup() %>% 
   mutate(perc_total_biomass = biomass_gC_m2_mean / total_biomass_gC_m2 * 100) %>% 
-  relocate(perc_total_biomass)
+  mutate(perc_tota_WE_biomass = biomass_WE_gC_m2_mean / total_biomass_WE_gC_m2 * 100) %>% 
+  relocate(perc_total_biomass, perc_tota_WE_biomass)
 
 
 # NOTE: the totals do not match the ones for Fig 5 because surface bins can be overrepresnted in shallow tows

@@ -43,9 +43,22 @@ The PSD is based on the LPM (large particulate material) concentrations (# L-1) 
 alpha: particle dominance (smaller value, larger particles dominate)
 lambda: the particle size (mm) where power law is truncated
 ```{r}
+calculatePOCFlux <- function(psd, binMiddle, binWidth) {
+  particleEsd <- binMiddle
+
+  # A = 2.8, b = 2.24 (used in Bisson et al. 2022)
+  fluxFactor <- function(d) 2.8 * d^2.24
+
+  pocFlux <- sum((psd/binWidth) * fluxFactor(particleEsd)*binWidth, na.rm = TRUE)
+
+  return(pocFlux)
+}
+
+
+# This is Rufas et al. (2025) version of the function which was based on 
 # Function modified from Rufas_etal_2024_GRL/code/processPocFluxFromUVP.m
 # The value returned has units of:  mg C m-2 d-1
-calculatePOCFlux <- function(psd, binMiddle) {
+calculatePOCFlux_Rufas <- function(psd, binMiddle, UVP6_sizebins_width) {
   # Input:
   #   psd, # part L-1
   #   binMiddle, mm
@@ -53,16 +66,15 @@ calculatePOCFlux <- function(psd, binMiddle) {
   # Output:
   #   pocFlux, mg C m-2 d-1
   
-  # particleRadius <- (binMiddle / ((4/3) * pi))^(1/3)
-  # particleEsd <- particleRadius * 2
-  particleEsd <- binMiddle
+  particleRadius <- (binMiddle / ((4/3) * pi))^(1/3)
+  particleEsd <- particleRadius * 2
+  
+  # particleEsd <- binMiddle
 
   # Flux factor function from Eq. 5 in Bisson et al. (2022)
   # The parameter values are based on the Cael et al. (2021) size-sinking speed scaling relationship.
   fluxFactor <- function(d) 2.8 * d^2.24
 
-  # # Alternative coefficients from Forest et al. (2013) specific for Beaufort Sea
-  # fluxFactor <- function(d) 28.1 * d^2.0
   
   pocFlux <- sum(psd * fluxFactor(particleEsd), na.rm = TRUE)
 
@@ -164,6 +176,7 @@ load("data/UVP6_ECOPART_Data_20260320.RData")
 ```
 
 
+
 ## Establish the size class bins and bin width
 ```{r}
 # For the 15 size bin reduced dataset
@@ -190,6 +203,7 @@ UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
 ```
 
 
+
 ## POC Flux Calculations
 ```{r}
 nIterations <- 100
@@ -206,11 +220,9 @@ for (i in c(1:nrow(pocFlux_UVP6))) {
   a_par <- uvp6_PAR[i, colStart:colEnd]
   a_vol <- uvp6_PAR$Sampled_volume_L[i]
   
-  # # If for Forest et al. (2013) parameterization, cap to the 4.2 mm size bin
-  # a_par[17:22] <- 0
-  
-  # No model
-  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid)
+  # No truncated power law model
+  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid, 
+                                              UVP6_sizebins_width)
   
   # With truncated power law model
   observedN <- round( a_par * a_vol )
@@ -220,7 +232,8 @@ for (i in c(1:nrow(pocFlux_UVP6))) {
                                     UVP6_sizebins_width, UVP6_sizebins_mid )
       
       pocFlux_UVP6$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl,
-                                                    UVP6_sizebins_mid)
+                                                    UVP6_sizebins_mid,
+                                                    UVP6_sizebins_width)
       pocFlux_UVP6$C1[i] <- trunc$C1
       pocFlux_UVP6$alpha[i] <- trunc$alpha
       pocFlux_UVP6$lambda[i] <- trunc$lambda
@@ -238,7 +251,7 @@ for (i in c(1:nrow(pocFlux_UVP6))) {
     for (iIter in seq_len(nIterations)) {
       if (sum(simulatedNbl[iIter, ], na.rm = TRUE) > 0) {
         fluxIter[iIter] <- calculatePOCFlux(simulatedNbl[iIter, ],
-                                            UVP6_sizebins_mid)
+                                            UVP6_sizebins_mid,UVP6_sizebins_width)
       }
     }
     pocFlux_UVP6$fluxIterSD[i] <- sd(fluxIter, na.rm = TRUE)
@@ -253,7 +266,7 @@ pocFluxErr_UVP6 <- pocFlux_UVP6 %>%
 
 # temporary save of results
 save(pocFlux_UVP6, bins,
-file = "data/POC_flux_temporary_20260324_Forest_v2.RData")
+file = "data/POC_flux_UVP6_confident_20260326.RData")
 ```
 
 
@@ -262,21 +275,28 @@ file = "data/POC_flux_temporary_20260324_Forest_v2.RData")
 ## Check different between Bisson et al. (2022) and Forest et al. (2013) parameterizations
 - Note that using the A and b parameters in Forest et al. (2013) with the size range used in Bisson et al. (2022), the values are almost an order of magnitude higher.
 ```{r}
-load("data/POC_flux_temporary_20260324_Bisson.RData")
-Bisson <- pocFlux_UVP6 %>% 
-  select(sample_id, Depth_5m, Flux_Bisson = ModelFlux)
+load("data/POC_flux_temporary_20260325_updatedfluxfunction.RData")
+New.df <- pocFlux_UVP6 %>% 
+  select(sample_id, Depth_5m, Flux_NEW = ObsFlux)
 
-# V2 uses the reduced size class range up to 4.2 mm
-load("data/POC_flux_temporary_20260324_Forest_v2.RData")
-Forest <- pocFlux_UVP6 %>% 
-  select(sample_id, Depth_5m, Flux_Forest = ModelFlux)
-rm(pocFlux_UVP6)
+load("data/POC_flux_temporary_20260325_RufasFunction.RData")
+Rufas <- pocFlux_UVP6 %>% 
+  select(sample_id, Depth_5m, Flux_Rufas = ObsFlux)
 
-df <- left_join(Bisson, Forest)
+# # V2 uses the reduced size class range up to 4.2 mm
+# load("data/POC_flux_temporary_20260324_Forest_v2.RData")
+# Forest <- pocFlux_UVP6 %>% 
+#   select(sample_id, Depth_5m, Flux_Forest = ModelFlux)
+# rm(pocFlux_UVP6)
+# df <- left_join(Bisson, Forest)
 
-ggplot(df, aes(Flux_Bisson, Flux_Forest)) +
+df <- left_join(Rufas, New.df)
+
+ggplot(df, aes(Flux_Rufas, Flux_NEW)) +
   geom_abline() +
-  geom_point()
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10()
 ```
 
 
@@ -454,12 +474,13 @@ pocFlux_UVP5 <- UVP5_CA_Arctic %>%
          Depth_5m, Volume_L) %>% 
   mutate(ObsFlux = NA, ModelFlux = NA, C1 = NA, alpha = NA, lambda = NA)
 
-for (i in c(1:nrow(pocFlux))) {
+for (i in c(1:nrow(pocFlux_UVP5))) {
   a_par <- UVP5_CA_Arctic[i, 4:25]
   a_vol <- UVP5_CA_Arctic$Volume_L[i]
   
    # No model
-  pocFlux_UVP5$ObsFlux[i] <- calculatePOCFlux(a_par, UVP5_sizebins_mid)
+  pocFlux_UVP5$ObsFlux[i] <- calculatePOCFlux(a_par, UVP5_sizebins_mid,
+                                              UVP5_sizebins_width)
   
   # With truncated power law model
   observedN <- round( a_par * a_vol )
@@ -469,7 +490,8 @@ for (i in c(1:nrow(pocFlux))) {
                                     UVP5_sizebins_width, UVP5_sizebins_mid )
       
       pocFlux_UVP5$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl,
-                                                    UVP5_sizebins_mid)
+                                                    UVP5_sizebins_mid,
+                                                    UVP5_sizebins_width)
       pocFlux_UVP5$C1[i] <- trunc$C1
       pocFlux_UVP5$alpha[i] <- trunc$alpha
       pocFlux_UVP5$lambda[i] <- trunc$lambda
@@ -480,13 +502,13 @@ for (i in c(1:nrow(pocFlux))) {
 }
 
 # Export results to limit recalculations of this long loop
-save(file = "data/UVP5_CA_Arctic_POCFLUX_results_20260324.RData",
+save(file = "data/UVP5_CA_Arctic_POCFLUX_results_20260326.RData",
      pocFlux_UVP5, UVP5_CA_Arctic, UVP5_CA_Arctic_meta, UVP5_region)
 ```
 
 ## Monthly trends per region
 ```{r}
-# load("data/UVP5_CA_Arctic_POCFLUX_results_20260324.RData")
+# load("data/UVP5_CA_Arctic_POCFLUX_results_20260326.RData")
 
 # Monthly flux at different depths per latitutdinal bin
 pocFlux_UVP5_profiles <- pocFlux_UVP5 %>% 
@@ -592,4 +614,43 @@ ggplot(pocFlux_region_annual %>%
   geom_bar(stat = "identity") 
 ```
 
+
+# *** test poc flux equations
+```{r}
+calculatePOCFluxES <- function(psd, binMiddle, binWidth) {
+  # A = 2.8, b = 2.24
+  fluxFactor <- function(d) 2.8 * d^2.24
+
+  pocFluxA <- sum((psd/binWidth) * fluxFactor(binMiddle)*binWidth, na.rm = TRUE)
+  pocFluxB <- sum(psd * fluxFactor(binMiddle), na.rm = TRUE)
+  
+  # Rufas et al
+  particleRadius <- (binMiddle / ((4/3) * pi))^(1/3)
+  particleEsd <- particleRadius * 2
+  pocFluxC <- sum((psd/binWidth) * fluxFactor(particleEsd)*binWidth, na.rm = TRUE)
+  pocFluxD <- sum(psd * fluxFactor(particleEsd), na.rm = TRUE)
+  
+  df <- data.frame(pocFluxA, pocFluxB, pocFluxC, pocFluxD)
+  return(df)
+}
+
+pocFlux_UVP6_test <- uvp6_PAR %>% 
+  select(sample_id, project,
+         date, time, Depth_5m, Sampled_volume_L) %>% 
+  mutate(pocFluxA = NA, pocFluxB = NA, pocFluxC = NA, pocFluxD = NA)
+
+# This loop copies the script in Section 3 of processPocFluxFromUvp.m (Rufas et al. 2025). 
+for (i in c(1:5000)) {
+  a_par <- uvp6_PAR[i, colStart:colEnd]
+  a_vol <- uvp6_PAR$Sampled_volume_L[i]
+  
+  flux_results <- calculatePOCFluxES(a_par, UVP6_sizebins_mid, 
+                                              UVP6_sizebins_width)
+  
+  pocFlux_UVP6_test$pocFluxA[i] <- flux_results$pocFluxA
+  pocFlux_UVP6_test$pocFluxB[i] <- flux_results$pocFluxB
+  pocFlux_UVP6_test$pocFluxC[i] <- flux_results$pocFluxC
+  pocFlux_UVP6_test$pocFluxD[i] <- flux_results$pocFluxD
+}
+```
 

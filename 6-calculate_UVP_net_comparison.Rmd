@@ -82,7 +82,14 @@ ggplot(species.comp.region, aes(x = reg.inuk, y = mean_total_abund_m2,
 # Compare net and uvp abundances
 ```{r}
 comp_uvp_net <- df.profile %>% 
-  filter(taxa == "Calanus") %>% 
+  filter(taxa == "Calanus") %>%
+  
+  # # If all large copepods
+  # group_by(station_year, 
+  #        region.inuktitut, bottom_depth_m) %>% 
+  # summarise(abundance_m2 = sum(abundance_m2),
+  #           .groups = "drop") %>% 
+  
   select(station_year, uvp_abundance_m2 = abundance_m2, 
          region.inuktitut:bottom_depth_m) %>% 
   left_join(uvp_net_match %>% 
@@ -106,11 +113,10 @@ summary(comp_uvp_net$rel_diff_net)
 
 # major axis regression to check bias 
 # slope >1, accellerating (overestimation by UVP at high abundance), underestimation at low
-# SMA intercept -0.802, which is 10^(-0.802), so 16% underestimation multiplicative bias factor, on average
 reg.model <- lmodel2::lmodel2(log10(net_abundance_m2) ~ log10(uvp_abundance_m2), 
            data = comp_uvp_net)
 sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]
-10^(sma$Intercept)*100 # average bias factor
+10^(sma$Intercept)*100 # average multiplicative bias factor
 
 # *** For the CI area in the figure **
 # SMA slope CI from lmodel2 output

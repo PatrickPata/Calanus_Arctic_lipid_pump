@@ -84,7 +84,7 @@ load( "data/literature_prosome_lengths_20260317.RData")
 prosome.lit <- calanus.prosome.length %>% 
   rename(taxa = scientificNameStage,
          prosome_length_mm = prosomeLength) %>% 
-  mutate(source = "literature") %>% 
+  mutate(source = "Literature") %>% 
   filter(lifeStage != "CIII") %>% 
   droplevels() %>% 
   bind_rows(
@@ -116,53 +116,93 @@ ggplot(prosome.lit,
   )
 ```
 
+
 ## Figure 2
 ```{r}
 df_to_plot <- indiv_traits %>% 
-  filter(taxa == "Calanus")
+  filter(taxa == "Calanus") %>% 
+  # Change the data source tag to simply model prediction for the main figure
+  mutate(source = if_else(source %in% c("CNN segmentation", "Random Forest"),
+                          "Model prediction", source)) %>% 
+  mutate(source = factor(source, levels = c("Model prediction","Manual segmentation")))
+  
+# For Fig 2c, calculate values if no interindividual variability 
+# Assume median in situ temperature and lipid fullness
+median_temp <- median(df_to_plot$temperature_kelvin, na.rm = T) #-273.15 = -0.13
+median_fullness <- median(df_to_plot$lipid_fullness, na.rm = T)/100
+bb <- 2.27# Metabolic constant (x 10-7)
+eV <- 0.6 # Activation energy
+no_traitvar <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  distinct(prosome_total_mgC,
+           orig_respirationRate_ugCday = respirationRate_ugCday) %>% 
+  mutate(new_mass_ugC = prosome_total_mgC * 1000 * (1-median_fullness),
+         waxester_mass_mgC = prosome_total_mgC * median_fullness,
+         waxester_mass_ugC = waxester_mass_mgC * 1000) %>% 
+  
+  mutate(respirationRate_ugCday = 
+           (bb*10^-7 ) * (new_mass_ugC^0.75) * 
+           exp(eV * (median_temp-273)/ 
+                 ((8.62*10^-5)*median_temp*273)) * 86400) %>%
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_mass_ugC)/(respirationRate_ugCday)) 
+
 # # only include the samples in the final analysis?
 #   filter(sample_id %notin% excluded_profiles$sample_id)
 
-clrs <- c("blue2","hotpink","gold1")
+clrs <- c("hotpink","deepskyblue")
 
 
 g1 <- ggplot(df_to_plot,
-         aes(x = prosome_length_mm, fill = source)) +
-    geom_histogram(alpha = 0.9, position = "stack", bins = 50) +
-    scale_fill_manual(values = clrs, name = "Data source") +
-    scale_x_log10(breaks = 2:10, limits = c(1.5, 8.5),
-                  expand = c(0,0)) +
-    xlab("Prosome length (mm)") +
-    ylab("# Individuals") +
-    theme(legend.position = c(0.2, 0.82),
-          # axis.title.y = element_text(hjust = 1),
-          legend.background = element_rect(fill = "white", color = "black"),
-          legend.key = element_blank())
+             aes(x = prosome_length_mm, fill = source)) +
+  geom_histogram(alpha = 0.9, position = "stack", bins = 50) +
+  scale_fill_manual(values = clrs, name = "Data source") +
+  scale_x_log10(breaks = 2:10, limits = c(1.5, 8.5),
+                expand = c(0,0)) +
+  xlab("Prosome length (mm)") +
+  ylab("# Individuals") +
+  facet_wrap(~taxa, ncol = 1) + 
+  theme(strip.placement = "inside",
+        strip.text = element_text(face = "bold.italic", hjust = 0,
+                                  size = 12),
+        strip.background = element_blank(),
+        # legend.position = c(0.2, 0.85),
+        legend.position = "bottom",
+        legend.background = element_rect(fill = "white", color = NA),
+        legend.key = element_blank())
 
 
 g2 <- ggplot(prosome.lit,
-       aes(x = prosome_length_mm, y = lifeStage, color = source))+
+             aes(x = prosome_length_mm, y = lifeStage, color = source))+
   geom_boxplot() +
   scale_x_log10(breaks = c(2:10), limits = c(1.5, 8.5),
-                  expand = c(0,0)) +
+                expand = c(0,0)) +
   scale_color_manual(values = c("purple","black"),
-                                name = "Data source") +
+                     name = "Data source") +
   xlab("Prosome length (mm)") +
-  ylab("life stage") +
+  ylab("Life stage") +
   facet_wrap(~scientificName, ncol = 1) + 
   theme(strip.placement = "inside",
-        strip.text = element_text(face = "bold.italic", hjust = 0),
+        strip.text = element_text(face = "bold.italic", hjust = 0,
+                                  size = 12),
         strip.background = element_blank(),
         
-    legend.position = c(0.98, 0.02), #  c(0.3, 0.75), 
-    legend.justification = c(1, 0),
-    legend.background = element_rect(fill = "white", color = "black"))
+        # legend.position = c(0.98, 0.02), # c(0.28, 0.8)
+        # legend.justification = c(1, 0),
+        legend.position = "bottom",
+        legend.background = element_rect(fill = "white", color = NA))
 
-g3 <- ggplot(df_to_plot %>% 
+g3 <- ggplot() +
+  geom_point(data = df_to_plot %>%
          mutate(Temperature = temperature_kelvin - 273.15),
-       aes(x = waxester_mass_mgC, y = respirationRate_ugCday)) +
-  geom_point(aes(color = Temperature), alpha = 0.5) +
-  geom_smooth(method = "lm", color = "black") +
+       aes(x = waxester_mass_mgC, y = respirationRate_ugCday,
+           color = Temperature), alpha = 0.5) +
+  
+  # if no interindividual variability
+  geom_point(data = no_traitvar,
+             aes(x = waxester_mass_mgC, y = respirationRate_ugCday),
+             shape = 1, color = "firebrick2") +
+  
   scale_x_continuous(limits = c(0, 3.2), expand = c(0,0)) +
   scale_color_viridis_c(name = "(°C)") +
   xlab("Wax ester carbon (mg C)") +
@@ -170,6 +210,7 @@ g3 <- ggplot(df_to_plot %>%
   theme(legend.position = c(0.1, 0.78), # c(0.9, 0.2),
         legend.background = element_rect(fill = "white", color = "black"),
         legend.key = element_blank())
+
 
 g4 <- ggplot(df_to_plot %>% 
                arrange(prosome_length_mm),
@@ -191,13 +232,15 @@ g4 <- ggExtra::ggMarginal(g4, type = "histogram", bins = 50,
 
   
 cowplot::plot_grid(
-  plot_grid(g1,g2, ncol = 1, align = "v", labels = c("a","c")),
-  plot_grid(g3,g4, ncol = 1, align = "v", labels = c("b","d")),
+  plot_grid(g1,g2, ncol = 1, align = "v", labels = c("a","b"),
+            rel_heights = c(1.33,1)),
+  plot_grid(g3,g4, ncol = 1, align = "v", labels = c("c","d")),
   nrow = 1)
 
-ggsave("figures/Figure2_March_20260321.png",
+ggsave("figures/Figure2_March_20260326.png",
        width = 12, height = 10, units = "in", bg = "white")
 ```
+
 
 # Figure 3: Biomass distribution
 
@@ -301,6 +344,9 @@ p3 <- ggplot(comp_uvp_net, aes(x = uvp_abundance_m2,
   xlab("UVP6 abundance (# m⁻²)") +
   ylab("Net abundance (# m⁻²)") +
   theme(legend.position = "none")
+
+p2
+p3
 ```
 
 
@@ -465,8 +511,8 @@ pp2 <- ggplot(df.profile %>%
   # Add average values for the region
   geom_linerange(data = df_to_plot %>% 
                    filter(taxa == "Calanus"),
-                 aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_se,
-                     xmax = total_gC_flux_m2_mean + total_gC_flux_m2_se),
+                 aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd,
+                     xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
                  linetype = "solid", color = "black") +
   geom_point(data = df_to_plot %>% 
                filter(taxa == "Calanus"),
@@ -574,28 +620,72 @@ plot_grid(pp2, pp4 + theme(axis.text.y = element_blank(),
           labels = c("a","b"))
 ```
 
+# Alternative Fig 4
+## alternative p1 
+mark median and mean, and values for the analysis with >300 m
+```{r}
+
+np1 <- ggplot(df.profile %>% 
+         filter(taxa == "Calanus"),
+       aes(y = reg.inuk)) +
+  geom_violin(aes(x = total_gC_flux_m2, fill = reg.inuk),
+              scale = "width", color = "white", alpha = 0.4) +
+ # MEAN (solid blue vertical line)
+  geom_linerange(data = df_to_plot %>% 
+                   filter(taxa == "Calanus"),
+                 aes(x = total_gC_flux_m2_mean,
+                     ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
+                 color = "black", linewidth = 1) +
+  
+  # MEDIAN (dashed red vertical line)
+  geom_linerange(data = df_to_plot %>% 
+                   filter(taxa == "Calanus"),
+                 aes(x = total_gC_flux_m2_median,
+                     ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
+                 color = "black", linetype = "dashed", linewidth = 0.5) +
+  
+  # mean for samples in >300 m (dotted black line)
+  # geom_point(data = pocFlux.region,
+  #                aes(x = total_gC_flux_m2_mean),
+  #                color = "black", shape = 4, size = 3) +
+    geom_point(data = pocFlux.region,
+             aes(x = total_gC_flux_m2_mean, 
+                 fill = reg.inuk,
+                 shape = reg.inuk), 
+             size = 4, color = "black") +
+  
+  scale_color_manual(values = unique(region_rename$region.color)) +
+  scale_fill_manual(values = unique(region_rename$region.color)) +
+  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
+  scale_y_discrete(limits = rev) +
+  scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 8.5)) +
+  theme(legend.position = "none") +
+  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)") + ylab("Region")
+
+```
 
 
+## POC flux comparison
 ```{r}
 p5 <- ggplot(pocFlux.region, 
-       aes(x = poc_model_184_mean, y = total_gC_flux_m2_mean, 
-           color = region.inuktitut, shape = region.inuktitut)) +
+       aes(y = poc_model_365_mean, x = total_gC_flux_m2_mean, 
+           color = reg.inuk, shape = reg.inuk)) +
   
   geom_abline() +
-  geom_point(data = pocFlux.ave, 
-       aes(x = poc_model_184, y = total_gC_flux_m2),
-       # color = "black",
-       alpha = 0.6) +
   
-  geom_errorbar(aes(xmin = poc_model_184_mean-poc_error_184_mean,
-                    xmax = poc_model_184_mean+poc_error_184_mean)) +
-  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
-                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
-                linetype = "dashed") +
-  geom_point(aes(fill = region.inuktitut), 
+  geom_errorbar(aes(ymin = poc_model_365_mean-poc_model_365_sd,
+                    ymax = poc_model_365_mean+poc_model_365_sd),
+                width = 0) +
+  geom_errorbar(aes(xmin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
+                    xmax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
+                width = 0) +
+  # geom_text(aes(label = n), color = "black") +
+  geom_point(aes(fill = reg.inuk), 
              size = 4, color = "black", alpha = 1) +
-  scale_x_continuous(breaks = seq(0,40,2), limits = c(0, 38), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0.1)) +
+  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
+  scale_x_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
+  coord_cartesian(ylim = c(0, 19), xlim = c(0, 9)) +
   
   scale_shape_manual(values = c(21,22,23,24,25,22,23), 
                       name = "Region") +
@@ -605,26 +695,32 @@ p5 <- ggplot(pocFlux.region,
                      name = "Region") +
   # scale_x_log10() +
   # scale_y_log10() +
+  # theme(legend.position = "right") +
   theme(legend.position = c(0.98, 0.98),
         legend.text = element_text(size = 12),
         legend.title.text = element_text(size = 12),
         legend.justification = c(1, 1),
         legend.box.background = element_rect(fill = "white", color = "black")) +
-  guides(fill = guide_legend(ncol = 2),
-         shape = guide_legend(ncol = 2)) + 
-  xlab("POC flux (g C m⁻² y⁻¹)") +
-  ylab("Lipid pump (g C m⁻² y⁻¹)")
+  guides(fill = guide_legend(ncol = 1),
+         shape = guide_legend(ncol = 1)) +
+  ylab("POC flux (g C m⁻² y⁻¹)") +
+  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)")
+
+p5
+```
+
+## combine
+```{r}
 
 plot_grid(
-plot_grid(pp2, pp4 + theme(axis.text.y = element_blank(),
+plot_grid(np1, pp4 + theme(axis.text.y = element_blank(),
                            axis.title.y = element_blank()),
-          nrow = 1, align = "h", 
-          rel_widths = c(1.5,1),
+          ncol = 1, align = "v", 
           labels = c("a","b")),
-p5, ncol = 1, labels = c("","c"))
+p5, nrow = 1, labels = c("","c"))
 
-
-ggsave("figures/Fig4_temp_v2.png", width = 10, height = 10,
+# 
+ggsave("figures/Fig4_temp_v2.png", width = 10, height = 6,
        units = "in", bg = "white")
 ```
 

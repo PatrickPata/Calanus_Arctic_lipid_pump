@@ -23,6 +23,9 @@ load("data/profile_integrated_cflux_20260321.RData")
 
 # UVP-net abundance comparison results
 load("data/comparison_net_uvp_abundance_20260321.RData")
+
+# Comparison between POC flux and lipid pump C flux
+load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
 ```
 
 # Figure 2: Interindividual trait variability
@@ -448,8 +451,8 @@ ggsave("figures/Fig3_20260321.png", width = 12, height = 14,
 
 # Figure 4: Carbon pump
 
-## Fig 4a spatial map
-```{r}
+## Spatial map
+```{r, eval=FALSE}
 df.profile.long <- df.profile %>% 
   pivot_longer(cols = n100mbins:fraction_C_flux,
                names_to = "variable", values_to = "value") %>% 
@@ -484,243 +487,199 @@ pp1 <- basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
 pp1
 ```
 
-## Fig 4bc 
+## Prepare data frames
 ```{r}
 df_to_plot <- df.region %>% 
            filter(taxa == "Calanus") %>% 
   mutate(total_gC_flux_m2_se = total_gC_flux_m2_sd / sqrt(n))
 
+clrs <- region_rename$region.color
+
 # Lengthen to plot flux components
 df.region.long <- df_to_plot %>% 
+  filter(taxa == "Calanus") %>% 
   select(taxa, region.inuktitut, reg.inuk, 
          `diapause respiration` = respired_C_gC_m2_mean, 
          `mortality structural` = structural_gC_m2_mort_mean, 
-         `mortality storage` = waxester_gC_m2_mort_mean) %>% 
+         `mortality storage` = waxester_gC_m2_mort_mean) %>%  
   pivot_longer(cols = c(`diapause respiration`, 
                         `mortality structural`, `mortality storage`),
                names_to = "Component", values_to = "Cflux") %>% 
+  mutate(Component = if_else(Component == "diapause respiration",
+                             "Respiration", Component),
+         Component = if_else(Component == "mortality structural",
+                             "Structural C", Component),
+         Component = if_else(Component == "mortality storage",
+                             "Storage C", Component)) %>% 
   mutate(Component = factor(Component,
-                            levels = c("mortality structural", "mortality storage",
-                        "diapause respiration")))
-
-pp2 <- ggplot(df.profile %>% 
-         filter(taxa == "Calanus"),
-       aes(y = reg.inuk)) +
-  geom_violin(aes(x = total_gC_flux_m2, fill = reg.inuk),
-              scale = "width", color = "white", alpha = 0.4) +
-  # Add average values for the region
-  geom_linerange(data = df_to_plot %>% 
-                   filter(taxa == "Calanus"),
-                 aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd,
-                     xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
-                 linetype = "solid", color = "black") +
-  geom_point(data = df_to_plot %>% 
-               filter(taxa == "Calanus"),
-             aes(x = total_gC_flux_m2_mean, 
-                 fill = reg.inuk,
-                 shape = reg.inuk), 
-             size = 4, color = "black") +
-  # # The total flux if including >3 mm copepods
-  # geom_point(data = df.region.sum,
-  #           aes(x = total_gC_flux_m2_mean), 
-  #           shape = 17, size = 3, color = "black") +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  scale_fill_manual(values = unique(region_rename$region.color)) +
-  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
-  scale_y_discrete(limits = rev) +
-  scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 8.5)) +
-  theme(legend.position = "none") +
-  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)") + ylab("Region")
-
-
-pp3 <- ggplot(df.region.long %>% 
-         filter(taxa == "Calanus"),
-       aes(x = reg.inuk)) +
-  geom_bar(aes(y = Cflux, fill = Component),
-           stat = "identity", color = "black") +
-  # geom_point(data = df_to_plot,
-  #            aes(y = total_gC_flux_m2_mean, 
-  #                color = region.inuktitut),
-  #            shape = 16, size = 4) +
-  # geom_linerange(data = df_to_plot,
-  #                aes(ymin = total_gC_flux_m2_mean - total_gC_flux_m2_se,
-  #                    ymax = total_gC_flux_m2_mean + total_gC_flux_m2_se,
-  #                    color = region.inuktitut),
-  #                linetype = "solid") +
-  
-  scale_fill_manual(values = c("gray80","gray40","gray10"),
-                     name = "Flux component") +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     guide = "none") +
-  scale_y_continuous(expand = c(0,0.1)) +
-  scale_x_discrete(limits = rev) +
-  theme(legend.position = "bottom",
-        legend.text = element_text(size = 12),
-        legend.justification = "left",
-        legend.box.just = "left",
-        legend.box = "horizontal",
-        legend.location = "plot" ) +
-  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
-  xlab("Region") +
-  coord_flip() +
-  guides(fill = guide_legend(#title.position = "top",
-                             title.hjust = 0.5, nrow = 2)) 
-
-pp2 
-pp3
-```
-
-## Combine all 
-```{r}
-
-plot_grid(pp1,
-          plot_grid(pp2, pp3,
-                    ncol = 1, labels = c("b","c")),
-          nrow = 1, labels = c("a",""))
-
-
-ggsave("figures/Fig4_temp.png", width = 10, height = 7,
-       units = "in", bg = "white")
+                            levels = c("Storage C",
+                                       "Structural C",
+                                       "Respiration")))
 ```
 
 
-## alt no map with vs poc flux
+## A: Lipid pump carbon flux
 ```{r}
+# Reorder the regions
+label_levels <- df_to_plot %>%
+  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")")) %>% 
+  distinct(reg.inuk, region_label) %>%
+  arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
+  pull(region_label)
 
-pp4 <- ggplot(df.region.long %>% 
-         filter(taxa == "Calanus"),
-       aes(x = region.inuktitut)) +
-  geom_bar(aes(y = Cflux, fill = Component,
-               color = region.inuktitut),
-           stat = "identity") +
-  
-  scale_fill_manual(values = c("gray80","gray40","gray10"),
-                     name = "Flux component") +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     guide = "none") +
-  scale_y_continuous(expand = c(0,0.1)) +
-  scale_x_discrete(limits = rev) +
-  theme(legend.position = "bottom",
-        legend.text = element_text(size = 12),
-        legend.justification = "left",
-        legend.box.just = "left",
-        legend.box = "horizontal",
-        legend.location = "plot" ) +
-  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
-  xlab("Region") +
-  coord_flip() +
-  guides(fill = guide_legend(#title.position = "top",
-                             title.hjust = 0.5, nrow = 2))
 
-plot_grid(pp2, pp4 + theme(axis.text.y = element_blank(),
-                           axis.title.y = element_blank()),
-          nrow = 1, align = "h", 
-          rel_widths = c(1.5,1),
-          labels = c("a","b"))
-```
-
-# Alternative Fig 4
-## alternative p1 
-mark median and mean, and values for the analysis with >300 m
-```{r}
 
 np1 <- ggplot(df.profile %>% 
          filter(taxa == "Calanus"),
        aes(y = reg.inuk)) +
   geom_violin(aes(x = total_gC_flux_m2, fill = reg.inuk),
               scale = "width", color = "white", alpha = 0.4) +
+  
+  geom_boxplot(aes(x = total_gC_flux_m2, fill = reg.inuk),
+              color = "gray30", alpha = 0.6, width = 0.2) +
+  
  # MEAN (solid blue vertical line)
-  geom_linerange(data = df_to_plot %>% 
-                   filter(taxa == "Calanus"),
+  geom_linerange(data = df_to_plot,
                  aes(x = total_gC_flux_m2_mean,
                      ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
                  color = "black", linewidth = 1) +
   
-  # MEDIAN (dashed red vertical line)
-  geom_linerange(data = df_to_plot %>% 
-                   filter(taxa == "Calanus"),
-                 aes(x = total_gC_flux_m2_median,
-                     ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
-                 color = "black", linetype = "dashed", linewidth = 0.5) +
   
-  # mean for samples in >300 m (dotted black line)
-  # geom_point(data = pocFlux.region,
-  #                aes(x = total_gC_flux_m2_mean),
-  #                color = "black", shape = 4, size = 3) +
-    geom_point(data = pocFlux.region,
-             aes(x = total_gC_flux_m2_mean, 
-                 fill = reg.inuk,
-                 shape = reg.inuk), 
-             size = 4, color = "black") +
-  
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  scale_fill_manual(values = unique(region_rename$region.color)) +
-  scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
-  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = unique(clrs)) +
+  scale_fill_manual(values = unique(clrs)) +
+  scale_y_discrete(limits = rev, labels = rev(label_levels)) +
   scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 8.5)) +
+  coord_cartesian(xlim = c(0, 8.2)) +
   theme(legend.position = "none") +
   xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)") + ylab("Region")
 
+np1
+```
+
+## B: Flux components
+```{r}
+np2 <- ggplot(df.region.long,
+       aes(x = reg.inuk)) +
+  
+  ggpattern::geom_col_pattern(aes(y = Cflux, fill = reg.inuk, 
+                                  pattern = Component, 
+                                  alpha = Component),
+                              stat = "identity", color = "black",
+                              pattern_color = "white",
+                              pattern_spacing = 0.02,
+                              pattern_density = 0.1) +
+  
+  scale_fill_manual(values = clrs,
+                    guide = "none") +
+  scale_alpha_manual(values = c(0.4, 0.7, 1),
+                     guide = "none") +
+  ggpattern::scale_pattern_manual(values = c("circle","stripe","none")) +
+  
+  
+  scale_y_continuous(expand = c(0,0), limits = c(0, 4.2)) +
+  scale_x_discrete(limits = rev) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        legend.box.just = "left",
+        legend.box = "horizontal",
+        legend.location = "plot" ) +
+  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
+  xlab("Region") +
+  coord_flip() +
+  guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
+         pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
+
+np2
 ```
 
 
-## POC flux comparison
+## C: POC flux comparison
 ```{r}
-p5 <- ggplot(pocFlux.region, 
-       aes(y = poc_model_365_mean, x = total_gC_flux_m2_mean, 
-           color = reg.inuk, shape = reg.inuk)) +
-  
+np3 <- ggplot() +
   geom_abline() +
   
-  geom_errorbar(aes(ymin = poc_model_365_mean-poc_model_365_sd,
-                    ymax = poc_model_365_mean+poc_model_365_sd),
-                width = 0) +
-  geom_errorbar(aes(xmin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
-                    xmax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
-                width = 0) +
-  # geom_text(aes(label = n), color = "black") +
-  geom_point(aes(fill = reg.inuk), 
-             size = 4, color = "black", alpha = 1) +
-  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
-  scale_x_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
-  coord_cartesian(ylim = c(0, 19), xlim = c(0, 9)) +
-  
-  scale_shape_manual(values = c(21,22,23,24,25,22,23), 
-                      name = "Region") +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region", guide = "none") +
+  # For 200 m points
+  geom_errorbar(data = flux.comp.200, 
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_errorbar(data = flux.comp.200, 
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_point(data = flux.comp.200, 
+             aes(x = lipid_gC_m2_yr_mean, 
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 21, alpha = 0.9, size = 4, color ="black") +
   scale_fill_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  # scale_x_log10() +
-  # scale_y_log10() +
-  # theme(legend.position = "right") +
-  theme(legend.position = c(0.98, 0.98),
-        legend.text = element_text(size = 12),
-        legend.title.text = element_text(size = 12),
-        legend.justification = c(1, 1),
-        legend.box.background = element_rect(fill = "white", color = "black")) +
-  guides(fill = guide_legend(ncol = 1),
-         shape = guide_legend(ncol = 1)) +
-  ylab("POC flux (g C m⁻² y⁻¹)") +
-  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)")
+                    name = "C flux at 200 m",
+                    guide = guide_legend(nrow = 2, byrow = TRUE)) + 
+  scale_color_manual(values = unique(region_rename$region.color),
+                     guide = "none")  +
+  
+  # For 500 m points
+  ggnewscale::new_scale_color() +
+  geom_errorbar(data = flux.comp.500,
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  geom_errorbar(data = flux.comp.500,
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  scale_color_manual(values = c("deeppink1","forestgreen",
+                                "goldenrod2","turquoise3"),
+                     guide = "none")  +
+  
+  ggnewscale::new_scale_fill() +
+  geom_point(data = flux.comp.500,
+             aes(x = lipid_gC_m2_yr_mean, 
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 23, alpha = 0.7, size = 4, color ="black",
+             name = "C flux at 500 m") +
+  
+  scale_fill_manual(values = c("deeppink1","forestgreen",
+                               "goldenrod2","turquoise3"),
+                    name = "C flux at 500 m",
+                    guide = guide_legend(nrow = 1, byrow = TRUE))  +
+  
+  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 8), ylim = c(0, 11.5)) +
+  
+  theme(legend.position = "bottom",
+        legend.box = "vertical") +
+  xlab("Lipid pump (g C m⁻² y⁻¹)"  )+
+  ylab("POC flux (g C m⁻² y⁻¹)") 
 
-p5
+np3
 ```
 
-## combine
+## Combine subplots
 ```{r}
 
+theme_set(theme(axis.text = element_text(size = 12)) +
+            theme_bw())
+
+
 plot_grid(
-plot_grid(np1, pp4 + theme(axis.text.y = element_blank(),
-                           axis.title.y = element_blank()),
-          ncol = 1, align = "v", 
-          labels = c("a","b")),
-p5, nrow = 1, labels = c("","c"))
+  plot_grid(np1, np2,
+            ncol = 1, align = "v", 
+            labels = c("a","b")),
+  np3, nrow = 1, labels = c("","c"))
 
 # 
-ggsave("figures/Fig4_temp_v2.png", width = 10, height = 6,
+ggsave("figures/Fig4_20260330.png", width = 10, height = 6,
        units = "in", bg = "white")
 ```
 

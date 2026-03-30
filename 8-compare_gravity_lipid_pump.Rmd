@@ -125,8 +125,11 @@ pocFlux.ave.200 <- pocFlux_station_year %>%
             poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
             poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
             .groups = "drop") %>% 
-  # Estimate the annual flux
-  mutate(poc_gC_m2_yr = ((poc_mgC_m2_d * 184) + (poc_mgC_m2_d/4 * 181))/1000)
+  # Estimate the annual flux (winter:summer conversion factor of 0.25)
+  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000) %>% 
+  
+  # Nares strait has shorter productive period (June-September)
+  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
 
 # Calculate POC flux at 500 m (+- 25m)
 pocFlux.ave.500 <- pocFlux_station_year %>% 
@@ -138,8 +141,11 @@ pocFlux.ave.500 <- pocFlux_station_year %>%
             poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
             poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
             .groups = "drop") %>% 
-  # Estimate the annual flux
-  mutate(poc_gC_m2_yr = ((poc_mgC_m2_d * 184) + (poc_mgC_m2_d/4 * 181))/1000)
+  # Estimate the annual flux (winter:summer conversion factor of 0.25)
+  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000)%>% 
+  
+  # Nares strait has shorter productive period (June-September)
+  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
 
 
 ggplot() +
@@ -156,6 +162,8 @@ ggplot() +
 ## Prepare comparisons
 ```{r}
 pocFlux.region.200 <- pocFlux.ave.200 %>% 
+  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
+                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   group_by(reg.inuk) %>% 
   summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
             poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
@@ -164,7 +172,8 @@ pocFlux.region.200 <- pocFlux.ave.200 %>%
             n = n(), .groups = "drop")
 
 pocFlux.region.500 <- pocFlux.ave.500 %>% 
-  mutate(poc_gC_m2_yr = ((poc_mgC_m2_d * 184) + (poc_mgC_m2_d/4 * 181))/1000) %>% 
+  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
+                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   group_by(reg.inuk) %>% 
   summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
             poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
@@ -189,13 +198,15 @@ lipid.Cflux.region.200 <- lipid.Cflux.profile.200 %>%
             lipid_mgC_m2_d_sd = sd(lipid_mgC_m2_d, na.rm = T),
             n = n(), .groups = "drop")
 
-lipid.Cflux.region.500 <- df.profile %>% 
+lipid.Cflux.profile.500 <- df.profile %>% 
   filter(station_year %in% pocFlux.ave.500$station_year) %>% 
   filter(taxa == "Calanus") %>% 
   rename(lipid_gC_m2_yr = total_gC_flux_m2) %>% 
   select(reg.inuk, station_year, lipid_gC_m2_yr) %>% 
   # calculate daily flux
-  mutate(lipid_mgC_m2_d = lipid_gC_m2_yr/365 * 1000) %>% 
+  mutate(lipid_mgC_m2_d = lipid_gC_m2_yr/365 * 1000) 
+  
+lipid.Cflux.region.500 <- lipid.Cflux.profile.500 %>% 
   group_by(reg.inuk) %>% 
   summarise(lipid_gC_m2_yr_mean = mean(lipid_gC_m2_yr, na.rm = T),
             lipid_gC_m2_yr_sd = sd(lipid_gC_m2_yr, na.rm = T),
@@ -218,6 +229,10 @@ flux.comp.500 <- left_join(lipid.Cflux.region.500, pocFlux.region.500,
 flux.com.profiles.200 <- left_join(lipid.Cflux.profile.200,
                                    pocFlux.ave.200,
                                    by = join_by(reg.inuk, station_year))
+flux.com.profiles.500 <- left_join(lipid.Cflux.profile.500,
+                                   pocFlux.ave.500,
+                                   by = join_by(reg.inuk, station_year))
+
 
 # Pairwise comparisons
 # Compare daily
@@ -251,50 +266,77 @@ ggplot(flux.comp.200,
 # Maybe do histograms of daily POC flux for UVP6 and the literature values for NOW
 ```
 
-
+## Plot figures
 ```{r}
+# Legend labels
+flux.comp.200 <- flux.comp.200 %>%
+  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")"))
+flux.comp.500 <- flux.comp.500 %>%
+  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")"))
+
+# Reorder the regions
+label_levels <- flux.comp.200 %>%
+  distinct(reg.inuk, region_label) %>%
+  arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
+  pull(region_label)
+flux.comp.200 <- flux.comp.200 %>%
+  mutate(region_label = factor(region_label, levels = label_levels))
+
+label_levels <- flux.comp.500 %>%
+  distinct(reg.inuk, region_label) %>%
+  arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
+  pull(region_label)
+flux.comp.500 <- flux.comp.500 %>%
+  mutate(region_label = factor(region_label, levels = label_levels))
+
 # Compare annual
 p0 <- ggplot(flux.comp.200, 
        aes(x = lipid_gC_m2_yr_mean, y = poc_gC_m2_yr_mean,
-           color = reg.inuk)) +
+           color = region_label)) +
   geom_abline() +
   geom_errorbar(aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
                     xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd),
-                width = 0) +
+                width = 0, alpha = 0.9) +
   geom_errorbar(aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
                     ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd),
-                width = 0) +
-  geom_point(alpha = 1, size = 6) +
-  geom_text(aes(label = n), color = "black") +
-    scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+                width = 0, alpha = 0.9) +
+  geom_point(aes(fill = region_label),
+             shape = 21, alpha = 0.9, size = 6, color ="black") +
+  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   coord_cartesian(xlim = c(0, 8), ylim = c(0, 12)) +
   # coord_cartesian(xlim = c(0, 12.5), ylim = c(0, 12)) +
   
+  scale_fill_manual(values = unique(region_rename$region.color),
+                     name = "Region")  +
   scale_color_manual(values = unique(region_rename$region.color),
                      name = "Region", guide = "none")  +
   
   xlab("Lipid pump (g C m⁻² y⁻¹)")+
   ylab("POC flux (g C m⁻² y⁻¹)") 
 
+
 p1 <- ggplot(flux.comp.500, 
        aes(x = lipid_gC_m2_yr_mean, y = poc_gC_m2_yr_mean,
-           color = reg.inuk)) +
+           color = region_label)) +
   geom_abline() +
   geom_errorbar(aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
                     xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd),
-                width = 0) +
+                width = 0, alpha = 0.9) +
   geom_errorbar(aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
                     ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd),
-                width = 0) +
-  geom_point(alpha = 1, size = 6) +
-  geom_text(aes(label = n), color = "black") +
+                width = 0, alpha = 0.9) +
+  geom_point(aes(fill = region_label),
+             shape = 21, alpha = 0.9, size = 6, color ="black") +
   scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   coord_cartesian(xlim = c(0, 12.5), ylim = c(0, 12)) +
   
+  scale_fill_manual(values = unique(region_rename$region.color),
+                     name = "Region")  +
   scale_color_manual(values = unique(region_rename$region.color),
                      name = "Region", guide = "none")  +
+  
   
   xlab("Lipid pump (g C m⁻² y⁻¹)")+
   ylab("POC flux (g C m⁻² y⁻¹)") 
@@ -302,19 +344,17 @@ p1 <- ggplot(flux.comp.500,
 
 
 p2 <- ggplot(data = sed.trap.NOW %>% 
-               # filter(Depth_Bin == "300-500m") %>% 
                mutate(Depth_m = paste(Depth_m,"m")),
              aes(x = 0, y = Annual_Flux)) +
-  geom_point(shape = 18, size = 2, color = "deeppink1") +
-  ggrepel::geom_text_repel(aes(label = Depth_m), 
-            hjust = -0.2, size = 3) +
-  ylab(NULL) +
-  # Inset sediment trap data range
   geom_boxplot(data = sed.trap.NOW,
                aes(x = 1, y = Annual_Flux), 
                inherit.aes = FALSE,
                color = "deeppink1",  width = 0.5) +
-  xlab("Sediment trap\nliterature") +
+  geom_point(shape = 18, size = 2, color = "deeppink1") +
+  ggrepel::geom_text_repel(aes(label = Depth_m), 
+            hjust = -0.2, size = 3) +
+  ylab(NULL) +
+  xlab("Sediment\ntrap") +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   coord_cartesian(ylim = c(0, 12)) +
   theme(axis.text = element_blank(),
@@ -325,14 +365,146 @@ p2 <- ggplot(data = sed.trap.NOW %>%
 
 
 cowplot::plot_grid(p0 + ggtitle("200 m"),
-                   p1 + ggtitle("500 m"), rel_widths = c(8,11), 
-                   nrow = 1, align = "h")
-
-cowplot::plot_grid(p0 + ggtitle("200 m"),
                    p1 + ggtitle("500 m"),
-                   p2, rel_widths = c(5,1), nrow = 1, align = "h")
+                   p2, rel_widths = c(8,10,2), nrow = 1, align = "h")
 ```
 
+Combine the 200 m and 500 m flux values in the same figure
+```{r}
+flux.comp.500 <- flux.comp.500 %>% 
+                  filter(n > 3) %>% 
+                  droplevels()
+
+# Combine the 200 m and 500 m points, only use the n > 3 for 500 m 
+ggplot() +
+  geom_abline() +
+  
+  # For 200 m points
+  geom_errorbar(data = flux.comp.200, 
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_errorbar(data = flux.comp.200, 
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_point(data = flux.comp.200, 
+             aes(x = lipid_gC_m2_yr_mean, 
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 21, alpha = 0.9, size = 4, color ="black") +
+  scale_fill_manual(values = unique(region_rename$region.color),
+                    name = "C flux at 200 m",
+                    guide = guide_legend(nrow = 1, byrow = TRUE)) + 
+  scale_color_manual(values = unique(region_rename$region.color),
+                     guide = "none")  +
+  
+  # For 500 m points
+  ggnewscale::new_scale_color() +
+  geom_errorbar(data = flux.comp.500,
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  geom_errorbar(data = flux.comp.500,
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  scale_color_manual(values = c("deeppink1","forestgreen",
+                                "goldenrod2","turquoise3"),
+                     guide = "none")  +
+  
+  ggnewscale::new_scale_fill() +
+  geom_point(data = flux.comp.500,
+             aes(x = lipid_gC_m2_yr_mean, 
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 23, alpha = 0.7, size = 4, color ="black",
+             name = "C flux at 500 m") +
+  
+  scale_fill_manual(values = c("deeppink1","forestgreen",
+                               "goldenrod2","turquoise3"),
+                    name = "C flux at 500 m",
+                    guide = guide_legend(nrow = 1, byrow = TRUE))  +
+  
+  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 8), ylim = c(0, 12)) +
+  
+  theme(legend.position = "bottom",
+        legend.box = "vertical") +
+  xlab("Lipid pump (g C m⁻² y⁻¹)"  )+
+  ylab("POC flux (g C m⁻² y⁻¹)") 
+```
+
+# Export comparison results
+```{r}
+save(flux.comp.200, flux.comp.500, sed.trap.NOW,
+     flux.com.profiles.200, flux.com.profiles.500,
+     file = "data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+```
+
+
+# Stat tests
+```{r}
+# two-sided Wilcoxon signed rank test
+results.200 <- flux.com.profiles.200 %>%
+  mutate(POC_Flux = poc_gC_m2_yr, LipidC_Flux = lipid_gC_m2_yr) %>% 
+  group_by(reg.inuk) %>%
+  summarise(
+    n_pairs = n(),
+    median_FluxA = median(POC_Flux, na.rm = TRUE),
+    median_FluxB = median(LipidC_Flux, na.rm = TRUE),
+    median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+    
+    wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                  paired = TRUE)),
+    
+    V = wilcox_obj[[1]]$statistic,
+    p_value = wilcox_obj[[1]]$p.value,
+    
+    .groups = "drop"
+  ) %>% 
+  select(-wilcox_obj) %>% 
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
+  mutate(is_sig = if_else(p_adj < 0.05, T, F))
+
+results.200 %>% 
+  arrange(p_adj) %>% 
+  relocate(is_sig, p_adj, median_diff) 
+
+results.500 <- flux.com.profiles.500 %>%
+  mutate(POC_Flux = poc_gC_m2_yr, LipidC_Flux = lipid_gC_m2_yr) %>% 
+  group_by(reg.inuk) %>%
+  summarise(
+    n_pairs = n(),
+    median_FluxA = median(POC_Flux, na.rm = TRUE),
+    median_FluxB = median(LipidC_Flux, na.rm = TRUE),
+    median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+    
+    wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                  paired = TRUE)),
+    
+    V = wilcox_obj[[1]]$statistic,
+    p_value = wilcox_obj[[1]]$p.value,
+    
+    .groups = "drop"
+  ) %>% 
+  select(-wilcox_obj) %>% 
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
+  mutate(is_sig = if_else(p_adj < 0.05, T, F))
+
+results.500 %>% 
+  arrange(p_adj) %>% 
+  relocate(is_sig, p_adj, median_diff) 
+```
 
 
 # --- Extra scripts ---
@@ -394,6 +566,7 @@ ggplot(AA %>%
 length(unique(AA$station_year))
 summary(AA$bottom_depth_m)
 ```
+
 ## Extra: check monthly trends
 ```{r}
 pocFlux.monthly.200 <- pocFlux.ave.200 %>% 
@@ -438,170 +611,10 @@ cowplot::plot_grid(g1,g2, ncol = 1)
 
 ```
 
-## TODELETE Check the pikia profile with high total flux
-	
-NaresW23 2023  -- the high flux value... the bottom depth of the station is 301m but the profile is deep...
-NaresE23 2023
-```{r}
-AA <- pocFlux.ave %>% 
-  filter(reg.inuk == "Pikia") %>% 
-  arrange(-poc_model)
-
-BB <- pocFlux_station_year %>% 
-  filter(station_year %in% c("NaresW23 2023","NaresE23 2023"))
-
-ggplot(BB, 
-       aes(group = station_year)) +
-  geom_line(aes(y = ModelFlux, x = Depth_5m, color = station_year),
-            alpha = 0.5) +
-  geom_line(aes(y = ObsFlux, x = Depth_5m, color = station_year),
-            alpha = 0.5, linetype = "dotted") +
-  geom_vline(xintercept = c(150,250), linetype = "dashed") +
-  coord_flip() +
-  scale_x_reverse() +
-  # theme(legend.position = "none") +
-  facet_wrap(~reg.inuk, nrow = 1, scales = "free") +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  ylab("POC flux (UVP6 200m)\n(mg C m-2 d-1)") 
-```
-
-
-## Plot individual profiles
-```{r}
-pocFlux.ave <- pocFlux_station_year %>% 
-  # TODO try to remove benthic nephroid layer?
-  
-   # consider only stations with at least 300m depth?
-  filter(bottom_depth_m >= 300) %>% 
-  
-  filter(Depth_5m >= 150 & Depth_5m < 250) %>% 
-
-  # calculate the total flux per profile
-  group_by(station_year, bottom_depth_m, Month, reg.inuk) %>% 
-  summarise(n5mbins = n(),
-            poc_model = mean(ModelFlux, na.rm = T),
-            poc_model_sd = sd(ModelFlux, na.rm = T),
-            .groups = "drop")  %>% 
-  mutate(poc_model_se = poc_model_sd / sqrt(n5mbins)) %>% 
-  
-# Convert to annual flux... 
-  # The observations are the average for only Jul-October (4 months), the rest of the year, the primary production is lower and POC flux is likely much lower
-  
-  # Use the observations as the productive period which is6 months (May-October) for full POC value. Assume that the winter period has 1/4 of the flux of the productive period? ... or not include that at all.
-  mutate(poc_model_184 = (poc_model * 184 / 1000), 
-         poc_error_184 = (poc_model_se * 184 / 1000),
-         poc_model_365 = (poc_model * 184 / 1000) + (poc_model/4 * 181 / 1000),
-         poc_error_365 = (poc_model_se * 184 / 1000) + (poc_model_se/4 * 181 / 1000)) 
-
-
-
-# Pairwise matching of POC flux and lipid flux
-AA <- df.profile %>% 
-  filter(taxa == "Calanus") %>% 
-  filter(station_year %in% pocFlux.ave$station_year) %>% 
-  select(station_year, total_gC_flux_m2)
-
-pocFlux.ave <- pocFlux.ave %>% 
-  left_join(AA, by = join_by(station_year)) %>% 
-  left_join(Amund_UVP6_meta %>% 
-              distinct(station_year, region.inuktitut),
-            by = "station_year")
-
-# Pairwise comparison
-ggplot(pocFlux.ave, 
-       aes(x = poc_model_365, y = total_gC_flux_m2, color = region.inuktitut)) +
-  geom_errorbar(aes(xmin = poc_model_365-poc_error_365,
-                    xmax = poc_model_365+poc_error_365)) +
-  geom_point() +
-  geom_abline() +
-  scale_x_log10() +
-  scale_y_log10() +
-  theme(legend.position = "none") +
-  scale_color_manual(values = unique(region_rename$region.color)) +
-  xlab("POC flux (UVP6 200-300m)\n(g C m-2 y-1)") + 
-  ylab("Lipid Pump (g C m-2 y-1)")
-
-
-# Distribution of the modeled POC flux out of 200-300m
-ggplot(pocFlux.ave, aes(x = region.inuktitut,
-                        y = poc_model_184)) +
-  geom_boxplot() +
-  coord_flip() +
-  ylab("POC Flux (g C m-2 y-1)")
-
-
-# Region-average comparison
-pocFlux.region <- pocFlux.ave %>% 
-  group_by(region.inuktitut, reg.inuk) %>% 
-  summarise(n = n(),
-            total_gC_flux_m2_mean = mean(total_gC_flux_m2),
-            total_gC_flux_m2_sd = sd(total_gC_flux_m2),
-            poc_model_365_mean = mean(poc_model_365),
-            poc_model_365_sd = sd(poc_model_365),
-            .groups = "drop") %>% 
-  mutate(total_gC_flux_m2_se = total_gC_flux_m2_sd / sqrt(n),
-         poc_model_365_se = poc_model_365_sd / sqrt(n))
-  
-# TODO decide if 184 or 365
-# Note: use standard deviation because we need to visualize the variability of the samples associated with each region. (Use of SE is for the precision/uncertainity of the MEAN fluxes... but not for comparisons such as this.)
-p5 <- ggplot(pocFlux.region, 
-       aes(x = poc_model_365_mean, y = total_gC_flux_m2_mean, 
-           color = reg.inuk, shape = reg.inuk)) +
-  
-  geom_abline() +
-  geom_point(data = pocFlux.ave,
-       aes(x = poc_model_184, y = total_gC_flux_m2), # color = "black",
-       alpha = 0.3) +
-  
-  geom_errorbar(aes(xmin = poc_model_365_mean-poc_model_365_sd,
-                    xmax = poc_model_365_mean+poc_model_365_sd),
-                width = 0) +
-  geom_errorbar(aes(ymin = total_gC_flux_m2_mean-total_gC_flux_m2_sd,
-                    ymax = total_gC_flux_m2_mean+total_gC_flux_m2_sd),
-                width = 0) +
-  # geom_text(aes(label = n), color = "black") +
-  geom_point(aes(fill = reg.inuk), 
-             size = 4, color = "black", alpha = 1) +
-  scale_x_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,40,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 19), ylim = c(0, 9)) +
-  
-  scale_shape_manual(values = c(21,22,23,24,25,22,23), 
-                      name = "Region") +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region", guide = "none") +
-  scale_fill_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  # scale_x_log10() +
-  # scale_y_log10() +
-  theme(legend.position = "right") +
-  # theme(legend.position = c(0.98, 0.98),
-  #       legend.text = element_text(size = 12),
-  #       legend.title.text = element_text(size = 12),
-  #       legend.justification = c(1, 1),
-  #       legend.box.background = element_rect(fill = "white", color = "black")) +
-  # guides(fill = guide_legend(ncol = 2),
-  #        shape = guide_legend(ncol = 2)) + 
-  xlab("POC flux (g C m⁻² y⁻¹)") +
-  ylab("Lipid pump (g C m⁻² y⁻¹)")
-
-p5 + ggtitle("To update figure after data curation n = 141 profiles, truncated zero")
-
-
-ggsave("figures/Fig5_temp_2026020326.png",
-       width = 8, height = 5, units = "in", bg = "white")
-
-
-# # check observed vs modelled flux
-# ggplot(pocFlux_UVP6, aes(x = ObsFlux, y = ModelFlux)) +
-#   geom_abline() +
-#   geom_point()
-
-```
 
 ## Compare UVP5 and UVP6 Annual POC flux estimates
 ```{r}
-load("data/UVP5_CA_Arctic_POCFLUX_results_20260324.RData")
+load("data/UVP5_CA_Arctic_POCFLUX_results_20260329.RData")
 
 # Filter profiles
 pocFlux_UVP5_profiles <- pocFlux_UVP5 %>% 
@@ -629,8 +642,7 @@ pocFlux_UVP5_profiles <- pocFlux_UVP5 %>%
   mutate(poc_model_se = poc_model_sd / sqrt(n5mbins)) %>% 
   
   # Convert to annual flux... 
-  mutate(poc_model_184 = (poc_model * 184 / 1000), 
-         poc_model_365 = (poc_model * 184 / 1000) + (poc_model/4 * 181 / 1000)) 
+  mutate(poc_model_365 = (poc_model * 182.5 / 1000) + (poc_model/4 * 182.5 / 1000)) 
 
   
   # Region-average comparison
@@ -797,58 +809,5 @@ ggplot(pocFlux.martin, aes(x = reg.inuk)) +
 ```
 
 
-
-# --- old scripts ---
-
-# With historical POC flux from literature
-```{r}
-sedTrap <- read.csv("data/Sediment_trap_literature_20251117.csv") %>% 
-  # Remove the anomalously high value for Mackenzie shelf
-  filter(Daily_Flux != 7000) %>% 
-  filter(VarCode %notin% c("FPOC","60-80umPOC","80-100umPOC",
-                                  "100-120POC","120POC",
-                                  "MaxTPOC","MeanTPOC"))
-
-# Annual averages
-sedTrap_annual <- sedTrap %>% 
-  mutate(Annual_Flux = as.numeric(Annual_Flux)) %>% 
-  filter(!is.na(Annual_Flux)) %>% 
-  group_by(RefID) %>% 
-  mutate(RefID = if_else(RefID == "Hargaveetal2002", 
-                         "Hargave et al. (2002)", RefID),
-         RefID = if_else(RefID == "Lalandeetal2009", 
-                         "Lalande et al. (2009)", RefID),
-         RefID = if_else(RefID == "AtkinsonWacasey1987",
-                         "Atkinson & Wacasey (1987)", RefID )) %>% 
-  # Frobisher Bay near Iqualuit (no clear native name)
-  summarise(flux_mean = mean(Annual_Flux, na.rm = T),
-            flux_sd = sd(Annual_Flux, na.rm = T),
-            min = min(Annual_Flux),
-            max = max(Annual_Flux),
-            depth_mean = mean(Depth_m, na.rm = T),
-            n = n(), .groups = "drop")
-  # mutate(label = paste(RefID, AreaCode, sep = " - "))
-
-g2 <- ggplot(sedTrap_annual, 
-             aes(y = RefID, x = flux_mean)) +
-  geom_point(size = 3, alpha = 0.8) +
-  geom_segment(aes(x = min, xend = max)) +
-  xlab("POC flux (g C m-2 y-1)") +
-  geom_text(aes(label = RefID), 
-            vjust = -0.5, hjust = 0.2,  size = 4, show.legend = FALSE) +
-  theme(axis.title.y = element_blank(),
-        axis.text.y = element_blank()) +
-  scale_y_discrete(expand = c(0.1,0.3)) +
-  scale_x_continuous(breaks = seq(0,40,2), limits = c(0, 38), expand = c(0,0))
-g2
-
-plot_grid(g1, g2, 
-          align = "v", labels = "auto",
-          ncol = 1, rel_heights = c(1, 0.3))
-# 
-# ggsave("figures/Fig6_lipid_gravity_comparison_OSM.png",
-#        width = 5, height = 7, units = "in", bg = "white")
-
-```
 
 

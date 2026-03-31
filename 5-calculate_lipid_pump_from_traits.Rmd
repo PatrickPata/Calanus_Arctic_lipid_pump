@@ -43,127 +43,121 @@ clrs <- rev(c("blue","black","hotpink"))
 ```
 
 # 2. Integrations: 100m bin and vertical profiles
-- Get everything to 5m bins first since EcoPart provides the sample volumes in 5m bin resolution, then total over 100 m bins. 
+
 ```{r, fig.height = 6}
 # Step 1. Calculate abundance, biomass, and respiration in 100 m bins
 
-# 1.1. In each 5m bin, per taxa, per profile, get abundance and biomass
-df.5m <- indiv_traits %>% 
-  # filter the individuals in the curated profiles for analysis
-  filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
-  # Add column of the volume sampled in 5m depth bins
-  mutate(Depth_5m = floor(object_depth_max/5)*5 + 2.5 ) %>% 
-  left_join(volumes.df, by = join_by(sample_id, Depth_5m)) %>% 
-  
-  # Calculate total abundance and biomass per bin
-  group_by(taxa, sample_id, Depth_5m, Sampled_volume_m3) %>% 
-  summarise(abundance = n(),
-         biomass_mgC = sum(prosome_total_mgC),
-         structural_mgC = sum(structural_carbon_mgC),
-         waxester_mgC = sum(waxester_mass_mgC),
-         respired_C_ugC = sum(diapause_resp_by_indiv_ugC),
-         .groups = "drop") 
-  
-# 1.2. When calculating at 100 m bins, make sure to add the empty 5-m bins sampled but with no observed copepods
-df.5m.zero <-  volumes.df %>% 
-  # Repeat it 3 times for each taxa
-  tidyr::crossing(taxa = c("Calanus", "Calanoida", "Copepoda")) %>% 
-  select(-Sampled_volume_L) %>% 
-  left_join(df.5m, 
-            by = join_by(sample_id, Depth_5m, Sampled_volume_m3, taxa)) %>% 
-  # replace NA with 0
-  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
-
-# 1.3. Calculate 100 m layer totals
-df.100m <- df.5m.zero %>% 
+# 1.1 Integrate volume of water sampled to 100 m depth bins
+volumes.df.100 <- volumes.df %>% 
   mutate(Depth_100m = floor(Depth_5m / 100) * 100) %>% 
-  # First sum the total abundance and biomass at each depth layer and note the number of 5m bins
-  group_by(taxa, sample_id, Depth_100m) %>% 
+  group_by(sample_id, Depth_100m) %>% 
   summarise(n5mbins = n(),
             Sampled_volume_m3 = sum(Sampled_volume_m3),
-            abundance = sum(abundance),
-            biomass_mgC = sum(biomass_mgC),
-            structural_mgC = sum(structural_mgC),
-            waxester_mgC = sum(waxester_mgC),
-            respired_C_gC = sum(respired_C_ugC) / 1000 / 1000, # year-1 
             .groups = "drop") %>% 
-  # Then divide by the total sampled volume for the depth layer.
+  mutate(depth_height_m = 5 * n5mbins) %>% 
+  select(-c(n5mbins))
+
+# 1.2 Sum all individuals and C traits in a 100 m depth bin
+df.100m.sums <- indiv_traits %>% 
+  # only include Calanus spp
+  filter(taxa == "Calanus") %>% 
+  # Cap diapause duration to 240 days
+  mutate(diapause_dur_d = if_else(diapauseDuration_day > 240,
+                                  240, diapauseDuration_day)) %>% 
+  # bin to 100 m layers
+  mutate(Depth_100m = floor(object_depth_max/100) * 100) %>% 
+  # Summarize traits
+  group_by(sample_id, Depth_100m) %>% 
+  summarise(abundance = n(),
+            biomass_mgC = sum(prosome_total_mgC),
+            structural_mgC = sum(structural_carbon_mgC),
+            waxester_mgC = sum(waxester_mass_mgC),
+            # Convert respiration from ug C to mg C 
+            respired_C_mgC = sum(diapause_resp_by_indiv_ugC) / 1000,
+            # Calculate mean % fullness and prosome lengths
+            mean_lipid_fullness = mean(lipid_fullness),
+            mean_prosome_length_mm = mean(prosome_length_mm),
+            # Calculate the mean duration of diapause (usd for mortality function)
+            mean_diapause_dur_d = mean(diapause_dur_d),
+            sd_diapause_dur_d = sd(diapause_dur_d), 
+            .groups = "drop")
+
+# 1.3 Calculate concentrations in 100 m depth bins
+df.100m.conc <- volumes.df.100  %>% 
+  # combine volume and 100 m bin sums (note that bins with zero values mean no Calanus spp observed)
+  left_join(df.100m.sums, by = join_by(sample_id, Depth_100m)) %>% 
+  # replace NA with 0
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>% 
+  # concentration by volume (m3)
   mutate(abundance_m3 = abundance/Sampled_volume_m3,
          biomass_mgC_m3 = biomass_mgC/Sampled_volume_m3,
          structural_mgC_m3 = structural_mgC/Sampled_volume_m3,
          waxester_mgC_m3 = waxester_mgC/Sampled_volume_m3,
-         respired_C_gC_m3 = respired_C_gC/Sampled_volume_m3) %>%
-  # To calculate /m2 abundance and biomass, multiple by number of 5m bins sampled
-  mutate(abundance_m2 = abundance_m3 * (5 * n5mbins),
-         biomass_mgC_m2 = biomass_mgC_m3 * (5 * n5mbins),
-         structural_mgC_m2 = structural_mgC_m3 * (5 * n5mbins),
-         waxester_mgC_m2 = waxester_mgC_m3 * (5 * n5mbins),
-         respired_C_gC_m2 = respired_C_gC_m3 * (5 * n5mbins)) %>% 
+         respired_C_mgC_m3 = respired_C_mgC/Sampled_volume_m3) %>% 
+  # concentration by area (m2), convert mg C to g C
+  mutate(abundance_m2 = abundance_m3 * depth_height_m,
+         biomass_gC_m2 = biomass_mgC_m3 * depth_height_m / 1000,
+         structural_gC_m2 = structural_mgC_m3 * depth_height_m / 1000,
+         waxester_gC_m2 = waxester_mgC_m3 * depth_height_m / 1000,
+         respired_C_gC_m2 = respired_C_mgC_m3 * depth_height_m / 1000) %>% 
   # Exclude the columns that are not concentrations
-  select(-c(n5mbins, abundance, biomass_mgC, 
-            structural_mgC, waxester_mgC, respired_C_gC))
+  select(-c(abundance, biomass_mgC, sd_diapause_dur_d,
+            structural_mgC, waxester_mgC, respired_C_mgC)) %>% 
+  # Zeros in the mean diapause duration, prosome length, and lipid fullness are NAs
+  mutate(mean_diapause_dur_d = if_else(mean_diapause_dur_d == 0, NA, 
+                                       mean_diapause_dur_d),
+         mean_lipid_fullness = if_else(mean_lipid_fullness == 0, NA,
+                                       mean_lipid_fullness),
+         mean_prosome_length_mm = if_else(mean_prosome_length_mm == 0, NA,
+                                          mean_prosome_length_mm))
+
 
 # Step 2. Calculate mortality for 100 m bins
 beta <- -0.001 # natural mortality rate (day-1)
 
-# 2.1. Calculate the average diapause duration of the invididuals in a 100m bin to calculate the mortality  coefficient for that bin
-mort.diap <- indiv_traits %>% 
-  mutate(Depth_100m = floor(object_depth_max / 100) * 100) %>% 
-  mutate(diapause_dur = if_else(diapauseDuration_day > 240,
-                                 240, diapauseDuration_day)) %>% 
-  group_by(taxa, sample_id, Depth_100m) %>% 
-  summarise(diapause_dur_mean = mean(diapause_dur),
-            diapause_dur_sd = sd(diapause_dur),
-            nindiv = n(), 
-            .groups = "drop") %>% 
-  mutate(mortality.coef =  exp(beta * diapause_dur_mean)) 
-
-# 2.2. Calculate the fraction of the population lost to natural mortality
-df.100m <- df.100m %>% 
-  # Append the mortality coef for the population in 100 m bins
-  left_join(mort.diap %>% 
-              select(taxa, sample_id, Depth_100m, mortality.coef),
-            by = join_by(taxa, sample_id, Depth_100m)) %>% 
-  # Calculate the abundance, structural, and lipid carbon lost
+df.100m.conc <- df.100m.conc %>% 
+  # 2.1. Calculate the fraction of the population lost to natural mortality
+  mutate(mortality.coef =  exp(beta * mean_diapause_dur_d)) %>% 
+  # 2.2 Calculate the abundance, structural, and lipid carbon lost
   mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
-         structural_gC_m2_mort = (structural_mgC_m2 - 
-           (structural_mgC_m2 * mortality.coef)) / 1000,
-         waxester_gC_m2_mort = (waxester_mgC_m2 - 
-           (waxester_mgC_m2 * mortality.coef)) / 1000) %>% 
+         structural_gC_m2_mort = (structural_gC_m2 - 
+           (structural_gC_m2 * mortality.coef)),
+         waxester_gC_m2_mort = (waxester_gC_m2 - 
+           (waxester_gC_m2 * mortality.coef))) %>% 
   
   # 2.3. Calculate total carbon flux
   mutate(total_gC_flux_m2 = respired_C_gC_m2 + structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
-  # NAs are zeros because zero abundance in the 100 m bin
-  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) 
+  # NAs in total flux are zeros
+  mutate(total_gC_flux_m2 = if_else(is.na(total_gC_flux_m2), 0, 
+                                    total_gC_flux_m2))
 
 
 # Step 3. Combine profiles with the same sample_stationid_ed
-df.station.100m <- df.100m %>% 
+df.station.100m <- df.100m.conc %>% 
   left_join(Amund_UVP6_meta %>% 
               select(sample_id, station_year),
             by = "sample_id") %>% 
   select(-sample_id) %>% 
-  group_by(station_year, taxa, Depth_100m) %>% 
+  group_by(station_year, Depth_100m) %>% 
   # Average all variables per 100m layer
   summarise(across(where(is.numeric),  
                    ~ mean(.x, na.rm = TRUE)),
+            nprofiles = n(),
             .groups = "drop") %>% 
   # Establish factors
-  mutate(taxa = factor(taxa, levels = c("Copepoda","Calanoida","Calanus")),
-         Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
+  mutate(Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
 
 
 
 # Step 4. Vertically integrate each profile (/m2)
-# TODO fix messy mgC and gC values
 df.profile <- df.station.100m %>% 
-  group_by(taxa, station_year) %>% 
+  group_by(station_year) %>% 
   summarise(n100mbins = n(),
             Sampled_volume_m3 = sum(Sampled_volume_m3),
             abundance_m2 = sum(abundance_m2),
-            biomass_gC_m2 = sum(biomass_mgC_m2) / 1000,
-            structural_gC = sum(structural_mgC_m2) / 1000,
-            waxester_gC_m2 = sum(waxester_mgC_m2)  / 1000,
+            biomass_gC_m2 = sum(biomass_gC_m2),
+            structural_gC = sum(structural_gC_m2),
+            waxester_gC_m2 = sum(waxester_gC_m2),
             respired_C_gC_m2 = sum(respired_C_gC_m2),
             structural_gC_m2_mort = sum(structural_gC_m2_mort),
             waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
@@ -190,7 +184,7 @@ df.profile <- df.station.100m %>%
 
 # Step 4. Calculate regional averages
 df.region <- df.profile %>% 
-  group_by(taxa, region.inuktitut, region.inuk, reg.inuk) %>% 
+  group_by(region.inuktitut, region.inuk, reg.inuk) %>% 
   summarise(n = n(),
             across(abundance_m2:frac_waxe_total,
               list(mean = mean, sd = sd, median = median),
@@ -202,18 +196,17 @@ df.region <- df.profile %>%
 
 # 3. Export for lipid vs gravity pump 
 ```{r, eval=FALSE}
-save(df.5m.zero, df.100m, df.station.100m, df.profile, df.region, 
-     file = "data/profile_integrated_cflux_20260321.RData")
+save(df.100m.conc, df.station.100m, df.profile, df.region, 
+     file = "data/profile_integrated_cflux_20260331.RData")
 ```
 
 # 4. Summary stats of integrated values
 ```{r}
-load("data/profile_integrated_cflux_20260321.RData")
+load("data/profile_integrated_cflux_20260331.RData")
 # Average contributions ***
 # 1. fraction of the biomass contributed to C flux
 # 2. fraction of the total flux due to respiration, mortality
 df <- df.profile %>% 
-  filter(taxa == "Calanus") %>% 
   select(fraction_C_flux, frac_resp_total,
          frac_strut_total, frac_waxe_total,
          region.inuktitut)
@@ -233,7 +226,6 @@ df %>% group_by(region.inuktitut) %>%
 
 # Format csv for Table 3: Regional averages
 table3 <- df.region %>% 
-  filter(taxa == "Calanus") %>% 
   mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
          biomass_gC_m2 = sprintf("%.2f ± %.2f",biomass_gC_m2_mean, biomass_gC_m2_sd),
          waxester_gC_m2 = sprintf("%.2f ± %.2f",waxester_gC_m2_mean, waxester_gC_m2_sd),
@@ -258,7 +250,6 @@ write.csv(table3, file = "tables/Table3_regional_averages.csv")
 ```{r}
 # KW and Dunns test for significant differences in medians
 df <- df.profile %>% 
-  filter(taxa == "Calanus") %>% 
   mutate(region = region.inuk)
 
 # *** Carbon flux ***
@@ -334,7 +325,8 @@ df.meta.months <- df.meta %>%
   relocate(region.inuktitut, July, August, September, October)
 
 df.meta.depths <- df.meta %>% 
-  group_by(region.inuktitut) %>% 
+  mutate(region = region.inuktitut) %>% 
+  group_by(region) %>% 
   summarise(nprofiles = n(), 
             mean_bottom = mean(bottom_depth_m),
             sd_bottom = sd(bottom_depth_m),
@@ -486,13 +478,16 @@ df.meta.clean <- df.ctd.mld %>%
 
 ```
 
-# TODO temperature profiles
+## Fig S1. Temperature profiles
 ```{r}
 # TODO remove depths with low sample sizes
 
 region_temp_profiles_5m <- ctd_208 %>% 
+  # limit the mean+sd bottom depth
+  left_join(df.meta.depths, by = join_by(region)) %>% 
+  filter(pressure <= (mean_bottom + sd_bottom)) %>% 
   mutate(depth_bin = floor(pressure/5)*5)  %>% 
- group_by(filename, cruise_name, station, datetime, latitude, longitude,
+  group_by(filename, cruise_name, station, datetime, latitude, longitude,
            region, depth_bin) %>% 
   summarise(temp.mean = mean(te90, na.rm = T),
             temp.sd = sd(te90, na.rm = T),
@@ -501,46 +496,88 @@ region_temp_profiles_5m <- ctd_208 %>%
   group_by(region, depth_bin) %>% 
   summarise(reg.temp.mean = mean(temp.mean, na.rm = T),
             reg.temp.sd = sd(temp.mean, na.rm = T),
-            nprofiles = n(), .groups = "drop") %>% 
-  filter(nprofiles > 3)
+            nprofiles = n(), .groups = "drop") 
 
-ggplot(region_temp_profiles_100m, 
-       aes(x = depth_bin, y = reg.temp.mean, color = region)) +
-  # geom_errorbar(aes(ymin = reg.temp.mean-reg.temp.sd,
-  #                   ymax = reg.temp.mean+reg.temp.sd),
-  #               alpha = 0.2) +
-  # geom_point() +
-  geom_line(linewidth = 1, alpha = 0.8) +
-  coord_flip() +
-  scale_x_reverse(breaks = c(0, seq(100,3000,100)), expand = c(0, 0)) +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  # theme(legend.position = c(0.8, 0.3)) +
-  ylab("Temperature") + xlab("Depth") 
-    facet_wrap(~region, scales = "free_y")
-  
 # TODO plot individual profiles and overlay the mean temperature
 
-ggplot(ctd_208, 
-       aes(x = pressure, y = te90, group = filename)) +
-  geom_line(aes(color = region), alpha = 0.4) +
-  geom_line(data = region_temp_profiles_5m, 
+# Separate 2 rows of regions
+upperplot <- c("Nares Strait",
+               "Pikialasorsuaq\n(North Water Polynya)",
+               "Tallurutiup Imanga\n(Lancaster Sound)")
+
+g1 <- ggplot() +
+  
+  # Mean bottom depth marker
+  geom_rect(data = df.meta.depths %>%
+               filter(region %in% upperplot),
+             aes(xmin = mean_bottom - sd_bottom,
+                 xmax = mean_bottom + sd_bottom,
+                 ymin = -Inf, ymax = Inf,
+                 group = region),
+             fill = "gray80", alpha = 0.4) +
+  geom_vline(data = df.meta.depths %>% 
+               filter(region %in% upperplot), 
+             aes(xintercept = mean_bottom, group = region),
+             linetype = "dashed", color = "gray30") +
+  
+  geom_line(data = ctd_208 %>% 
+         filter(region %in% upperplot), 
+       aes(x = pressure, y = te90, group = filename, color = region),
+       alpha = 0.4) +
+  geom_line(data = region_temp_profiles_5m %>% 
+         filter(region %in% upperplot), 
+       aes(x = depth_bin, y = reg.temp.mean, group = region), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  coord_flip() +
+  xlab("Depth (m)") +
+  # ylab("Temperature (°C)") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = unique(region_rename$region.color[1:3]), 
+                     name = "Region") +
+  facet_wrap(~region, scales = "free", nrow = 1)
+
+g2 <- ggplot() +
+  
+    geom_rect(data = df.meta.depths %>%
+               filter(region %notin% upperplot),
+             aes(xmin = mean_bottom - sd_bottom,
+                 xmax = mean_bottom + sd_bottom,
+                 ymin = -Inf, ymax = Inf,
+                 group = region),
+             fill = "gray80", alpha = 0.4) +
+  geom_vline(data = df.meta.depths %>% 
+               filter(region %notin% upperplot), 
+             aes(xintercept = mean_bottom, group = region),
+             linetype = "dashed", color = "gray30") +
+  
+  geom_line(data = ctd_208 %>% 
+         filter(region %notin% upperplot), 
+       aes(x = pressure, y = te90, group = filename, color = region),
+       alpha = 0.4) +
+  geom_line(data = region_temp_profiles_5m %>% 
+         filter(region %notin% upperplot), 
        aes(x = depth_bin, y = reg.temp.mean, group = region), 
        color = "black", linewidth = 1) +
   scale_x_reverse(expand = c(0,0)) +
   coord_flip() +
   xlab("Depth (m)") +
   ylab("Temperature (°C)") +
-  theme(legend.position = "none",
-        strip.background = element_blank()) +
-  scale_color_manual(values = unique(region_rename$region.color),
+  theme(legend.position = "none", strip.background = element_blank()) +
+  scale_color_manual(values = unique(region_rename$region.color[4:7]), 
                      name = "Region") +
-  facet_wrap(~region, scales = "free", nrow = 2)
+  facet_wrap(~region, scales = "free", nrow = 1)
+
+cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL, 
+                                      nrow = 1, rel_widths = c(0.5,3,0.5)),
+                   g2,ncol = 1)
 
 #TODO mark average bottom depth and sd
 
 ggsave("figures/Supp_region_ave_temp_20m.png",
-       width = 10, height = 10, units = "in", bg = "white")
+       width = 9, height = 8, units = "in", bg = "white")
 ```
 
 

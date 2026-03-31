@@ -240,13 +240,309 @@ table3 <- df.region %>%
          total_gC_flux_m2 = sprintf("%.2f ± %.2f",total_gC_flux_m2_mean, total_gC_flux_m2_sd),
          perc_C_flux = sprintf("%.0f ± %.0f",fraction_C_flux_mean*100, fraction_C_flux_sd*100),
          perc_respired = sprintf("%.0f ± %.0f",frac_resp_total_mean*100, 
-                                 frac_resp_total_sd*100)) %>%
+                                 frac_resp_total_sd*100),
+         perc_structural = sprintf("%.0f ± %.0f",frac_strut_total_mean*100, 
+                                 frac_strut_total_sd*100),
+         perc_waxester = sprintf("%.0f ± %.0f",frac_waxe_total_mean*100, 
+                                 frac_waxe_total_sd*100)) %>%
   select(region.inuktitut, n,
          abundance_m2, biomass_gC_m2, waxester_gC_m2, 
-         total_gC_flux_m2, perc_C_flux, perc_respired)
+         total_gC_flux_m2, total_gC_flux_m2_median, perc_C_flux, perc_respired,
+         perc_structural, perc_waxester)
 
-# write.csv(table3, file = "tables/Table3_regional_averages.csv")
+
+write.csv(table3, file = "tables/Table3_regional_averages.csv")
 ```
+
+# 5. Compare lipid pump distributions between regions
+```{r}
+# KW and Dunns test for significant differences in medians
+df <- df.profile %>% 
+  filter(taxa == "Calanus") %>% 
+  mutate(region = region.inuk)
+
+# *** Carbon flux ***
+kruskal.test(total_gC_flux_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$total_gC_flux_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+
+# *** Abundance ***
+kruskal.test(abundance_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$abundance_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# *** Biomass ***
+kruskal.test(biomass_gC_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$biomass_gC_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# % WE in biom
+kruskal.test(we_perc_biom ~ region, data = df) # not sig diff
+
+# % Cflux to total carbon biomass (amount of biomass contributed to C flux)
+kruskal.test(fraction_C_flux ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p < 0.025 )
+
+
+# % respired to total C flux
+kruskal.test(frac_resp_total ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p < 0.025 )
+
+
+# TODO test difference in relative contribution of flux components
+```
+
+# 6. Profile metadata
+```{r}
+# Temporal frequency
+df.meta <- Amund_UVP6_meta %>% 
+  arrange(-maxSampleDepth) %>% 
+  distinct(station_year, .keep_all = T) 
+
+df.meta %>% 
+  distinct(region.inuktitut, Year) %>% 
+  arrange(region.inuktitut)
+
+df.meta.months <- df.meta %>% 
+  group_by(region.inuktitut, Month_Name) %>% 
+  summarise(nprofiles = n(), .groups = "drop") %>% 
+  pivot_wider(names_from = Month_Name, values_from = nprofiles) %>% 
+  relocate(region.inuktitut, July, August, September, October)
+
+df.meta.depths <- df.meta %>% 
+  group_by(region.inuktitut) %>% 
+  summarise(nprofiles = n(), 
+            mean_bottom = mean(bottom_depth_m),
+            sd_bottom = sd(bottom_depth_m),
+            .groups = "drop") 
+
+
+colnames(df.meta)
+```
+
+# 7. CTD metadata
+```{r}
+load("data/uvp6_associated_ctd_20260330.RData")
+
+# Subset the CTD data to the 208 profiles analyzed
+ctd_meta_208 <- uvp6_ctd_match %>% 
+  filter(sample_id %in% df.meta$sample_id)
+
+ctd_208 <- ctd %>% 
+  filter(filename %in% ctd_meta_208$ctd_filename) %>% 
+  left_join(df.meta %>% 
+              select(filename = ctd_filename, region = region.inuktitut),
+            by = "filename") 
+
+# Calculate mixed layer depth (MLD) based on sigma = 0.003 threshold
+mld.df <- ctd_208 %>% 
+  select(filename, cast_number, station, pressure, sigt) %>% 
+  group_by(filename, cast_number, station) %>% 
+  # Get MLD as 0.003 threshold
+  arrange(pressure) %>% 
+  mutate(
+    sigt_ref = mean(sigt[pressure <= 5], na.rm = TRUE),
+    delta_sigt = sigt - sigt_ref
+  ) %>% 
+  summarise(
+    mld = if (any(delta_sigt >= 0.003, na.rm = TRUE)) {
+      pressure[which(delta_sigt >= 0.003)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+
+temp_thresh <- 0.2 
+
+mldT.df <- ctd_208 %>% 
+  select(filename, cast_number, station, pressure, te90) %>% 
+  group_by(filename, cast_number, station) %>% 
+  arrange(pressure) %>% 
+  mutate(
+    temp_ref = mean(te90[pressure <= 5], na.rm = TRUE),
+    delta_temp = abs(te90 - temp_ref)
+  ) %>% 
+  summarise(
+    mld_temp = if (any(delta_temp >= temp_thresh, na.rm = TRUE)) {
+      pressure[which(delta_temp >= temp_thresh)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+
+# Average temperature above and below the mixed layer
+df.ctd.mld <- ctd_208 %>% 
+  left_join(mld.df %>% 
+              select(filename, mld), by = "filename") %>% 
+    mutate( layer = case_when(
+      is.na(mld) ~ NA_character_,
+      pressure <= mld ~ "above_mld",
+      pressure >  mld ~ "below_mld") ) %>% 
+  # assign below mld for NA values
+  mutate(layer = if_else(is.na(layer), "below_mld", layer)) %>% 
+  group_by(filename, region, layer) %>% 
+  summarise(
+    mean_te90 = mean(te90, na.rm = TRUE),
+    mean_psal = mean(psal, na.rm = TRUE),
+    mean_sigt = mean(sigt, na.rm = TRUE),
+    mean_mld = mean(mld, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  group_by(region, layer) %>% 
+  summarise(
+    n_ctd = n(),
+    mld_mean = mean(mean_mld, na.rm = TRUE),
+    mld_sd = sd(mean_mld, na.rm = TRUE),
+    temp_mean = mean(mean_te90, na.rm = TRUE),
+    temp_sd = sd(mean_te90, na.rm = TRUE),
+    sali_mean = mean(mean_psal, na.rm = TRUE),
+    sali_sd = sd(mean_psal, na.rm = TRUE),
+    dens_mean = mean(mean_sigt, na.rm = TRUE),
+    dens_sd = sd(mean_sigt, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  filter(layer == "below_mld")
+
+# Calculate temperature below 200 m and 500 m and upper 50 m Fluorescence... FLOR (ug/L) and CDOM
+
+ctd.meta.50m <- ctd_meta_208 %>% 
+  filter(pressure <= 50) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_50m = mean, sd_50m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+ctd.meta.200m <- ctd_208 %>% 
+  filter(pressure > 200) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_200m = mean, sd_200m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+ctd.meta.500m <- ctd_208 %>% 
+  filter(pressure > 500) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_500m = mean, sd_500m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+
+# Combine everything to a table with columns:MLD, Temp below MLD, 200m and 500m
+df.meta.clean <- df.ctd.mld %>% 
+  select(region, n_ctd, mld_mean, mld_sd,
+         temp_mean_mld = temp_mean, temp_sd_mld = temp_sd) %>% 
+  left_join(ctd.meta.200m %>% 
+              select(region, te90_mean_200m, te90_sd_200m)) %>% 
+  left_join(ctd.meta.500m %>% 
+              select(region, te90_mean_500m, te90_sd_500m)) %>% 
+  
+  mutate(
+    mld = paste0(round(mld_mean, 1), " \u00B1 ", round(mld_sd, 1)),
+    temp_mld = paste0(round(temp_mean_mld, 1), " \u00B1 ", round(temp_sd_mld, 1)),
+    temp_200m = paste0(round(te90_mean_200m, 1), " \u00B1 ", round(te90_sd_200m, 1)),
+    temp_500m = paste0(round(te90_mean_500m, 1), " \u00B1 ", round(te90_sd_500m, 1))) %>% 
+  select(-c(mld_mean:te90_sd_500m))
+
+
+```
+
+# TODO temperature profiles
+```{r}
+# TODO remove depths with low sample sizes
+
+region_temp_profiles_5m <- ctd_208 %>% 
+  mutate(depth_bin = floor(pressure/5)*5)  %>% 
+ group_by(filename, cruise_name, station, datetime, latitude, longitude,
+           region, depth_bin) %>% 
+  summarise(temp.mean = mean(te90, na.rm = T),
+            temp.sd = sd(te90, na.rm = T),
+            ndepths = n(), .groups = "drop") %>% 
+  filter(!is.na(temp.mean)) %>% 
+  group_by(region, depth_bin) %>% 
+  summarise(reg.temp.mean = mean(temp.mean, na.rm = T),
+            reg.temp.sd = sd(temp.mean, na.rm = T),
+            nprofiles = n(), .groups = "drop") %>% 
+  filter(nprofiles > 3)
+
+ggplot(region_temp_profiles_100m, 
+       aes(x = depth_bin, y = reg.temp.mean, color = region)) +
+  # geom_errorbar(aes(ymin = reg.temp.mean-reg.temp.sd,
+  #                   ymax = reg.temp.mean+reg.temp.sd),
+  #               alpha = 0.2) +
+  # geom_point() +
+  geom_line(linewidth = 1, alpha = 0.8) +
+  coord_flip() +
+  scale_x_reverse(breaks = c(0, seq(100,3000,100)), expand = c(0, 0)) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  # theme(legend.position = c(0.8, 0.3)) +
+  ylab("Temperature") + xlab("Depth") 
+    facet_wrap(~region, scales = "free_y")
+  
+# TODO plot individual profiles and overlay the mean temperature
+
+ggplot(ctd_208, 
+       aes(x = pressure, y = te90, group = filename)) +
+  geom_line(aes(color = region), alpha = 0.4) +
+  geom_line(data = region_temp_profiles_5m, 
+       aes(x = depth_bin, y = reg.temp.mean, group = region), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("Temperature (°C)") +
+  theme(legend.position = "none",
+        strip.background = element_blank()) +
+  scale_color_manual(values = unique(region_rename$region.color),
+                     name = "Region") +
+  facet_wrap(~region, scales = "free", nrow = 2)
+
+#TODO mark average bottom depth and sd
+
+ggsave("figures/Supp_region_ave_temp_20m.png",
+       width = 10, height = 10, units = "in", bg = "white")
+```
+
 
 
 # ---- Figure 3 different file ----
@@ -997,7 +1293,8 @@ ggplot(df.100m %>%
 ##  4.1 Regional total C flux comparisons
 ```{r, fig.width= 8}
 df <- df.profile %>% 
-  filter(taxa == "Calanus") 
+  filter(taxa == "Calanus") %>% 
+  mutate(region = region.inuk)
 
 # TODO properly account for which are significantly not different
 # Abundance No sig diff: [Baffin Bay, Baffin Shelf, Davis, NOW] [Baffin sehlf - Lancaster]

@@ -23,208 +23,70 @@ library(here)
 
 `%notin%` <- Negate(`%in%`)
 
-fname <- "data/2023-2024-taxo_analyses_data_patrickPata-20260203.xlsx"
+# Net data
+load("data/hydrobios_net_calanus_20260321.RData")
 
-# 
-hydrobios <- readxl::read_xlsx(
-  fname,
-  sheet = "zooplankton abundances",
-  # To resolve expected numeric [the sampling net ID is loaded as numeric]
-  col_types = c("text","text","text","text","text","numeric","text","numeric",
-                "numeric","numeric","text","text","text","text","text","text",
-                "text","numeric")) %>% 
-  rename(abundance_m3 = `Total abundance (ind./m3 depth computed vol)`,
-         volume_filtered_m3 = depth_calc_net_filtered_vol)
-
-hydrobios.meta <- readxl::read_xlsx(fname,
-                               sheet = "sampling details")
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 ```
 
-## Additional data curation
-```{r}
-region_rename <- data.frame(
-  region = c("Baffin Bay", "Baffin Shelf", 
-             "Davis Strait", "Lancaster Sound",
-             "North Water Polynya", "Labrador Shelf", 
-              "Nares Strait"),
-  region.inuktitut = c("Sannirutiup Imavik\n(Baffin Bay)", 
-                       "Qikiqtaaluk Shelf\n(Baffin Shelf)",
-                       "Qikiqtaaluup Ikinga\n(Davis Strait)", 
-                       "Tallurutiup Imanga\n(Lancaster Sound)",
-                       "Pikialasorsuaq\n(North Water Polynya)", 
-                       "Nunatsiavut Shelf\n(Labrador Shelf)",
-                       "Sarvarjuaq\n(Nares Strait)"),
-  region.color = c("goldenrod2","purple2","turquoise2","forestgreen",
-                   "deeppink1","blue1", "sienna2")) %>% 
-  # order regions as factors by latitude
-  mutate(region.inuktitut = factor(
-    region.inuktitut,
-    levels = c("Sarvarjuaq\n(Nares Strait)",
-               "Pikialasorsuaq\n(North Water Polynya)", 
-               "Tallurutiup Imanga\n(Lancaster Sound)",
-               "Sannirutiup Imavik\n(Baffin Bay)", 
-               "Qikiqtaaluup Ikinga\n(Davis Strait)", 
-               "Qikiqtaaluk Shelf\n(Baffin Shelf)",
-               "Nunatsiavut Shelf\n(Labrador Shelf)"
-    ))) %>% 
-  arrange(region.inuktitut)
-
-
-# Load the table to match hydrobios stations with UVP profiles. Note that some hydrobios stations are associated with multiple UVP/CTD casts.
-load("data/uvp_hydrobios_station_match_20260203.RData")
-net.regions <- uvp_net_match %>% 
-  distinct(STATION_NAME, DEPLOYMENT_DATE_START, region) %>% 
-  filter(!is.na(region)) %>% 
-  mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
-  mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>%  
-  left_join(region_rename) 
-
-```
-
-
-## Filter stations and species
-```{r}
-Calanus <- hydrobios %>% 
-  filter(FAMILY == "Calanidae") %>% 
-  # Rename taxa
-  mutate(taxa = gsub("\\bsp\\.|\\bspp\\.", "", TAXON_ID)) %>% 
-  mutate(genus = sub(" .*", "", taxa)) %>% 
-  rename(lifeStage = TAXON_LIFE_DEV_STAGE) %>% 
-  mutate(taxaStage = paste(taxa, lifeStage)) %>% 
-  
-  filter(taxa %in% c("Calanus glacialis", "Calanus hyperboreus")) %>% 
-  filter(lifeStage %in% c("C4","C5","F")) %>% 
-
-  # Assign dates
-  mutate(datetime = as.POSIXct(paste(DEPLOYMENT_DATE_START, DEPLOYMENT_TIME_START))) %>% 
-  mutate(year = year(datetime),
-         month = month(datetime),
-         doy = yday(datetime)) %>% 
-  mutate(YEAR_STATION = paste(year, STATION_NAME)) %>% 
-    
-  # Calculate depth  range and midpoint
-  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
-  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2) %>% 
-  
-  # remove the repeated counts for RA62
-  filter(!(YEAR_STATION == "2024 RA62" & SAMPLING_NET_ID %in% c("6","7"))) %>% 
-  
-  # # remove the station with sampling net id 1+2+...+8+9?
-  # filter(SAMPLING_NET_ID != "1+2+3+4+5+6+7+8+9") %>% 
-  
-  # only consider stations in the UVP6 analysis
-  filter(YEAR_STATION %in% net.regions$YEAR_STATION)
-  
-
-hydrobios.meta <- hydrobios.meta %>% 
-   # Assign dates
-  mutate(datetime = as.POSIXct(paste(DEPLOYMENT_DATE_START, DEPLOYMENT_TIME_START))) %>% 
-  mutate(year = year(datetime),
-         month = month(datetime),
-         doy = yday(datetime)) %>% 
-  mutate(YEAR_STATION = paste(year, STATION_NAME)) %>% 
-  # Calculate depth  range and midpoint
-  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
-  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2) %>% 
-  filter(YEAR_STATION %in% Calanus$YEAR_STATION)
-
-```
-
-
-## Inspect profiles
-```{r, eval=FALSE}
-stn.calanus.2 <- Calanus %>% 
-  # filter(year == 2024) %>% 
-  filter(STATION_NAME %in% c("C1","C3","C4-23","C4-23","C5",
-                             "A1","A3","A5","A7/196",
-                             "TCAT6-01(A1)","TCAT6-03(A3)","TCAT6-05(A5)","TCAT6-07(A7)"))
-  
-
-ggplot(stn.calanus.2, aes(x = STATION_NAME, y = abundance_m3,
-           fill = taxa)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_manual(values = c("pink","hotpink")) +
-  scale_y_continuous(expand = c(0,0)) +
-  theme(legend.position = "bottom",
-        axis.text.x = element_text(angle = 90, hjust = 1)) +
-  facet_wrap(year~month, scales = "free_x")
-
-
-calanus.depth <- Calanus %>% 
-  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
-  mutate(abundance_m3_log10 = log10(abundance_m3 + 1),
-         biomass_mgC_m3_log10 = log10(biomass_mgC_m3 + 1)) %>% 
-  mutate(abundance_m2_log10 = log10(abundance_m2 + 1)) %>% 
-  filter(STATION_NAME %in% c("C1","C3","C5","D1","D3")) 
-                             # "C4-23","C4-23","A1","A3","A5","A7/196",
-                             # "TCAT6-01(A1)","TCAT6-03(A3)","TCAT6-05(A5)","TCAT6-07(A7)"
-         
-# for different depth bin widths
-ggplot(calanus.depth, aes(x = Depth_mid, y = abundance_m3_log10, 
-                          fill = taxaStage)) +
-  geom_col(aes(width = Depth_range),
-    position = "stack",color = "black") +
-  coord_flip() +
-  scale_x_reverse() +
-  # scale_fill_manual(values = c("turquoise","pink","hotpink")) +
-  facet_grid(STATION_NAME~year, scales = "free_y") +
-  theme(legend.position = "right")
-
-ggplot(calanus.depth, aes(x = Depth_mid, y = biomass_mgC_m3_log10, 
-                          fill = taxaStage)) +
-  geom_col(aes(width = Depth_range),
-    position = "stack",color = "black") +
-  coord_flip() +
-  scale_x_reverse() +
-  # scale_fill_manual(values = c("turquoise","pink","hotpink")) +
-  facet_grid(STATION_NAME~year, scales = "free_y") +
-  theme(legend.position = "right")
-```
 
 # Get CTD data and average per depth bin
 ```{r}
-load("data/ctd_for_hydrobios_20260219.RData")
+load("data/uvp6_images_calculated_traits_20260321.RData")
+rm(indiv_traits, volumes.df)
+load("data/uvp6_associated_ctd_20260330.RData")
 
-# Add sample_id to hydrobios meta
-AA <- hydrobios.meta %>% 
+# Add ctd filenames
+uvp_net_match <- uvp_net_match %>% 
+  left_join(Amund_UVP6_meta %>%
+              distinct(station_year, .keep_all = T) %>% 
+              select(sample_id, station_year)) %>% 
+  left_join(uvp6_ctd_match %>% 
+              select(sample_id, ctd_filename))
+
+# Subset the temperature data
+ctd_hydrobios <- ctd %>% 
+  filter(filename %in% uvp_net_match$ctd_filename) %>% 
+  select(filename, station, datetime, pressure, temperature = te90)
+
+rm(ctd, ctd_profiles, temp_profiles, temp_profiles_100, 
+   uvp6_ctd_match)
+
+# Calculate the average temperature per hydrobios bin
+temperature_hydrobios <- hydrobios.meta %>% 
   left_join(uvp_net_match %>% 
-              distinct(sample_id, STATION_NAME, DEPLOYMENT_DATE_START))
-
-# Match the binning of the nets to the hydrobios
-BB <- temp_hydrobios %>% 
-  left_join(AA %>% 
-              distinct(sample_id, MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH,
-                       STATION_NAME, DEPLOYMENT_DATE_START,
-                       BOTTOM_DEPTH),
-            join_by(sample_id == sample_id,
-                    pressure >= MIN_SAMPLE_DEPTH,
-                    pressure < MAX_SAMPLE_DEPTH)) %>% 
-  filter(!is.na(STATION_NAME))
-
-# Calculate average temperature per bin
-hydrobios.temperature <- BB %>% 
-  group_by(STATION_NAME, DEPLOYMENT_DATE_START, BOTTOM_DEPTH,
+              select(STATION_NAME, DEPLOYMENT_DATE_START,
+                     station_year, ctd_filename, reg.inuk),
+            by = join_by(STATION_NAME, DEPLOYMENT_DATE_START)) %>% 
+  left_join(ctd_hydrobios %>% 
+              select(filename, pressure, temperature),
+            join_by(ctd_filename == filename,
+                    MIN_SAMPLE_DEPTH <= pressure,
+                    MAX_SAMPLE_DEPTH > pressure)) %>% 
+  
+  group_by(station_year, reg.inuk, STATION_NAME, 
+           DEPLOYMENT_DATE_START, BOTTOM_DEPTH,
            MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH) %>% 
-  summarise(temperature = mean(te90, na.rm = T),
-            salinity = mean(psal, na.rm = T),
-            flor = mean(flor, na.rm = T),
-            oxym = mean(oxym, na.rm = T),
+  summarise(temperature = mean(temperature, na.rm = T),
             .groups = "drop")
 
-rm(AA, BB, temp_hydrobios)
+# 2 profiles have no temperature at lowest depths, assign the value of the last depth bin
+temperature_hydrobios <- temperature_hydrobios %>% 
+  mutate(temperature = if_else(is.na(temperature) & station_year == "AF-23 2023",
+                               0.05642188, temperature)) %>% 
+  mutate(temperature = if_else(is.na(temperature) & station_year == "D3 2024",
+                               -1.69618182, temperature)) 
 ```
 
 
-# Establish traits from LOKI images
+# Establish traits from LOKI images and literature
 ```{r}
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
  
 # match trait names
   mutate(total_carbon = prosome_carbon_volume + total_lipids_ugC/1000,
-         # lf_carbon = fullness_ratio_carbon_volume * 100,
          lf_carbon = total_lipids_ugC/1000 / total_carbon * 100,
          waxester_carbon = total_lipids_ugC / 1000) %>% 
   #  # Recalculated version (lipid carbon not based on the variable total_lipids_carbon_volume)
@@ -236,19 +98,21 @@ loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ec
          waxester_carbon_mgC = waxester_carbon,
          total_carbon_mgC = total_carbon, 
          lf_carbon) %>% 
-  mutate(source = "LOKI segmented")
-
-
-loki.segmentations <- loki.segmentations %>% 
+  mutate(source = "LOKI segmented") %>% 
   mutate(taxaStage = case_when(
-    object_annotation_category == "female+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus F",
-    object_annotation_category == "cvstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C5",
-    object_annotation_category == "civstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C4",
-    object_annotation_category == "female+lateral<Calanus glacialis" ~ "Calanus glacialis F",
-    object_annotation_category == "cvstage+lateral<Calanus glacialis" ~ "Calanus glacialis C5",
-    object_annotation_category == "civstage+lateral<Calanus glacialis" ~ "Calanus glacialis C4",
-    TRUE ~ object_annotation_category
-  ) )
+    object_annotation_category == 
+      "female+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus F",
+    object_annotation_category == 
+      "cvstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C5",
+    object_annotation_category == 
+      "civstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C4",
+    object_annotation_category == 
+      "female+lateral<Calanus glacialis" ~ "Calanus glacialis F",
+    object_annotation_category ==
+      "cvstage+lateral<Calanus glacialis" ~ "Calanus glacialis C5",
+    object_annotation_category == 
+      "civstage+lateral<Calanus glacialis" ~ "Calanus glacialis C4",
+    TRUE ~ object_annotation_category ) )
 
 # Calculate average by taxa stage
 loki.averages <- loki.segmentations %>% 
@@ -256,39 +120,45 @@ loki.averages <- loki.segmentations %>%
   summarise(across(prosome_length_mm:lf_carbon,
                    \(x) mean(x, na.rm = T)),
             n = n(),
-            .groups = "drop")
+            .groups = "drop") %>% 
+  select(taxaStage, total_carbon_mgC, waxester_carbon_mgC, lf_carbon, n)
+
+# C.finmarchicus derived from literature (Pata and Hunt 2023) (CV averages from Durazzano & Titocci, 2025 and C&DW of 59% from Pata & Hunt 2023)
+Cfin <- data.frame(
+  taxaStage = c("Calanus finmarchicus F", "Calanus finmarchicus C5"),
+  total_carbon_mgC = c(0.2055, 0.1617), # DW * 0.59 C%DW
+  waxester_carbon_mgC = c(0.0885,0.0445) # DW * 0.34 Lipid%DW * 0.81 WE%Lipid
+) %>% 
+  mutate(lf_carbon = waxester_carbon_mgC / total_carbon_mgC * 100)
+
+Calanus.traits <- bind_rows(loki.averages, Cfin)
+
+rm(loki.segmentations, loki.averages, Cfin)
 ```
 
 
-
-# Calculate lipid pump
+# Calculate traits
 ```{r}
-# Coefficients of the dormant/diapause respiration equation (Maps et al. 2014):
+# Use the stage specific values from LOKI for C. hyperboreus and C. glacialis
+# Use the literature values for C. finmarchicus
+
 bb <- 2.27# Metabolic constant (x 10-7)
 eV <- 0.6 # Activation energy
-bb_se <- 0.37 # Standard error of the metabolic constant
-eV_se <- 0.092 # Standard error of the activation energy
-beta <- -0.001 # natural mortality rate (day-1)
 
-Calanus.pump <- Calanus %>% 
-  # exclude 2 stations with no CTD data
-  filter(STATION_NAME %notin% c("RA09", "RA27")) %>% 
-  # add trait information
-  left_join(loki.averages %>% 
-              select(-n),
-            by = "taxaStage") %>% 
- 
-  # Add in situ temperature
-  left_join(hydrobios.temperature,
+net_traits <- calanus %>% 
+  # Add temperature for the bin
+  left_join(temperature_hydrobios,
             by = join_by(STATION_NAME, DEPLOYMENT_DATE_START, 
                          MIN_SAMPLE_DEPTH, MAX_SAMPLE_DEPTH)) %>% 
-  # for AF-23 when there are no ctd data at deepest bins, use the mean temperature for that sample
-  group_by(STATION_NAME, DEPLOYMENT_DATE_START) %>% 
-  mutate(temperature = if_else(is.na(temperature),
-                               mean(temperature, na.rm = T),
-                               temperature)) %>% 
+  # Add carbon traits
+  mutate(stage = if_else(stage == "M", "F", stage)) %>% # use the F traits for M
+  mutate(taxaStage = paste(TAXON_ID, stage)) %>% 
+  left_join(Calanus.traits %>% 
+              select(-c(lf_carbon, n)), by = join_by(taxaStage)) %>% 
+  
+  # Calculate respiration and diapause duration
   mutate(temperature_kelvin = temperature + 273.15) %>% 
-  ungroup() %>% 
+  mutate(structural_carbon_mgC = total_carbon_mgC - waxester_carbon_mgC) %>% 
   
   # Calculate diapause respiration rate and duration
   mutate(mass_ugC = structural_carbon_mgC * 1000,
@@ -305,217 +175,213 @@ Calanus.pump <- Calanus %>%
                                                 240, diapauseDuration_day)) %>% 
   # The total C respired for the entire duration of diapause by the individual (ug C)
   mutate(diapause_resp_by_indiv_ugC = 
-           respirationRate_ugCday * diapauseDuration_day_cap) %>%  
-  
-  # Calculate abundance by area
-  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
-  # Convert abundance to biomass
-  mutate(biomass_mgC_m2 = abundance_m2 * total_carbon_mgC) %>% 
-  
-  # Convert respired C to /m2 (Abund * Duration * Rate) 
-  mutate(Rtot_mgC_m2 = abundance_m2 * diapause_resp_by_indiv_ugC / 1000) %>% 
-
-  # Calculate mortality
-  mutate(Nmortality =  abundance_m2 * exp(beta * diapauseDuration_day_cap)) %>% 
-  # Calculate storage (Stot) and structural (Utot) from mortality
-  mutate(Stot_mgC_m2 = (abundance_m2 - Nmortality) * waxester_carbon_mgC,
-         Utot_mgC_m2 = (abundance_m2 - Nmortality) * structural_carbon_mgC) %>% 
-  
-  # Total lipid pump components
-  mutate(Ftot_mgC_m2 = Rtot_mgC_m2 + Stot_mgC_m2 + Utot_mgC_m2) %>% 
-  
-  select(-c(mass_ugC, WE_ugC, diapauseDuration_day_cap, Nmortality)) 
+           respirationRate_ugCday * diapauseDuration_day_cap)
 ```
 
-# Integrate per cast
+
+# Calculate lipid pump
 ```{r}
-# integrate all depth bins
-hydrobios.pump <- Calanus.pump %>% 
-  group_by(YEAR_STATION, taxaStage) %>% 
-  summarise(abundance_m2 = sum(abundance_m2),
-            biomass_mgC_m2 = sum(biomass_mgC_m2),
-            Ftot_gC_m2 = sum(Ftot_mgC_m2) / 1000,
-            Rtot_gC_m2 = sum(Rtot_mgC_m2) / 1000,
-            Stot_gC_m2 = sum(Stot_mgC_m2) / 1000,
-            Utot_gC_m2 = sum(Utot_mgC_m2) / 1000,
+beta <- -0.001 # natural mortality rate (day-1)
+net_lipid_pump <- net_traits %>% 
+
+  # Convert abundance to biomass and respiration by area (m2)
+  mutate(biomass_gC_m2 = abundance_m2 * total_carbon_mgC  / 1000,
+         structural_gC_m2 = abundance_m2 * structural_carbon_mgC / 1000,
+         waxester_gC_m2 = abundance_m2 * waxester_carbon_mgC / 1000,
+         respired_C_gC_m2 = abundance_m2 * diapause_resp_by_indiv_ugC / 1000 / 1000) %>% 
+  
+  # Calculate mortality rate
+   mutate(mortality.coef =  exp(beta * diapauseDuration_day_cap)) %>% 
+  # Calculate the abundance, structural, and lipid carbon lost
+  mutate(abundance_m2_mort = abundance_m2 - (abundance_m2 * mortality.coef),
+         structural_gC_m2_mort = (structural_gC_m2 - 
+           (structural_gC_m2 * mortality.coef)),
+         waxester_gC_m2_mort = (waxester_gC_m2 - 
+           (waxester_gC_m2 * mortality.coef))) %>% 
+  
+  # Calculate total carbon flux
+  mutate(total_gC_flux_m2 = respired_C_gC_m2 + 
+           structural_gC_m2_mort + waxester_gC_m2_mort) %>% 
+  
+  # Depth integration
+  group_by(reg.inuk, station_year) %>% 
+  
+  summarise(nNets = n(),
+            Sampled_volume_m3 = sum(volume_filtered_m3),
+            abundance_m2 = sum(abundance_m2),
+            biomass_gC_m2 = sum(biomass_gC_m2),
+            structural_gC = sum(structural_gC_m2),
+            waxester_gC_m2 = sum(waxester_gC_m2),
+            respired_C_gC_m2 = sum(respired_C_gC_m2),
+            structural_gC_m2_mort = sum(structural_gC_m2_mort),
+            waxester_gC_m2_mort = sum(waxester_gC_m2_mort),
+            abundance_m2_mort = sum(abundance_m2_mort),
+            total_gC_flux_m2 = sum(total_gC_flux_m2),
             .groups = "drop") %>% 
-  mutate(taxaStage2 = str_remove(taxaStage, "Calanus "))
+  # The fraction of the population that experience mortality, the fraction of total carbon lost to C flux during diapause. Also fraction of the flux components
+  mutate(we_perc_biom = waxester_gC_m2/biomass_gC_m2,
+         fraction_dead = abundance_m2_mort / abundance_m2,
+         fraction_C_flux = total_gC_flux_m2 / biomass_gC_m2,
+         frac_resp_total = respired_C_gC_m2 / total_gC_flux_m2,
+         frac_strut_total = structural_gC_m2_mort / total_gC_flux_m2,
+         frac_waxe_total = waxester_gC_m2_mort / total_gC_flux_m2) %>% 
+  left_join(region_rename, by = join_by(reg.inuk))
 
 
-# Contribution of taxa to total flux
-ggplot(hydrobios.pump, aes(x = YEAR_STATION, y = Ftot_gC_m2,
-                           fill = taxaStage2)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = c("royalblue","darkturquoise","navy",
-                               "pink","hotpink", "violetred4"),
-                    name = "Calanus") +
-  ylab("Lipid pump (g C m-2 y-1)") +
-  theme(legend.position = "right",
-        axis.title.x = element_blank(),
-        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) 
-
-# ggsave("figures/hydrobios_lipid_pump.png",
-#        width = 10, height = 5, units = "in", bg = "white")
-
-
-```
-
-## Map results
-```{r}
-hydrobios.pump.profiles <- Calanus.pump %>% 
-  group_by(YEAR_STATION) %>% 
-  summarise(abundance_m2 = sum(abundance_m2),
-            biomass_mgC_m2 = sum(biomass_mgC_m2),
-            Ftot_gC_m2 = sum(Ftot_mgC_m2) / 1000,
-            Rtot_gC_m2 = sum(Rtot_mgC_m2) / 1000,
-            Stot_gC_m2 = sum(Stot_mgC_m2) / 1000,
-            Utot_gC_m2 = sum(Utot_mgC_m2) / 1000,
-            .groups = "drop") %>% 
-  left_join(hydrobios.meta %>% 
-              distinct(YEAR_STATION, LONGITUDE, LATITUDE,
-                     year, month, doy),
-            by = "YEAR_STATION") %>% 
-  left_join(net.regions %>% 
-              select(YEAR_STATION, region.inuktitut),
-            by = "YEAR_STATION")
+# Step 4. Calculate regional averages
+net_lipid_pump_region <- net_lipid_pump %>% 
+  group_by(region.inuktitut, region.inuk,) %>% 
+  summarise(n = n(),
+            across(abundance_m2:frac_waxe_total,
+              list(mean = mean, sd = sd, median = median),
+              na.rm = TRUE),
+            .groups = "drop")
 
 
 
-library(ggOceanMaps)
-basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
-        limits = c(-85,-52,65,83), rotate = T,
-        legends = TRUE, land.col = "gray60",  bathy.style = "contour_grays",
-        land.border.col = "black", gla.border.col = NA) +
-  ggspatial::geom_spatial_point(data = hydrobios.pump.profiles,
-                                aes(x = LONGITUDE, y = LATITUDE,
-                                    shape = region.inuktitut,
-                                    fill = Ftot_gC_m2),
-                                size = 3, alpha = 0.8) +
-  # scale_shape_manual(values = c(21,22,23,25,22,23), guide = "none") +
-  scale_shape_manual(values = c(22,23,25,21,23,22), guide = "none") +
-  scale_fill_viridis_c(option = "plasma", direction = -1, 
-                       name = "Lipid pump\n(g C m-2 y-1)") +
- theme(axis.title = element_blank(),
-        legend.position = c(0.05, 0.05), 
-        legend.justification = c("left", "bottom"),
-        legend.margin = ggplot2::margin(6,6,6,6),
-        legend.box.background = element_rect(fill = "white", color = "black"))
 
-ggsave("figures/hydrobios_map_lipidpump.png", width = 5, height = 6,
-       units = "in", bg = "white")
-```
+# Format csv for Table 3: Regional averages
+tableS8 <- net_lipid_pump_region %>% 
+  # select(region.inuktitut, n, total_gC_flux_m2_mean, total_gC_flux_m2_sd) %>% 
+  mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
+         biomass_gC_m2 = sprintf("%.2f ± %.2f",biomass_gC_m2_mean, biomass_gC_m2_sd),
+         waxester_gC_m2 = sprintf("%.2f ± %.2f",waxester_gC_m2_mean, waxester_gC_m2_sd),
+         total_gC_flux_m2 = sprintf("%.2f ± %.2f",total_gC_flux_m2_mean, total_gC_flux_m2_sd),
+         perc_C_flux = sprintf("%.0f ± %.0f",fraction_C_flux_mean*100, fraction_C_flux_sd*100),
+         perc_respired = sprintf("%.0f ± %.0f",frac_resp_total_mean*100, 
+                                 frac_resp_total_sd*100),
+         perc_structural = sprintf("%.0f ± %.0f",frac_strut_total_mean*100, 
+                                 frac_strut_total_sd*100),
+         perc_waxester = sprintf("%.0f ± %.0f",frac_waxe_total_mean*100, 
+                                 frac_waxe_total_sd*100)) %>%
+  select(region.inuktitut, n,
+         abundance_m2, biomass_gC_m2, waxester_gC_m2, 
+         total_gC_flux_m2, total_gC_flux_m2_median, perc_C_flux, perc_respired,
+         perc_structural, perc_waxester)
 
-
-# Compare net-based flux with the UVP-based flux
-```{r}
-load("data/profile_integrated_cflux_20260202.RData")
-
-uvp.pump.profiles <- df.profile %>% 
-  filter(taxa == "Calanus") 
-
-# Match profiles
-pump.net.uvp <- uvp_net_match %>% 
-  mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
-  mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>%  
-  # Add the hydrobios estimated C flux
-  left_join(hydrobios.pump.profiles %>% 
-              select(YEAR_STATION, Net_CFlux_gC_m2 = Ftot_gC_m2),
-            by = join_by(YEAR_STATION)) %>% 
-  # Add the UVP estimated C flux
-  left_join(uvp.pump.profiles %>% 
-              select(sample_id, UVP_CFlux_gC_m2 = total_gC_flux_m2,
-                     region.inuktitut)) %>% 
+# write.csv(tableS8, file = "tables/TableS4_net_regional_averages.csv")  
   
-  filter(!is.na(UVP_CFlux_gC_m2)) %>% 
-  filter(!is.na(Net_CFlux_gC_m2))
-
-segments_df <- pump.net.uvp %>%
-  group_by(STATION_NAME, DEPLOYMENT_DATE_START, region.inuktitut) %>%
-  summarise(
-    y = first(Net_CFlux_gC_m2),
-    x_min = min(UVP_CFlux_gC_m2, na.rm = TRUE),
-    x_max = max(UVP_CFlux_gC_m2, na.rm = TRUE),
-    n = n(),
-    .groups = "drop"
-  ) %>%
-  filter(n > 1)  
-
-
-ggplot(pump.net.uvp, 
-       aes(x = UVP_CFlux_gC_m2, y = Net_CFlux_gC_m2)) +
-  geom_abline() +
-  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
-   geom_segment(data = segments_df,
-    aes(x = x_min, xend = x_max, y = y, yend = y), 
-    color = "gray", show.legend = FALSE) +
-  geom_point(aes(color = region.inuktitut), size = 3) +
-  theme(legend.position = "none") +
-  scale_x_log10() + scale_y_log10() +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region") +
-  xlab("UVP Lipid Pump (g C m-2 y-1)") +
-  ylab("Net Lipid Pump (g C m-2 y-1)") 
-
-# ggsave("figures/hydrobios_lipidpump_comparison.png",
-#        width = 5, height = 5, units = "in", bg = "white")
 ```
 
-# Regional averages
+# Net VS UVP LPC flux
 ```{r}
+# Load the UVP6-based results
+load("data/profile_integrated_cflux_20260331.RData")
 
-# Calculate averages of net integrated data (n = 49 casts)
-region.hydrobios <- pump.net.uvp %>% 
-  distinct(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
-           Net_CFlux_gC_m2,
-           region.inuktitut) %>% 
-  group_by(region.inuktitut) %>% 
-  summarise(across(c(Net_CFlux_gC_m2),
-            list(mean = mean, sd = sd, min = min, max = max),
+comp_uvp_net <- df.profile %>% 
+  filter(station_year %in% uvp_net_match$station_year) %>% 
+  select(station_year, region.inuk,
+         uvp_abundance_m2 = abundance_m2,
+         uvp_biomass_gC_m2 = biomass_gC_m2,
+         uvp_LPC_flux_gC_m2 = total_gC_flux_m2) %>% 
+  # join net biomass and LPC
+  left_join(net_lipid_pump %>% 
+              select(station_year,
+                     net_abundance_m2 = abundance_m2,
+                     net_biomass_gC_m2 = biomass_gC_m2,
+                     net_LPC_flux_gC_m2 = total_gC_flux_m2),
+            by = join_by(station_year)) 
+
+comp_uvp_net_region <- comp_uvp_net %>% 
+  group_by(region.inuk) %>% 
+  summarise(n = n(),
+            across(c(uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2),
+              list(mean = mean, sd = sd, median = median),
               na.rm = TRUE),
-            n = n(), .groups = "drop") %>% 
-  # Calculate standard errors
-  mutate(Net_CFlux_gC_m2_se = Net_CFlux_gC_m2_sd / sqrt(n))
+            .groups = "drop") %>% 
+  # Because sd goes beyond zero and plot is in log scale, limit to nonzero 1e-6
+  mutate(uvp_min_sd = uvp_LPC_flux_gC_m2_mean-uvp_LPC_flux_gC_m2_sd,
+         uvp_max_sd = uvp_LPC_flux_gC_m2_mean+uvp_LPC_flux_gC_m2_sd,
+         net_min_sd = net_LPC_flux_gC_m2_mean-net_LPC_flux_gC_m2_sd,
+         net_max_sd = net_LPC_flux_gC_m2_mean+net_LPC_flux_gC_m2_sd) %>% 
+  mutate(uvp_min_sd = if_else(uvp_min_sd <=0, 0, uvp_min_sd),
+         net_min_sd = if_else(net_min_sd <=0, 0, net_min_sd))
 
-# Calculate averages of UVP data (for n=81 profiles matching nets)
-region.uvpmatch <- pump.net.uvp %>% 
-  distinct(sample_id, UVP_CFlux_gC_m2,
-           region.inuktitut) %>% 
-  group_by(region.inuktitut) %>% 
-  summarise(across(c(UVP_CFlux_gC_m2),
-            list(mean = mean, sd = sd, min = min, max = max),
-              na.rm = TRUE),
-            n = n(), .groups = "drop") %>% 
-  # Calculate standard errors
-  mutate(UVP_CFlux_gC_m2_se = UVP_CFlux_gC_m2_sd / sqrt(n))
 
-df <- left_join(region.hydrobios, region.uvpmatch, by = "region.inuktitut") %>% 
-  droplevels()
+# major axis regression to check biases
+# slope >1, accelerating (overestimation by UVP at high values), underestimation at low
 
-ggplot(df, aes( x = UVP_CFlux_gC_m2_mean, y = Net_CFlux_gC_m2_mean)) +
+# *** LPC flux ***
+(reg.model <- lmodel2::lmodel2(log10(net_LPC_flux_gC_m2) ~ log10(uvp_LPC_flux_gC_m2), 
+           data = comp_uvp_net))
+sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]
+10^(sma$Intercept)*100 # average multiplicative bias factor
+
+# *** For the CI area in the figure **
+# SMA slope CI from lmodel2 output
+sma_ci <- reg.model$confidence.intervals[ reg.model$confidence.intervals$Method == "SMA",]
+# Means on the fitted (log10) scale
+xbar <- mean(log10(comp_uvp_net$uvp_LPC_flux_gC_m2), na.rm = TRUE)
+ybar <- mean(log10(comp_uvp_net$net_LPC_flux_gC_m2), na.rm = TRUE)
+# Fitted slope/intercept
+b1 <- sma$Slope
+b0 <- ybar - b1 * xbar
+# CI slopes
+b1_lo <- sma_ci$`2.5%-Slope`
+b1_hi <- sma_ci$`97.5%-Slope`
+# Corresponding intercepts so each CI line passes through the centroid
+b0_lo <- ybar - b1_lo * xbar
+b0_hi <- ybar - b1_hi * xbar
+# x grid on original scale
+x_seq <- 10^seq(log10(min(comp_uvp_net$uvp_LPC_flux_gC_m2, na.rm = TRUE)),
+                log10(max(comp_uvp_net$uvp_LPC_flux_gC_m2, na.rm = TRUE)),
+                length.out = 200)
+# Build fitted and CI lines back on original scale
+line_df <- data.frame(uvp_LPC_flux_gC_m2 = x_seq,
+                      fit = 10^(b0 + b1 * log10(x_seq)),
+                      lo  = 10^(b0_lo + b1_lo * log10(x_seq)),
+                      hi  = 10^(b0_hi + b1_hi * log10(x_seq)))
+
+
+
+ggplot() +
   geom_abline() +
-  geom_smooth(method = "lm", se = F, linetype = "dashed", color = "black") +
-  geom_point(size = 5, aes(color = region.inuktitut)) +
-  geom_errorbar(aes(ymin = Net_CFlux_gC_m2_mean-Net_CFlux_gC_m2_se,
-                    ymax = Net_CFlux_gC_m2_mean+Net_CFlux_gC_m2_se,
-                    color = region.inuktitut), 
-                show.legend = FALSE) +
-  geom_errorbar(aes(xmin = UVP_CFlux_gC_m2_mean-UVP_CFlux_gC_m2_se,
-                    xmax = UVP_CFlux_gC_m2_mean+UVP_CFlux_gC_m2_se,
-                    color = region.inuktitut), 
-                show.legend = FALSE) +
-  scale_color_manual(values = region_rename$region.color,
+  geom_ribbon(data = line_df,
+              aes(x = uvp_LPC_flux_gC_m2, ymin = lo, ymax = hi),
+              inherit.aes = FALSE,
+              alpha = 0.15) +
+  geom_line(data = line_df,
+            aes(x = uvp_LPC_flux_gC_m2, y = fit),
+            linetype = "dashed") +
+  
+  # Individual stations
+  geom_point(data = comp_uvp_net, 
+             aes(x = uvp_LPC_flux_gC_m2, 
+                 y = net_LPC_flux_gC_m2, color = region.inuk),
+             size = 1, alpha = 0.6) +
+  
+  # Region averages
+  geom_errorbar(data = comp_uvp_net_region, 
+                aes(xmin = uvp_min_sd,
+                    xmax = uvp_max_sd,
+                    y = net_LPC_flux_gC_m2_mean,
+                    color = region.inuk),
+                width = 0, alpha = 0.5) +
+  geom_errorbar(data = comp_uvp_net_region, 
+                aes(ymin = net_min_sd,
+                    ymax = net_max_sd,
+                    x = uvp_LPC_flux_gC_m2_mean,
+                    color = region.inuk),
+                width = 0, alpha = 0.5) +
+  geom_point(data = comp_uvp_net_region,
+             aes(x = uvp_LPC_flux_gC_m2_mean, 
+                 y = net_LPC_flux_gC_m2_mean,
+                 color = region.inuk),
+             shape = 5, size = 4) +
+  
+  scale_x_log10() + 
+  scale_y_log10() + 
+  scale_color_manual(values = region_rename$region.color[1:6],
                      name = "Region") +
-  geom_text(aes(label = n.x), color = "black") +
-  xlab("UVP Lipid Pump (g C m-2 y-1)") +
-  ylab("Net Lipid Pump (g C m-2 y-1)") +
-  theme(legend.position = "none")
+  coord_fixed(ratio = 1) +
+  xlab("UVP6 LPC flux (g C m⁻² y⁻¹)") + 
+  ylab("Net LPC flux (g C m⁻² y⁻¹)") +
+  theme(legend.position = "right") 
+  
+ggsave("figures/SuppFig3_LPC_flux_net_uvp_comparison.png",
+       width = 6, height = 6, units = "in", bg = "white")
 
-
-ggsave("figures/hydrobios_lipidpump_comparison_regions_SE.png",
-       width = 4, height = 4, units = "in", bg = "white")
 ```
-
 
 
 

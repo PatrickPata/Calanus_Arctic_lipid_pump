@@ -1130,4 +1130,146 @@ cowplot::plot_grid(
 #        width = 7, height = 6, units = "in", bg = "white")
 ```
 
+# SA6. Using Random Forest-based trait estimates
+## Recalculate indiv_traits and LPC flux
+```{r}
+library(randomForest)
+# The segmented images and morphological traits of calanoids
+load("data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
+
+# Open the model generated in the chunk above
+load("functions/random_forest_carbon_trait_models_20260321.RData")
+
+morpho.traits <- all.copepods.uvp6 %>% 
+  filter(object_annotation_category %in% 
+                            c("Calanus","top-bottom<with visible lipid sac",
+                              "side<with visible lipid sac"))
+
+# Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
+structural_predicted <-  predict(rf.model.structural.mgC,
+               newdata = morpho.traits %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+lipid_predicted <- predict(rf.model.lipid.mgC,
+               newdata = morpho.traits %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+prosome_length_predicted <- predict(rf.model.prosome.mm,
+               newdata = morpho.traits %>% 
+                 select(Major:PerimMajor), predict.all = T)
+
+morpho.traits$structural_carbon_mgC <- structural_predicted$aggregate
+morpho.traits$waxester_mass_mgC <- lipid_predicted$aggregate
+morpho.traits$prosome_length_mm <- prosome_length_predicted$aggregate
+
+# Calculate total carbon, lipid fullness, respiration rates and diapause duration
+bb <- 2.27# Metabolic constant (x 10-7)
+eV <- 0.6 # Activation energy
+
+morpho.traits <- morpho.traits %>% 
+  select(object_id, sample_id, object_depth_max,
+         Depth_5m:prosome_length_mm) %>% 
+  mutate(prosome_total_mgC = structural_carbon_mgC + waxester_mass_mgC) %>% 
+  mutate(lipid_fullness = waxester_mass_mgC / prosome_total_mgC * 100) %>% 
+  mutate(total_carbon_mgC = structural_carbon_mgC + waxester_mass_mgC) %>% 
+  
+  # Calculate diapause respiration rate and duration
+  mutate(mass_ugC = structural_carbon_mgC * 1000,
+         WE_ugC = waxester_mass_mgC * 1000) %>% 
+  mutate(respirationRate_ugCday = 
+           (bb*10^-7 ) * (mass_ugC^0.75) * 
+           exp(eV * (temperature_kelvin-273)/ 
+                 ((8.62*10^-5)*temperature_kelvin*273)) * 86400) %>% 
+  mutate(diapauseDuration_day = 
+           (0.8*WE_ugC)/(respirationRate_ugCday)) %>% 
+
+  # Cap the diapause duration capped to 240 days
+  mutate(diapauseDuration_day_cap = if_else(diapauseDuration_day > 240,
+                                                240, diapauseDuration_day)) %>% 
+  # The total C respired for the entire duration of diapause by the individual (ug C)
+  mutate(diapause_resp_by_indiv_ugC = 
+           respirationRate_ugCday * diapauseDuration_day_cap)
+  
+# Calculate flux  
+LPC_flux_RF <- calculate_LPC_flux(morpho.traits)
+
+rm(all.copepods.uvp6, excluded_profiles, segmented.images, 
+   lipid_predicted, structural_predicted, prosome_length_predicted,
+   rf.model.structural.mgC, rf.model.prosome.mm, rf.model.lipid.mgC)
+```
+
+
+## Compare
+```{r}
+load("data/profile_integrated_cflux_20260331.RData")
+
+compare.region.profiles <- left_join(
+  df.profile %>% 
+    select(station_year, region.inuk,
+           baseline_total_gC_flux_m2 = total_gC_flux_m2),
+  LPC_flux_RF %>% 
+    select(station_year, region.inuktitut,
+           SA6_total_gC_flux_m2 = total_gC_flux_m2) )
+
+
+SA6.table <- compare.region.profiles %>%
+  group_by(region.inuk) %>%
+  summarise(n = n(),
+            p_value = wilcox.test(
+              SA6_total_gC_flux_m2,
+              baseline_total_gC_flux_m2,
+              paired = TRUE)$p.value,
+            
+    mean_baseline = mean(baseline_total_gC_flux_m2, na.rm = TRUE),
+    median_baseline = median(baseline_total_gC_flux_m2, na.rm = TRUE),
+    
+    median_diff = median(SA6_total_gC_flux_m2 - baseline_total_gC_flux_m2, 
+                         na.rm = TRUE),
+    mean_diff = mean(SA6_total_gC_flux_m2 - baseline_total_gC_flux_m2, na.rm = TRUE),
+    sd_diff = sd(SA6_total_gC_flux_m2 - baseline_total_gC_flux_m2, na.rm = TRUE),
+    
+    percent_diff_mean = 100 * mean_diff / mean_baseline,
+    percent_diff_sd = 100 * sd_diff / mean_baseline) %>% 
+  mutate( significance = case_when(
+    p_value < 0.001 ~ "***", p_value < 0.01  ~ "**",
+    p_value < 0.05  ~ "*", .default = "NS") )%>% 
+  select(-c(mean_baseline, median_baseline))
+
+## Figures
+
+ggplot(data = compare.region.profiles %>% 
+         pivot_longer(cols = c(baseline_total_gC_flux_m2,
+                              SA6_total_gC_flux_m2),
+                     names_to = "Method", values_to = "LPCflux"),
+       aes(x = LPCflux, fill = Method)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10()
+
+wilcox.test(compare.region.profiles$baseline_total_gC_flux_m2, 
+            compare.region.profiles$SA6_total_gC_flux_m2, paired = TRUE)
+
+t.test(log(compare.region.profiles$baseline_total_gC_flux_m2), 
+       log(compare.region.profiles$SA6_total_gC_flux_m2), 
+       paired = TRUE)
+
+
+ggplot() +
+  geom_abline() +
+ 
+  # Individual stations
+  geom_point(data = compare.region.profiles, 
+             aes(x = baseline_total_gC_flux_m2, 
+                 y = SA6_total_gC_flux_m2, color = region.inuk),
+             size = 1, alpha = 0.6) +
+  
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_color_manual(values = region_rename$region.color,
+                     name = "Region") +
+  coord_fixed(ratio = 1) +
+  xlab("CNN Segmentation LPC flux (g C m⁻² y⁻¹)") + 
+  ylab("Random Forest LPC flux (g C m⁻² y⁻¹)") +
+  theme(legend.position = "right") 
+  
+```
 

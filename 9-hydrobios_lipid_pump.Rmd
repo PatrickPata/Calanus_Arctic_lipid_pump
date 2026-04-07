@@ -371,13 +371,14 @@ ggplot() +
   
   scale_x_log10() + 
   scale_y_log10() + 
-  scale_color_manual(values = region_rename$region.color[1:6],
+  scale_color_manual(values = c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2"),
                      name = "Region") +
   coord_fixed(ratio = 1) +
   xlab("UVP6 LPC flux (g C m⁻² y⁻¹)") + 
   ylab("Net LPC flux (g C m⁻² y⁻¹)") +
   theme(legend.position = "right") 
-  
+
 ggsave("figures/SuppFig3_LPC_flux_net_uvp_comparison.png",
        width = 6, height = 6, units = "in", bg = "white")
 

@@ -19,13 +19,19 @@ library(ggtext)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
 # Integrated UVP results
-load("data/profile_integrated_cflux_20260321.RData")
+load("data/profile_integrated_cflux_20260331.RData")
 
 # UVP-net abundance comparison results
 load("data/comparison_net_uvp_abundance_20260321.RData")
 
 # Comparison between POC flux and lipid pump C flux
 load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+
+
+`%notin%` <- Negate(`%in%`)
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+
 ```
 
 # Figure 2: Interindividual trait variability
@@ -252,18 +258,28 @@ ggsave("figures/Figure2_March_20260326.png",
 library(ggOceanMaps)
 library(ggspatial)
 
-clrs <- unique(region_rename$region.color)
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
 
 p1 <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
-        legends = TRUE, land.col = "ivory", bathy.style = "poly_grays",
+        legends = TRUE, land.col = "ivory", bathy.style = "poly_blues",
+        bathy.alpha = 0.5,
         land.border.col = "black", gla.border.col = NA) +
+  
+  ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>%  
+                                  distinct(station_year, .keep_all = T) %>% 
+                                  mutate(Year = as.factor(Year)),
+                                aes(x = object_lon, y = object_lat),
+                                size = 5, alpha = 0.5, color = "white") +
   ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>%  
                                   distinct(station_year, .keep_all = T) %>% 
                                   mutate(Year = as.factor(Year)),
                                 aes(x = object_lon, y = object_lat, 
                                     color = region.inuktitut),
                                 size = 4, alpha = 0.9) +
+  
+  
   # mark net samples
   ggspatial::geom_spatial_point(data = comp_uvp_net,
                                 aes(x = longitude, y = latitude),
@@ -330,9 +346,6 @@ p3 <- ggplot(comp_uvp_net, aes(x = uvp_abundance_m2,
   geom_line(data = line_df,
             aes(x = uvp_abundance_m2, y = fit),
             linetype = "dashed") +
-  geom_abline(intercept = b1, slope = b0, 
-              linetype = "dashed") +
-  
   geom_point(aes(fill = region.inuktitut), 
              shape = 21, alpha = 0.9,
              size = 2, color = "black") +
@@ -356,25 +369,22 @@ p3
 ## Fig3d biomass with standard errors
 ```{r}
 biomass_vert_region <- df.station.100m %>% 
-  filter(taxa == "Calanus") %>% 
   # Add metadata
   left_join(Amund_UVP6_meta %>% 
               distinct(station_year, .keep_all = T) %>% 
               select(station_year, region.inuk, 
                      Year, bottom_depth_m),
             by = "station_year") %>% 
-  group_by(taxa, region.inuk, Depth_100m) %>% 
+  group_by(region.inuk, Depth_100m) %>% 
   summarise(nprofiles = n(),
             across(Sampled_volume_m3:total_gC_flux_m2,
               list(mean = mean, sd = sd),
               na.rm = TRUE), 
             .groups = "drop")  %>% 
-  select(taxa, region.inuk, Depth_100m, nprofiles,
+  select(region.inuk, Depth_100m, nprofiles,
          abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
          biomass_mgC_m3_sd,
-         lipid_m3 = waxester_mgC_m3_mean,
-         abundance_m2_mean, biomass_mgC_m2_mean, waxester_mgC_m2_mean,
-         abundance_m2_sd, biomass_mgC_m2_sd, waxester_mgC_m2_sd) %>% 
+         lipid_m3 = waxester_mgC_m3_mean) %>% 
   # calculate total across all taxa
   group_by(region.inuk, Depth_100m, nprofiles) %>% 
   mutate(total_abundance_m3 = sum(abundance_m3), 
@@ -389,8 +399,7 @@ biomass_vert_region_to_plot <- biomass_vert_region %>%
   group_by(region.inuk) %>% 
   filter(nprofiles >= 3) %>% 
   ungroup() %>% 
-  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles),
-         biomass_mgC_m2_se = biomass_mgC_m2_sd / sqrt(nprofiles))
+  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles))
 
 # TODO fix the x axis ticks of the subplots
 p4 <- ggplot(biomass_vert_region_to_plot,
@@ -416,9 +425,9 @@ p4 <- ggplot(biomass_vert_region_to_plot,
   scale_x_reverse(breaks = seq(0,2500,100), expand = c(0.01,0.01)) +
   scale_y_continuous(expand = c(0.01,0.01),
               labels = scales::label_number()) +
-  scale_color_manual(values = unique(region_rename$region.color),
+  scale_color_manual(values = unique(clrs),
                      name = "Region") +
-  scale_fill_manual(values = unique(region_rename$region.color),
+  scale_fill_manual(values = unique(clrs),
                      name = "Region") +
   theme(legend.position = "none",
         strip.background = element_blank()
@@ -445,7 +454,7 @@ plot_grid(
   p4, ncol = 1, 
             labels = c("a","d"))
 
-ggsave("figures/Fig3_20260321.png", width = 12, height = 14,
+ggsave("figures/Fig3_20260407.png", width = 12, height = 14,
        units = "in", bg = "white")
 ```
 
@@ -457,7 +466,6 @@ df.profile.long <- df.profile %>%
   pivot_longer(cols = n100mbins:fraction_C_flux,
                names_to = "variable", values_to = "value") %>% 
   arrange(variable, value) %>% 
-  filter(taxa == "Calanus") %>% 
   filter(variable == "total_gC_flux_m2")
 
 
@@ -475,7 +483,7 @@ pp1 <- basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
                        name = "Lipid pump\n(g C m⁻² y⁻¹") +
   # scale_fill_distiller(palette = "Greys", direction = 1,
   #                      name = "Lipid pump\n(g C m⁻² y⁻¹") +
-  scale_color_manual(values = unique(region_rename$region.color),
+  scale_color_manual(values = clrs),
                      guide = "none") +
   scale_shape_manual(values = c(21,22,23,24,25,22,23), guide = "none") +
   theme(axis.title = element_blank(),
@@ -489,16 +497,12 @@ pp1
 
 ## Prepare data frames
 ```{r}
-df_to_plot <- df.region %>% 
-           filter(taxa == "Calanus") %>% 
+df_to_plot <- df.region %>%
   mutate(total_gC_flux_m2_se = total_gC_flux_m2_sd / sqrt(n))
-
-clrs <- region_rename$region.color
 
 # Lengthen to plot flux components
 df.region.long <- df_to_plot %>% 
-  filter(taxa == "Calanus") %>% 
-  select(taxa, region.inuktitut, reg.inuk, 
+  select(region.inuktitut, reg.inuk, 
          `diapause respiration` = respired_C_gC_m2_mean, 
          `mortality structural` = structural_gC_m2_mort_mean, 
          `mortality storage` = waxester_gC_m2_mort_mean) %>%  
@@ -529,8 +533,7 @@ label_levels <- df_to_plot %>%
 
 
 
-np1 <- ggplot(df.profile %>% 
-         filter(taxa == "Calanus"),
+np1 <- ggplot(df.profile,
        aes(y = reg.inuk)) +
   geom_violin(aes(x = total_gC_flux_m2, fill = reg.inuk),
               scale = "width", color = "white", alpha = 0.4) +
@@ -564,6 +567,7 @@ np2 <- ggplot(df.region.long,
   ggpattern::geom_col_pattern(aes(y = Cflux, fill = reg.inuk, 
                                   pattern = Component, 
                                   alpha = Component),
+                              # position = "fill",
                               stat = "identity", color = "black",
                               pattern_color = "white",
                               pattern_spacing = 0.02,
@@ -575,8 +579,7 @@ np2 <- ggplot(df.region.long,
                      guide = "none") +
   ggpattern::scale_pattern_manual(values = c("circle","stripe","none")) +
   
-  
-  scale_y_continuous(expand = c(0,0), limits = c(0, 4.2)) +
+  # scale_y_continuous(expand = c(0,0), limits = c(0, 4.2)) +
   scale_x_discrete(limits = rev) +
   theme(legend.position = "bottom",
         legend.text = element_text(size = 12),
@@ -616,10 +619,10 @@ np3 <- ggplot() +
                  y = poc_gC_m2_yr_mean,
                  fill = region_label),
              shape = 21, alpha = 0.9, size = 4, color ="black") +
-  scale_fill_manual(values = unique(region_rename$region.color),
+  scale_fill_manual(values = clrs,
                     name = "C flux at 200 m",
                     guide = guide_legend(nrow = 2, byrow = TRUE)) + 
-  scale_color_manual(values = unique(region_rename$region.color),
+  scale_color_manual(values = clrs,
                      guide = "none")  +
   
   # For 500 m points
@@ -636,8 +639,8 @@ np3 <- ggplot() +
                     x = lipid_gC_m2_yr_mean,
                     color = region_label),
                 width = 0, alpha = 0.7) +
-  scale_color_manual(values = c("deeppink1","forestgreen",
-                                "goldenrod2","turquoise3"),
+  scale_color_manual(values = c("sienna1","goldenrod2",
+                                "forestgreen","blue1"),
                      guide = "none")  +
   
   ggnewscale::new_scale_fill() +
@@ -679,7 +682,7 @@ plot_grid(
   np3, nrow = 1, labels = c("","c"))
 
 # 
-ggsave("figures/Fig4_20260330.png", width = 10, height = 6,
+ggsave("figures/Fig4_20260407.png", width = 10, height = 6,
        units = "in", bg = "white")
 ```
 

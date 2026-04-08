@@ -175,6 +175,8 @@ indiv_traits %>%
   filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
   group_by(taxa) %>% 
   summarise(n = n(),
+            min_prosome_length_mm = min(prosome_length_mm),
+            max_prosome_length_mm = max(prosome_length_mm),
             mean_prosome_length_mm = mean(prosome_length_mm),
             sd_prosome_length_mm = sd(prosome_length_mm),
             mean_prosome_total_mgC = mean(prosome_total_mgC),
@@ -1271,5 +1273,54 @@ ggplot() +
   ylab("Random Forest LPC flux (g C m⁻² y⁻¹)") +
   theme(legend.position = "right") 
   
+```
+
+# SA7. Accounting for natural mortality in July and August... before the winter diapause?
+Tricky if there are individuals at the bottom already... likely in diapause
+```{r}
+beta <- -0.001
+
+# How many july and august samples?
+AA <- df.profile %>% 
+  # filter(Month <= 8) %>% # 45% of profiles
+
+  # Calculate % of individuals that would have natural mortality from sampling date to Aug 31 (Sep1 is 244)
+  left_join(Amund_UVP6_meta %>% 
+              distinct(station_year, .keep_all = T) %>% 
+              select(station_year, DOY)) %>% 
+  mutate(tMinusSeptember = 244 - DOY) %>% 
+  mutate(summer.mortality.coef =  exp(beta * tMinusSeptember)) %>% 
+  
+  # so that Sept-Oct do not have extra mortality
+  mutate(summer.mortality.coef = if_else(DOY >= 244, 1, summer.mortality.coef)) %>% 
+  
+  mutate(summer.mort.abundance = abundance_m2 - (abundance_m2 * 
+                                                   summer.mortality.coef),
+         summer.mort.biomass = biomass_gC_m2 - (biomass_gC_m2 *
+                                                  summer.mortality.coef),
+         summer.mort.LPCflux = total_gC_flux_m2 - (total_gC_flux_m2 *
+                                                     summer.mortality.coef)) %>% 
+  mutate(perc.diff.abun = summer.mort.abundance / abundance_m2 * 100,
+         perc.diff.biom = summer.mort.biomass / biomass_gC_m2 * 100,
+         perc.diff.lpcf = summer.mort.LPCflux / total_gC_flux_m2 * 100) %>% 
+  relocate(DOY, tMinusSeptember, summer.mort.abundance, summer.mort.biomass,
+           summer.mort.LPCflux,
+           perc.diff.abun, perc.diff.biom, perc.diff.lpcf)
+  
+# Remove the lpcf flux from July & Aug to the final counts and recalculate regional values
+BB <- AA %>% 
+  select(summer.mort.LPCflux, summer.mort.abundance, summer.mort.biomass,
+         total_gC_flux_m2, abundance_m2, biomass_gC_m2, region.inuktitut) %>% 
+  mutate(LPCflux = total_gC_flux_m2 - summer.mort.LPCflux,
+         WinterAbundace = abundance_m2 - summer.mort.abundance,
+         WinterBiomass = biomass_gC_m2 - summer.mort.biomass) %>% 
+  group_by(region.inuktitut) %>%  
+  summarise(across(where(is.numeric),  
+                   ~ mean(.x, na.rm = TRUE)),
+            nprofiles = n(),
+            .groups = "drop") %>% 
+  mutate(perc.diff = (LPCflux-total_gC_flux_m2) / total_gC_flux_m2 * 100) %>% 
+  relocate(total_gC_flux_m2, LPCflux, perc.diff)
+
 ```
 

@@ -17,6 +17,7 @@ Taks after discussion with Zoe:
 - Need to digitize figures from Sampei et al. (2004) and Lalande et al. (2009)... results of 6 stations: summer to winter conversion factor is 0.25!
 
 5. Calculate % detritus from the 2021 and 2023 fully validated ecotaxa data + include appendicularian houses... assign them to size classes based on ESD (major-minor average?) ... >80-90?
+2024: 
 2023: (1392765+73769+36170+4137+1999+747+210+185)/1671362
 2021: (1072077+153923+51+3431)/1520846
 
@@ -73,6 +74,10 @@ sed.trap.NOW <- sedTrap %>%
   filter(!is.na(Annual_Flux)) %>% 
   filter(AreaCode %in% c("NOW")) %>% 
   mutate(Depth_Bin = if_else(Depth_m < 260, "200m", "300-500m"))
+
+summary(sed.trap.NOW$Annual_Flux)
+sd(sed.trap.NOW$Annual_Flux)
+summary(sed.trap.NOW$Depth_m)
 ```
 
 

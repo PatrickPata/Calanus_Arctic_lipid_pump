@@ -264,7 +264,7 @@ clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
 p1 <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
         limits = c(-85,-52,54,83), rotate = T,
         legends = TRUE, land.col = "ivory", bathy.style = "poly_blues",
-        bathy.alpha = 0.5,
+        bathy.alpha = 0.6,
         land.border.col = "black", gla.border.col = NA) +
   
   ggspatial::geom_spatial_point(data = Amund_UVP6_meta %>%  
@@ -296,6 +296,7 @@ p1 <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
   scale_color_manual(values = clrs, name = "Region") +
   theme(axis.title = element_blank(),
         axis.text = element_text(size = 10),
+        legend.position = "left",
         legend.key.spacing.y = unit(0.2, "cm"),
         legend.text = element_text(size = 10),
         legend.title = element_text(size = 10))
@@ -441,18 +442,60 @@ p4
 #        width = 12, height = 6, units = "in", bg = "white")
 ```
 
+## Try biomass profile per month
+```{r}
+biomass_region_monthly <- df.profile %>% 
+  select(Year, Month, station_year, region.inuk, biomass_gC_m2, 
+         maxSampleDepth, bottom_depth_m) %>% 
+  mutate(biomass_gC_m3 = biomass_gC_m2 / maxSampleDepth) %>% 
+  group_by(region.inuk, Month) %>%
+  summarise(nprofiles = n(),
+            across(c(biomass_gC_m2, biomass_gC_m3, bottom_depth_m),
+                   list(mean = mean, sd = sd),
+                   na.rm = TRUE),
+            .groups = "drop") %>% 
+  
+  # add blank months
+  complete(region.inuk, Month = c(7, 8, 9, 10)) %>% 
+  mutate(Month = factor(Month, levels = c(7,8,9,10)))
+
+
+p5 <- ggplot(biomass_region_monthly,
+       aes(x = Month, y = biomass_gC_m2_mean, color = region.inuk)) +
+  # geom_bar(stat = "identity", fill = "white", linewidth = 1) +
+  geom_point(size = 4, shape = 15) +
+  geom_errorbar(aes(ymin = biomass_gC_m2_mean - biomass_gC_m2_sd,
+                    ymax = biomass_gC_m2_mean + biomass_gC_m2_sd), 
+                width = 0, linewidth = 1) +
+  scale_color_manual(values = clrs) +
+  scale_y_continuous(expand = c(0,0)) +
+  xlab("Month") + ylab("Biomass (g C m⁻²)") +
+  theme(legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        axis.title.y = element_text(vjust = 0, hjust = 0.1)) +
+  facet_wrap(~region.inuk, scales = "free_x", nrow = 1)
+
+p5
+```
+
+
 ## Combine all to Fig3
 ```{r}
 p23 <- plot_grid(p2, p3,
           ncol = 1, rel_heights = c(1,1.2),
           labels = c("b","c"))
 
+
+p45 <- plot_grid(p4,p5, ncol = 1, rel_heights = c(1,0.4),
+                 labels = c("d","e"), align = "v")
+
 plot_grid(
   plot_grid(p1, p23,
             nrow = 1,
             rel_widths = c(1.3,1)),
-  p4, ncol = 1, 
-            labels = c("a","d"))
+  p45, ncol = 1, rel_heights = c(1,1),
+            labels = c("a",NA,NA))
 
 ggsave("figures/Fig3_20260407.png", width = 12, height = 14,
        units = "in", bg = "white")
@@ -554,7 +597,7 @@ np1 <- ggplot(df.profile,
   scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
   coord_cartesian(xlim = c(0, 8.2)) +
   theme(legend.position = "none") +
-  xlab("Lipid pump carbon flux (g C m⁻² y⁻¹)") + ylab("Region")
+  xlab("LPC flux (g C m⁻² y⁻¹)") + ylab("Region")
 
 np1
 ```
@@ -579,14 +622,14 @@ np2 <- ggplot(df.region.long,
                      guide = "none") +
   ggpattern::scale_pattern_manual(values = c("circle","stripe","none")) +
   
-  # scale_y_continuous(expand = c(0,0), limits = c(0, 4.2)) +
+  scale_y_continuous(expand = c(0,0)) +
   scale_x_discrete(limits = rev) +
   theme(legend.position = "bottom",
         legend.text = element_text(size = 12),
         legend.box.just = "left",
         legend.box = "horizontal",
         legend.location = "plot" ) +
-  ylab("Lipid pump carbon flux (g C m⁻² y⁻¹)") +
+  ylab("LPC flux (g C m⁻² y⁻¹)") +
   xlab("Region") +
   coord_flip() +
   guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
@@ -651,8 +694,8 @@ np3 <- ggplot() +
              shape = 23, alpha = 0.7, size = 4, color ="black",
              name = "C flux at 500 m") +
   
-  scale_fill_manual(values = c("deeppink1","forestgreen",
-                               "goldenrod2","turquoise3"),
+  scale_fill_manual(values =c("sienna1","goldenrod2",
+                                "forestgreen","blue1"),
                     name = "C flux at 500 m",
                     guide = guide_legend(nrow = 1, byrow = TRUE))  +
   
@@ -662,10 +705,16 @@ np3 <- ggplot() +
   
   theme(legend.position = "bottom",
         legend.box = "vertical") +
-  xlab("Lipid pump (g C m⁻² y⁻¹)"  )+
+  xlab("LPC flux (g C m⁻² y⁻¹)"  )+
   ylab("POC flux (g C m⁻² y⁻¹)") 
 
 np3
+
+# Calculate LPC%POC flux
+flux.comp.200 <- flux.comp.200 %>% 
+  mutate(lipid_gC_m2_yr_mean/poc_gC_m2_yr_mean * 100)
+flux.comp.500 <- flux.comp.500 %>% 
+  mutate(lipid_gC_m2_yr_mean/poc_gC_m2_yr_mean * 100)
 ```
 
 ## Combine subplots

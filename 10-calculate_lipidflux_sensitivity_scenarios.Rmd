@@ -1322,5 +1322,14 @@ BB <- AA %>%
   mutate(perc.diff = (LPCflux-total_gC_flux_m2) / total_gC_flux_m2 * 100) %>% 
   relocate(total_gC_flux_m2, LPCflux, perc.diff)
 
+
+# TODO Average trait values for Calanus
+indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  select(prosome_length_mm, prosome_total_mgC,
+         structural_carbon_mgC, waxester_mass_mgC,
+         diapauseDuration_day, respirationRate_ugCday) %>% 
+  summary()
+  
 ```
 

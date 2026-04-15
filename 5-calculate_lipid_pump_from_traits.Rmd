@@ -43,7 +43,6 @@ clrs <- rev(c("blue","black","hotpink"))
 ```
 
 # 2. Integrations: 100m bin and vertical profiles
-
 ```{r, fig.height = 6}
 # Step 1. Calculate abundance, biomass, and respiration in 100 m bins
 
@@ -61,7 +60,7 @@ volumes.df.100 <- volumes.df %>%
 df.100m.sums <- indiv_traits %>% 
   # only include Calanus spp
   filter(taxa == "Calanus") %>% 
-  # Cap diapause duration to 240 days
+  # Cap diapause duration to 240 days (for summary stats, already applied in the annual respiration calculation)
   mutate(diapause_dur_d = if_else(diapauseDuration_day > 240,
                                   240, diapauseDuration_day)) %>% 
   # bin to 100 m layers
@@ -77,7 +76,8 @@ df.100m.sums <- indiv_traits %>%
             # Calculate mean % fullness and prosome lengths
             mean_lipid_fullness = mean(lipid_fullness),
             mean_prosome_length_mm = mean(prosome_length_mm),
-            # Calculate the mean duration of diapause (usd for mortality function)
+            mean_biomass_mgC = mean(biomass_mgC),
+            # Calculate the mean duration of diapause (sd for mortality function)
             mean_diapause_dur_d = mean(diapause_dur_d),
             sd_diapause_dur_d = sd(diapause_dur_d), 
             .groups = "drop")
@@ -101,15 +101,17 @@ df.100m.conc <- volumes.df.100  %>%
          waxester_gC_m2 = waxester_mgC_m3 * depth_height_m / 1000,
          respired_C_gC_m2 = respired_C_mgC_m3 * depth_height_m / 1000) %>% 
   # Exclude the columns that are not concentrations
-  select(-c(abundance, biomass_mgC, sd_diapause_dur_d,
-            structural_mgC, waxester_mgC, respired_C_mgC)) %>% 
+  select(-c(abundance, sd_diapause_dur_d, biomass_mgC, waxester_mgC,
+            structural_mgC, respired_C_mgC)) %>% 
   # Zeros in the mean diapause duration, prosome length, and lipid fullness are NAs
   mutate(mean_diapause_dur_d = if_else(mean_diapause_dur_d == 0, NA, 
                                        mean_diapause_dur_d),
          mean_lipid_fullness = if_else(mean_lipid_fullness == 0, NA,
                                        mean_lipid_fullness),
          mean_prosome_length_mm = if_else(mean_prosome_length_mm == 0, NA,
-                                          mean_prosome_length_mm))
+                                          mean_prosome_length_mm),
+         mean_biomass_mgC = if_else(mean_biomass_mgC == 0, NA,
+                                          mean_biomass_mgC))
 
 
 # Step 2. Calculate mortality for 100 m bins
@@ -146,7 +148,6 @@ df.station.100m <- df.100m.conc %>%
             .groups = "drop") %>% 
   # Establish factors
   mutate(Depth_100m = factor(Depth_100m, levels = seq(0,2500,100)))
-
 
 
 # Step 4. Vertically integrate each profile (/m2)
@@ -580,6 +581,127 @@ ggsave("figures/Supp_region_ave_temp_20m.png",
        width = 9, height = 8, units = "in", bg = "white")
 ```
 
+# Fig S3. CWM traits per region
+```{r}
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
+
+# TODO Calculate community weighted mean of mean traits (weighted by abundance)
+cwm.profiles <- indiv_traits %>% 
+  # only include Calanus spp
+  filter(taxa == "Calanus") %>% 
+  # add volume filtered
+  mutate(Depth_5m = floor(object_depth_max / 5) * 5 + 2.5) %>% 
+  left_join(volumes.df) %>% 
+  # add regions
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuk, reg.inuk, station_year)) %>% 
+  # filter samples for analysis
+  filter(!is.na(region.inuk)) %>% 
+  # calculate portion of the volume to get relative abundance
+  mutate(rel_abundance = Sampled_volume_m3) %>% 
+  mutate(temperature_C = temperature_kelvin - 273.15) %>% 
+  select(station_year, region.inuk, reg.inuk, rel_abundance,
+         prosome_length_mm, lipid_fullness, waxester_mass_mgC, temperature_C,
+         respirationRate_ugCday, diapauseDuration_day, 
+         structural_carbon_mgC, prosome_total_mgC) %>% 
+  group_by(station_year, region.inuk, reg.inuk) %>% 
+  summarise(across(where(is.numeric),  
+                   ~ weighted.mean(.x, rel_abundance, na.rm = TRUE)),
+            nindivs = n(),
+            .groups = "drop")
+
+cwm.profiles.long <- cwm.profiles %>% 
+  select(-c(prosome_total_mgC, structural_carbon_mgC)) %>% 
+  pivot_longer(cols = c(prosome_length_mm, lipid_fullness, waxester_mass_mgC,
+                        respirationRate_ugCday, diapauseDuration_day,
+                        temperature_C),
+               names_to = "trait", values_to = "value") %>% 
+  mutate(trait = factor(trait, 
+                        levels = c("prosome_length_mm", "waxester_mass_mgC",
+                                   "respirationRate_ugCday", "lipid_fullness", 
+                                   "diapauseDuration_day", "temperature_C")))
+  
+
+flabels <- c("prosome_length_mm" = "a. Prosome length\n(mm)", 
+             "waxester_mass_mgC" = "b. Wax ester carbon\n(mg C)",
+             "respirationRate_ugCday" = "c. Diapause respiration rate\n(\u03bcg C day⁻¹)",
+             "lipid_fullness" = "d. Lipid fullness\n(%)", 
+             "diapauseDuration_day" = "e. Potential diapause duration\n(day)", 
+             "temperature_C" = "f. Ambient temperature\n(°C)")
+
+ggplot(cwm.profiles.long, aes(x = reg.inuk, y = value,
+                         color = reg.inuk)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev, labels = flabels) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none",
+        axis.title = element_blank(),
+        strip.background = element_blank()) +
+  facet_wrap(~trait, scales = "free_x",
+              labeller = as_labeller(flabels))
+  
+# ggsave("figures/CWM_Traits.png", width = 8, height = 5, units = "in", bg = "white")
+
+# Ambient temp vs respiration rate and diapause duration
+plot_grid(
+ggplot(cwm.profiles, aes(x = temperature_C, y = respirationRate_ugCday)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = prosome_total_mgC, y = respirationRate_ugCday)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = temperature_C, y = diapauseDuration_day)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = waxester_mass_mgC, y = diapauseDuration_day)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none") )
+
+# sample sizes
+cwm.profiles %>% 
+  group_by(region.inuk) %>% count()
+
+
+# Significance testsflabels
+kruskal.test(prosome_length_mm ~ region.inuk, data = cwm.profiles) 
+kruskal.test(waxester_mass_mgC ~ region.inuk, data = cwm.profiles) 
+kruskal.test(respirationRate_ugCday ~ region.inuk, data = cwm.profiles) 
+kruskal.test(lipid_fullness ~ region.inuk, data = cwm.profiles) 
+kruskal.test(diapauseDuration_day ~ region.inuk, data = cwm.profiles) 
+kruskal.test(temperature_C ~ region.inuk, data = cwm.profiles) 
+
+
+
+kruskal.test(prosome_length_mm ~ region.inuk, data = cwm.profiles) 
+res.dunn <- dunn.test::dunn.test(x = cwm.profiles$prosome_length_mm,
+                     g = cwm.profiles$region.inuk,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+kruskal.test(diapauseDuration_day ~ region.inuk, data = cwm.profiles) 
+res.dunn <- dunn.test::dunn.test(x = cwm.profiles$diapauseDuration_day,
+                     g = cwm.profiles$region.inuk,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+```
 
 
 # ---- Figure 3 different file ----

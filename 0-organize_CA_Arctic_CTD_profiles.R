@@ -130,8 +130,8 @@ temp_profiles_100 <- ctd %>%
             temp.sd = sd(te90, na.rm = T),
             ndepths = n(), .groups = "drop")
 
-save(file = "data/uvp6_associated_ctd_20260320.RData",
-     ctd_profiles, temp_profiles, temp_profiles_100, uvp6_ctd_match)
+save(file = "data/uvp6_associated_ctd_20260330.RData",
+     ctd, ctd_profiles, temp_profiles, temp_profiles_100, uvp6_ctd_match)
 
 
 

@@ -24,7 +24,7 @@ library(ggpattern)
 # Net data
 load("data/hydrobios_net_calanus_20260321.RData")
 # UVP indiv data
-load("data/profile_integrated_cflux_20260321.RData")
+load("data/profile_integrated_cflux_20260331.RData")
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))

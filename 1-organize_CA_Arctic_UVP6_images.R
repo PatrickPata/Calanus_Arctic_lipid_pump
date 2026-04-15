@@ -129,7 +129,7 @@ all.copepods.uvp6 <- Amund_UVP6 %>%
   ) %>% 
   # Retain Major axis length to > 3mm (most likely to be Calanus spp) given that the 5% quantile is 2.81 mm and the mean-sd is 3.12 mm. Note that this is not the prosome length.
   mutate(major_length_mm = Major * 0.073) %>% 
-  # Of the images not segmented, only retain major lengths > 3mm
+  # Of the images not segmented, only retain major lengths > 3 mm
   filter(major_length_mm >= 3 | object_id %in% segmented.images$object_id)
 
 # Also adjust the metadata columns

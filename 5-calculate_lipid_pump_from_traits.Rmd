@@ -684,8 +684,6 @@ kruskal.test(diapauseDuration_day ~ region.inuk, data = cwm.profiles)
 kruskal.test(temperature_C ~ region.inuk, data = cwm.profiles) 
 
 
-
-kruskal.test(prosome_length_mm ~ region.inuk, data = cwm.profiles) 
 res.dunn <- dunn.test::dunn.test(x = cwm.profiles$prosome_length_mm,
                      g = cwm.profiles$region.inuk,
                      kw = F,
@@ -693,8 +691,7 @@ res.dunn <- dunn.test::dunn.test(x = cwm.profiles$prosome_length_mm,
 subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
   p >= 0.025 )
 
-kruskal.test(diapauseDuration_day ~ region.inuk, data = cwm.profiles) 
-res.dunn <- dunn.test::dunn.test(x = cwm.profiles$diapauseDuration_day,
+res.dunn <- dunn.test::dunn.test(x = cwm.profiles$respirationRate_ugCday,
                      g = cwm.profiles$region.inuk,
                      kw = F,
                      method = "bh")

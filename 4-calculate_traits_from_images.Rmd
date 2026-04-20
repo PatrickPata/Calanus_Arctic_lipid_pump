@@ -297,3 +297,64 @@ save(indiv_traits,
 ```
 
 
+# 6. Evaluate the segmentation model performance
+
+## *** Figure S2 ***
+```{r, eval=FALSE}
+# The output files of the model training
+res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1_v2/prediction_prosome_uvp6_20251204.csv")
+
+res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv") 
+
+# The metadata of the images used for model training
+meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+
+# Clean  the data frames
+res.prosome <- res.prosome %>% 
+  select(-c(directory)) %>%
+  left_join(meta.prosome %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png")) %>% 
+  mutate(IoU = IoU/100)
+
+res.lipid.crop <- res.lipid.crop %>% 
+  select(-c(directory, 
+            lipid_mass_annotated, lipid_mass_predicted)) %>%
+  left_join(meta.lipid %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png"))  %>% 
+  mutate(IoU = IoU/100)
+
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = prosome_pixels_predicted,
+                          color = IoU)) +
+    geom_point(alpha = 0.5) +
+    scale_color_viridis_c(limits = c(0, 1)) +
+    geom_abline() +
+    geom_smooth(method = "lm", color = "red") +
+    xlab("Manual segmentation") + ylab("CNN segmentation") + 
+    ggtitle("Prosome area in pixels"),
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = lipid_pixels_predicted,
+                             color = IoU)) +
+    geom_point(alpha = 0.2) +
+    scale_color_viridis_c(limits = c(0, 1)) +
+    geom_abline() +
+    geom_smooth(method = "lm", color = "red") +
+    xlab("Manual segmentation") + ylab("CNN segmentation") + 
+    ggtitle("Lipid sac area in pixels"),
+  nrow = 1, labels = "auto")
+
+ggsave("figures/FigS2_segmentation_performance.png", width = 10, height = 5,
+       units = "in", bg = "white")
+```

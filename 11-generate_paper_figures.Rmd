@@ -373,43 +373,42 @@ biomass_vert_region <- df.station.100m %>%
   # Add metadata
   left_join(Amund_UVP6_meta %>% 
               distinct(station_year, .keep_all = T) %>% 
-              select(station_year, region.inuk, 
+              select(station_year, reg.inuk, 
                      Year, bottom_depth_m),
             by = "station_year") %>% 
-  group_by(region.inuk, Depth_100m) %>% 
+  group_by(reg.inuk, Depth_100m) %>% 
   summarise(nprofiles = n(),
             across(Sampled_volume_m3:total_gC_flux_m2,
               list(mean = mean, sd = sd),
               na.rm = TRUE), 
             .groups = "drop")  %>% 
-  select(region.inuk, Depth_100m, nprofiles,
+  select(reg.inuk, Depth_100m, nprofiles,
          abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
          biomass_mgC_m3_sd,
          lipid_m3 = waxester_mgC_m3_mean) %>% 
   # calculate total across all taxa
-  group_by(region.inuk, Depth_100m, nprofiles) %>% 
+  group_by(reg.inuk, Depth_100m, nprofiles) %>% 
   mutate(total_abundance_m3 = sum(abundance_m3), 
          total_biomass_m3 = sum(biomass_m3),
          total_lipid_m3 = sum(lipid_m3)) %>% 
   ungroup() %>% 
   mutate(Depth_100m = as.numeric(as.character(Depth_100m)) + 50) 
 
-
 # Updated: use nprofiles >= 3 to allow stats. This excludes the last bins with few profiles included.
 biomass_vert_region_to_plot <- biomass_vert_region %>% 
-  group_by(region.inuk) %>% 
+  group_by(reg.inuk) %>% 
   filter(nprofiles >= 3) %>% 
   ungroup() %>% 
   mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles))
 
-# TODO fix the x axis ticks of the subplots
+
 p4 <- ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
-                 color = region.inuk)) +
+                 color = reg.inuk)) +
 
   geom_ribbon(aes( ymin = biomass_m3 - biomass_mgC_m3_se,
                     ymax = biomass_m3 + biomass_mgC_m3_se,
-                   fill = region.inuk),
+                   fill = reg.inuk),
                alpha = 0.15, color = NA) +
   geom_line(alpha = 1) +
   # geom_errorbar(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
@@ -419,13 +418,13 @@ p4 <- ggplot(biomass_vert_region_to_plot,
   
   # geom_line(aes(y = lipid_m3), linetype = "dashed", alpha = 0.8) +
   # geom_point(aes(y = lipid_m3), shape = 1, size = 1) +
-  geom_bar(aes(y = lipid_m3, fill = region.inuk),
+  geom_bar(aes(y = lipid_m3, fill = reg.inuk),
            color = "white", stat = "identity") +
   
   coord_flip() +
   scale_x_reverse(breaks = seq(0,2500,100), expand = c(0.01,0.01)) +
   scale_y_continuous(expand = c(0.01,0.01),
-              labels = scales::label_number()) +
+              labels = scales::label_number(accuracy = 1)) +
   scale_color_manual(values = unique(clrs),
                      name = "Region") +
   scale_fill_manual(values = unique(clrs),
@@ -435,10 +434,10 @@ p4 <- ggplot(biomass_vert_region_to_plot,
         # strip.text = element_blank()
         ) +
   xlab("Depth (m)") + ylab("Biomass (mg C m⁻³)") +
-  facet_wrap(~region.inuk, scales = "free_x", nrow = 1)
+  facet_wrap(~reg.inuk, scales = "free_x", space = "free_x", nrow = 1)
 
 p4
-# ggsave("figures/Vertical_biomass_se.png",
+# ggsave("figures/Vertical_biomass_se_v2.png",
 #        width = 12, height = 6, units = "in", bg = "white")
 ```
 
@@ -487,17 +486,17 @@ p23 <- plot_grid(p2, p3,
           labels = c("b","c"))
 
 
-p45 <- plot_grid(p4,p5, ncol = 1, rel_heights = c(1,0.4),
-                 labels = c("d","e"), align = "v")
+# p45 <- plot_grid(p4,p5, ncol = 1, rel_heights = c(1,0.4),
+#                  labels = c("d","e"), align = "v")
 
 plot_grid(
   plot_grid(p1, p23,
             nrow = 1,
             rel_widths = c(1.3,1)),
-  p45, ncol = 1, rel_heights = c(1,1),
-            labels = c("a",NA,NA))
+  p4, ncol = 1, rel_heights = c(1,1),
+            labels = c("a",NA,"d"))
 
-ggsave("figures/Fig3_20260407.png", width = 12, height = 14,
+ggsave("figures/Fig3_20260423.png", width = 12, height = 14,
        units = "in", bg = "white")
 ```
 

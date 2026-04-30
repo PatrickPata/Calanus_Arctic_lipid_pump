@@ -30,7 +30,7 @@ load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
 
 `%notin%` <- Negate(`%in%`)
 theme_set(theme_bw() +
-            theme(text = element_text(size=14)))
+            theme(text = element_text(size=16)))
 
 ```
 
@@ -115,7 +115,9 @@ ggplot(prosome.lit,
   facet_wrap(~scientificName, ncol = 1) + 
   theme(axis.title.y = element_blank(),
         strip.placement = "inside",
-        strip.text = element_text(face = "bold.italic", hjust = 0),
+        strip.text = element_text(face = "bold.italic",
+                                  size = 16,
+                                  hjust = 0),
         strip.background = element_blank(),
         
         # legend inside bottom-right
@@ -173,7 +175,7 @@ g1 <- ggplot(df_to_plot,
   facet_wrap(~taxa, ncol = 1) + 
   theme(strip.placement = "inside",
         strip.text = element_text(face = "bold.italic", hjust = 0,
-                                  size = 12),
+                                  size = 16),
         strip.background = element_blank(),
         # legend.position = c(0.2, 0.85),
         legend.position = "bottom",
@@ -193,7 +195,7 @@ g2 <- ggplot(prosome.lit,
   facet_wrap(~scientificName, ncol = 1) + 
   theme(strip.placement = "inside",
         strip.text = element_text(face = "bold.italic", hjust = 0,
-                                  size = 12),
+                                  size = 16),
         strip.background = element_blank(),
         
         # legend.position = c(0.98, 0.02), # c(0.28, 0.8)
@@ -246,7 +248,7 @@ cowplot::plot_grid(
   plot_grid(g3,g4, ncol = 1, align = "v", labels = c("c","d")),
   nrow = 1)
 
-ggsave("figures/Figure2_March_20260326.png",
+ggsave("figures/Figure2_March_20260428.png",
        width = 12, height = 10, units = "in", bg = "white")
 ```
 
@@ -295,11 +297,11 @@ p1 <- basemap("ArcticStereographic", bathymetry = T, glaciers = FALSE,
   
   scale_color_manual(values = clrs, name = "Region") +
   theme(axis.title = element_blank(),
-        axis.text = element_text(size = 10),
+        axis.text = element_text(size = 12),
         legend.position = "left",
         legend.key.spacing.y = unit(0.2, "cm"),
-        legend.text = element_text(size = 10),
-        legend.title = element_text(size = 10))
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12))
         # legend.position = c(0.025, 0.025),
         # legend.justification = c("left", "bottom"),
         # legend.box.background = element_rect(fill = "white", color = "none")
@@ -422,7 +424,7 @@ p4 <- ggplot(biomass_vert_region_to_plot,
            color = "white", stat = "identity") +
   
   coord_flip() +
-  scale_x_reverse(breaks = seq(0,2500,100), expand = c(0.01,0.01)) +
+  scale_x_reverse(breaks = seq(0,2500,200), expand = c(0.01,0.01)) +
   scale_y_continuous(expand = c(0.01,0.01),
               labels = scales::label_number(accuracy = 1)) +
   scale_color_manual(values = unique(clrs),
@@ -430,8 +432,8 @@ p4 <- ggplot(biomass_vert_region_to_plot,
   scale_fill_manual(values = unique(clrs),
                      name = "Region") +
   theme(legend.position = "none",
-        strip.background = element_blank()
-        # strip.text = element_blank()
+        strip.background = element_blank(),
+        strip.text = element_text(size = 16)
         ) +
   xlab("Depth (m)") + ylab("Biomass (mg C m⁻³)") +
   facet_wrap(~reg.inuk, scales = "free_x", space = "free_x", nrow = 1)
@@ -494,9 +496,9 @@ plot_grid(
             nrow = 1,
             rel_widths = c(1.3,1)),
   p4, ncol = 1, rel_heights = c(1,1),
-            labels = c("a",NA,"d"))
+            labels = c("a","d"))
 
-ggsave("figures/Fig3_20260423.png", width = 12, height = 14,
+ggsave("figures/Fig3_20260428.png", width = 12, height = 14,
        units = "in", bg = "white")
 ```
 
@@ -573,6 +575,8 @@ label_levels <- df_to_plot %>%
   arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
   pull(region_label)
 
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
 
 
 np1 <- ggplot(df.profile,
@@ -719,10 +723,6 @@ flux.comp.500 <- flux.comp.500 %>%
 ## Combine subplots
 ```{r}
 
-theme_set(theme(axis.text = element_text(size = 12)) +
-            theme_bw())
-
-
 plot_grid(
   plot_grid(np1, np2,
             ncol = 1, align = "v", 
@@ -730,7 +730,7 @@ plot_grid(
   np3, nrow = 1, labels = c("","c"))
 
 # 
-ggsave("figures/Fig4_20260407.png", width = 10, height = 6,
+ggsave("figures/Fig4_20260428.png", width = 12, height = 7.5,
        units = "in", bg = "white")
 ```
 

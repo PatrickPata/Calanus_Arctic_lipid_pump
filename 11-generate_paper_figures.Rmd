@@ -734,29 +734,4 @@ ggsave("figures/Fig4_20260428.png", width = 12, height = 7.5,
        units = "in", bg = "white")
 ```
 
-# Additional supplementary figure
-Relationship between bottom depth and POC and LPC fluxes
-```{r}
-cowplot::plot_grid(
-ggplot(flux.com.profiles.200, aes(y = poc_gC_m2_yr,
-                                  x = bottom_depth_m)) +
-  geom_smooth(color = "black") +
-  geom_vline(xintercept = 200, linetype = "dashed") +
-  geom_point(aes(color = reg.inuk), alpha = 0.8) +
-  geom_point(data = flux.com.profiles.500, aes(color = reg.inuk),
-             alpha = 0.5, shape = 4) +
-  # scale_y_reverse(limits = c(0, 2500)) +
-  scale_color_manual(values = clrs) +
-  theme(legend.position = "none"),
-
-ggplot(flux.com.profiles.200, aes(y = lipid_gC_m2_yr,
-                                  x = bottom_depth_m)) +
-  geom_smooth(color = "black") +
-  geom_vline(xintercept = 200, linetype = "dashed") +
-  geom_point(aes(color = reg.inuk)) +
-  # scale_y_reverse(limits = c(0, 2500)) +
-  scale_color_manual(values = clrs)  +
-  theme(legend.position = "none")
-)
-```
 

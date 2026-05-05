@@ -99,6 +99,8 @@ ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
   scale_color_manual(values = clrs)  +
   theme(legend.position = "right")
 ```
+
+## GAM LPC vs depth
 ```{r}
 library(mgcv)
 df.profile <- df.profile %>% 
@@ -108,13 +110,13 @@ df.profile <- df.profile %>%
 )
 
 # control by sampling date and latitude
-mod <- gam(
+mod.lpc <- gam(
   total_gC_flux_m2 ~ s(bottom_depth_m) + DOY + Year + latitude,
   data = df.profile,
   method = "REML"
 )
 
-summary(mod)
+summary(mod.lpc)
 
 newdat <- data.frame(
   bottom_depth_m = seq(min(df.profile$bottom_depth_m, na.rm = TRUE),
@@ -125,7 +127,7 @@ newdat <- data.frame(
   latitude = mean(df.profile$latitude, na.rm = TRUE)
 )
 
-pred <- predict(mod, newdata = newdat, se.fit = TRUE)
+pred <- predict(mod.lpc, newdata = newdat, se.fit = TRUE)
 
 newdat$fit <- pred$fit
 newdat$lwr <- pred$fit - 1.96 * pred$se.fit
@@ -154,13 +156,13 @@ ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
 newdat2 <- data.frame(
   latitude = seq(min(df.profile$latitude, na.rm = TRUE),
                        max(df.profile$latitude, na.rm = TRUE),
-                       length.out = 200),
+                       length.out = 208),
   Year = mean(df.profile$Year, na.rm = TRUE),
   DOY = mean(df.profile$DOY, na.rm = TRUE),
   bottom_depth_m = mean(df.profile$bottom_depth_m, na.rm = TRUE)
 )
 
-pred2 <- predict(mod, newdata = newdat2, se.fit = TRUE)
+pred2 <- predict(mod.lpc, newdata = newdat2, se.fit = TRUE)
 
 newdat2$fit <- pred2$fit
 newdat2$lwr <- pred2$fit - 1.96 * pred2$se.fit
@@ -185,6 +187,101 @@ ggplot(df.profile, aes(x = latitude, y = total_gC_flux_m2)) +
   theme(legend.position = "right")
 
 ```
+
+## GAM POC vs depth
+```{r}
+df.profile.poc <- flux.com.profiles.200 %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(station_year, DOY, Year, latitude = object_lat) %>% 
+              distinct(station_year, .keep_all = T)
+  )
+
+# control by sampling date and latitude
+mod.poc <- gam(
+  poc_gC_m2_yr ~ s(bottom_depth_m) + DOY + Year + latitude,
+  data = df.profile.poc,
+  method = "REML"
+)
+
+summary(mod.poc)
+
+
+
+newdat.poc <- data.frame(
+  bottom_depth_m = seq(min(df.profile.poc$bottom_depth_m, na.rm = TRUE),
+                       max(df.profile.poc$bottom_depth_m, na.rm = TRUE),
+                       length.out = 151),
+  Year = mean(df.profile.poc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.poc$DOY, na.rm = TRUE),
+  latitude = mean(df.profile.poc$latitude, na.rm = TRUE)
+)
+
+pred <- predict(mod.poc, newdata = newdat.poc, se.fit = TRUE)
+
+newdat.poc$fit <- pred$fit
+newdat.poc$lwr <- pred$fit - 1.96 * pred$se.fit
+newdat.poc$upr <- pred$fit + 1.96 * pred$se.fit
+
+ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
+  geom_point(aes(color = latitude)) +
+  geom_ribbon(
+    data = newdat.poc,
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = newdat.poc,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1
+  ) +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  scale_color_viridis_c() +
+  theme(legend.position = "right")
+
+
+
+
+newdat.poc2 <- data.frame(
+  latitude = seq(min(df.profile.poc$latitude, na.rm = TRUE),
+                 max(df.profile.poc$latitude, na.rm = TRUE),
+                 length.out = 208),
+  Year = mean(df.profile.poc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.poc$DOY, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.poc$bottom_depth_m, na.rm = TRUE)
+)
+
+pred2 <- predict(mod.poc, newdata = newdat.poc2, se.fit = TRUE)
+
+newdat.poc2$fit <- pred2$fit
+newdat.poc2$lwr <- pred2$fit - 1.96 * pred2$se.fit
+newdat.poc2$upr <- pred2$fit + 1.96 * pred2$se.fit
+
+ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
+  geom_point(aes(color = reg.inuk)) +
+  geom_ribbon(
+    data = newdat.poc2,
+    aes(x = latitude, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = newdat.poc2,
+    aes(x = latitude, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1
+  ) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "right")
+
+ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
+  geom_point(aes(color = as.factor(Year))) 
+
+```
+
 
 # Size gradient with depth
 ## Calculate CWM traits

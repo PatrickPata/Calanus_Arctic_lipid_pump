@@ -1,0 +1,446 @@
+---
+title: "Cross-shelf analysis"
+author: "Patrick Pata"
+date: "2026-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load data and libraries
+```{r}
+library(tidyverse)
+library(cowplot)
+library(ggtext)
+
+
+# Individual level traits
+load("data/uvp6_images_calculated_traits_20260321.RData")
+
+# Integrated UVP results
+load("data/profile_integrated_cflux_20260331.RData")
+
+# UVP-net abundance comparison results
+load("data/comparison_net_uvp_abundance_20260321.RData")
+
+# Comparison between POC flux and lipid pump C flux
+load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+
+
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
+`%notin%` <- Negate(`%in%`)
+theme_set(theme_bw() +
+            theme(text = element_text(size=16)))
+```
+
+
+
+
+# Relationship between bottom depth and POC and LPC fluxes
+```{r}
+cowplot::plot_grid(
+ggplot(flux.com.profiles.200, aes(y = poc_gC_m2_yr,
+                                  x = bottom_depth_m)) +
+  geom_smooth(color = "black") +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  geom_point(aes(color = reg.inuk), alpha = 0.8) +
+  geom_point(data = flux.com.profiles.500, aes(color = reg.inuk),
+             alpha = 0.5, shape = 4) +
+  
+  geom_smooth(data = flux.com.profiles.500, color = "red") +
+  # scale_y_reverse(limits = c(0, 2500)) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+
+ggplot(df.profile, aes(y = total_gC_flux_m2,
+                                  x = bottom_depth_m)) +
+  geom_smooth(color = "black") +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  geom_point(aes(color = reg.inuk)) +
+  # scale_y_reverse(limits = c(0, 2500)) +
+  scale_color_manual(values = clrs)  +
+  theme(legend.position = "none")
+)
+
+# Simply biomass by bottom depth - LPC flux is simply driven by total copepod biomass
+plot_grid(
+  ggplot(df.profile, aes(x = bottom_depth_m, y = biomass_gC_m2)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+  
+ggplot(df.profile, aes(x = abundance_m2, y = total_gC_flux_m2)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  # scale_x_log10() +  scale_y_log10() +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"))
+
+```
+
+
+## Depth by LPC vs POC flux, controlled by month and latitude
+```{r}
+ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
+  geom_smooth(color = "black") +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  geom_point(aes(color = latitude)) +
+  scale_color_viridis_c() +
+  theme(legend.position = "right")
+
+ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  geom_smooth(aes(color = as.factor(Month))) +
+  geom_point(aes(color = as.factor(Month), alpha = 0.4)) +
+  scale_color_manual(values = clrs)  +
+  theme(legend.position = "right")
+```
+```{r}
+library(mgcv)
+df.profile <- df.profile %>% 
+  left_join(Amund_UVP6_meta %>% 
+  select(station_year, DOY) %>% 
+  distinct(station_year, .keep_all = T)
+)
+
+mod <- gam(
+  total_gC_flux_m2 ~ s(bottom_depth_m) + DOY + latitude,
+  data = df.profile,
+  method = "REML"
+)
+
+newdat <- data.frame(
+  bottom_depth_m = seq(min(df.profile$bottom_depth_m, na.rm = TRUE),
+                       max(df.profile$bottom_depth_m, na.rm = TRUE),
+                       length.out = 200),
+  DOY = mean(df.profile$DOY, na.rm = TRUE),
+  latitude = mean(df.profile$latitude, na.rm = TRUE)
+)
+
+pred <- predict(mod, newdata = newdat, se.fit = TRUE)
+
+newdat$fit <- pred$fit
+newdat$lwr <- pred$fit - 1.96 * pred$se.fit
+newdat$upr <- pred$fit + 1.96 * pred$se.fit
+
+ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
+  geom_point(aes(color = latitude)) +
+  # geom_ribbon(
+  #   data = newdat,
+  #   aes(y = fit, ymin = lwr, ymax = upr),
+  #   inherit.aes = FALSE,
+  #   alpha = 0.2
+  # ) +
+  geom_line(
+    data = newdat,
+    aes(y = fit),
+    color = "black",
+    linewidth = 1
+  ) +
+  geom_vline(xintercept = 200, linetype = "dashed") +
+  scale_color_viridis_c() +
+  theme(legend.position = "right")
+```
+
+# Size gradient with depth
+## Calculate CWM traits
+```{r, fig.height=6, fig.width=10}
+# Calculate community weighted mean of mean traits (weighted by abundance)
+cwm.profiles <- indiv_traits %>% 
+  # only include Calanus spp
+  filter(taxa == "Calanus") %>% 
+  # add volume filtered
+  mutate(Depth_5m = floor(object_depth_max / 5) * 5 + 2.5) %>% 
+  left_join(volumes.df) %>% 
+  # add regions
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuk, reg.inuk, station_year)) %>% 
+  # filter samples for analysis
+  filter(!is.na(region.inuk)) %>% 
+  # calculate portion of the volume to get relative abundance
+  mutate(rel_abundance = Sampled_volume_m3) %>% 
+  mutate(temperature_C = temperature_kelvin - 273.15) %>% 
+  select(station_year, region.inuk, reg.inuk, rel_abundance,
+         prosome_length_mm, lipid_fullness, waxester_mass_mgC, temperature_C,
+         respirationRate_ugCday, diapauseDuration_day, 
+         structural_carbon_mgC, prosome_total_mgC) %>% 
+  group_by(station_year, region.inuk, reg.inuk) %>% 
+  summarise(across(where(is.numeric),  
+                   ~ weighted.mean(.x, rel_abundance, na.rm = TRUE)),
+            nindivs = n(),
+            .groups = "drop") %>% 
+  select(-rel_abundance) %>% 
+  # Add bottom depth information
+  left_join(df.profile %>% 
+              select(station_year, bottom_depth_m))
+
+cwm.profiles.long <- cwm.profiles %>% 
+  select(-c(prosome_total_mgC, structural_carbon_mgC)) %>% 
+  pivot_longer(cols = c(prosome_length_mm, lipid_fullness, waxester_mass_mgC,
+                        respirationRate_ugCday, diapauseDuration_day,
+                        temperature_C),
+               names_to = "trait", values_to = "value") %>% 
+  mutate(trait = factor(trait, 
+                        levels = c("prosome_length_mm", "waxester_mass_mgC",
+                                   "respirationRate_ugCday", "lipid_fullness", 
+                                   "diapauseDuration_day", "temperature_C")))
+  
+
+flabels <- c("prosome_length_mm" = "a. Prosome length\n(mm)", 
+             "waxester_mass_mgC" = "b. Wax ester carbon\n(mg C)",
+             "respirationRate_ugCday" = "c. Diapause respiration rate\n(\u03bcg C day⁻¹)",
+             "lipid_fullness" = "d. Lipid fullness\n(%)", 
+             "diapauseDuration_day" = "e. Potential diapause duration\n(day)", 
+             "temperature_C" = "f. Ambient temperature\n(°C)")
+
+ggplot(cwm.profiles.long, aes(x = reg.inuk, y = value,
+                         color = reg.inuk)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev, labels = flabels) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none",
+        axis.title = element_blank(),
+        strip.background = element_blank()) +
+  facet_wrap(~trait, scales = "free_x",
+              labeller = as_labeller(flabels))
+  
+# ggsave("figures/CWM_Traits.png", width = 8, height = 5, units = "in", bg = "white")
+
+# Ambient temp vs respiration rate and diapause duration
+plot_grid(
+ggplot(cwm.profiles, aes(x = temperature_C, y = respirationRate_ugCday)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = prosome_total_mgC, y = respirationRate_ugCday)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = temperature_C, y = diapauseDuration_day)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = waxester_mass_mgC, y = diapauseDuration_day)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth(method = "lm") +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none") )
+```
+
+## Plot bottom depth vs CWM traits
+```{r, fig.height=6, fig.width=10}
+plot_grid(
+  ggplot(cwm.profiles, aes(x = bottom_depth_m, y = prosome_length_mm)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+  
+ggplot(cwm.profiles, aes(x = bottom_depth_m, y = lipid_fullness)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = bottom_depth_m, y = respirationRate_ugCday)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"),
+
+ggplot(cwm.profiles, aes(x = bottom_depth_m, y = diapauseDuration_day)) +
+  geom_point(aes(color = region.inuk)) +
+  geom_smooth() +
+  scale_color_manual(values = clrs)+
+  theme(legend.position = "none"))
+```
+
+## Does CWM modulate the abundance vs  LPC flux relationship?
+```{r}
+df.profile2 <- df.profile %>% 
+  left_join(cwm.profiles)
+# Simply biomass by bottom depth - LPC flux is simply driven by total copepod biomass
+plot_grid(
+  ggplot(df.profile2, aes(x = abundance_m2, y = total_gC_flux_m2)) +
+    geom_point(aes(color = prosome_length_mm)) +
+    geom_smooth() +
+    scale_color_viridis_c()+
+    theme(legend.position = "none"),
+  
+  
+  ggplot(df.profile2, aes(x = abundance_m2, y = total_gC_flux_m2)) +
+    geom_point(aes(color = diapauseDuration_day)) +
+    geom_smooth() +
+    scale_color_viridis_c()+
+    theme(legend.position = "none")
+)
+
+```
+
+
+# Check taxonomic composition by bottom depth. Where are C. glacialis vs C. hyperboreus
+```{r}
+# Net data
+load("data/hydrobios_net_calanus_20260321.RData")
+
+net.bot.depths <- uvp_net_match %>% 
+  mutate(YEAR_STATION = paste(cruise_year, STATION_NAME)) %>% 
+  distinct(YEAR_STATION, BOTTOM_DEPTH) %>% 
+  arrange(BOTTOM_DEPTH)
+
+
+calanus.by.depth <- calanus %>% 
+  left_join(net.bot.depths,
+            by = join_by(YEAR_STATION)) %>% 
+  mutate(YEAR_STATION = factor(YEAR_STATION, 
+                               levels = net.bot.depths$YEAR_STATION)) %>% 
+  mutate(tax_stage = paste(TAXON_ID, TAXON_LIFE_DEV_STAGE)) %>% 
+   group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
+           TAXON_ID, tax_stage, BOTTOM_DEPTH) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
+            total_indiv_count = sum(indiv_count),
+            maxDepth = max(MAX_SAMPLE_DEPTH),
+            nbins = n(),
+            .groups = "drop")
+
+ggplot(calanus.by.depth, aes(x = YEAR_STATION, y = total_abundance_m2,
+                                fill = tax_stage)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  # scale_x_discrete(labels = BOTTOM_DEPTH) +
+  ylab("% Abundance") +
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90))
+
+# TODO Get biomass instead
+
+# Species composition of nets by region
+# Calculate net integrated abundance and biomass
+species.comp.station <- calanus.by.depth %>%
+  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
+           TAXON_ID, BOTTOM_DEPTH) %>% 
+  summarise(total_abundance_m2 = sum(total_abundance_m2),
+            nbins = n(),
+            .groups = "drop") %>% 
+  mutate(TAXON_ID = case_match(TAXON_ID,
+                               "Calanus finmarchicus" ~ "Cfin CV-F",
+                               "Calanus glacialis" ~ "Cgla CIV-F",
+                               "Calanus hyperboreus" ~ "Chyp CIV-F")) %>% 
+  # relative abundance
+  group_by(YEAR_STATION) %>% 
+  mutate(assem_abundance_m2 = sum(total_abundance_m2)) %>% 
+  ungroup() %>% 
+  mutate(relative_abundance = total_abundance_m2/assem_abundance_m2*100) %>% 
+  left_join(uvp_net_match %>% 
+              distinct(STATION_NAME, DEPLOYMENT_DATE_START,
+                       LATITUDE, LONGITUDE, reg.inuk),
+            by = join_by(STATION_NAME, DEPLOYMENT_DATE_START))
+
+
+ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_abundance_m2,
+                                fill = TAXON_ID)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  ylab("% Abundance") +
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90))
+
+```
+
+# Map out how composition is divided
+```{r, fig.width=6, fig.height=7}
+library(ggOceanMaps)
+library(ggspatial)
+
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
+
+basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
+        limits = c(-85,-52,65,83), rotate = T,
+        legends = TRUE, land.col = "ivory",
+        land.border.col = "black", gla.border.col = NA) +
+  
+  # mark net samples
+  ggspatial::geom_spatial_point(data = comp_uvp_net,
+                                aes(x = longitude, y = latitude,
+                                    color = reg.inuk),
+                                size = 2, alpha = 0.6) +
+  
+  ggspatial::geom_spatial_label_repel(data = comp_uvp_net,
+                                aes(x = longitude, y = latitude,
+                                    label = STATION_NAME),
+                                size = 2, alpha = 0.9) +
+  
+  scale_color_manual(values = clrs, name = "Region") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12),
+        legend.position = "none",
+        legend.key.spacing.y = unit(0.2, "cm"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12))
+```
+
+# TODO side-by-side Calanus abundances map
+```{r, fig.width=12, fig.height=7}
+basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
+        limits = c(-85,-52,65,83), rotate = T,
+        legends = TRUE, land.col = "gray",
+        land.border.col = NA, gla.border.col = NA) +
+  
+  # mark net samples
+  ggspatial::geom_spatial_point(data = species.comp.station,
+                                aes(x = LONGITUDE, y = LATITUDE,
+                                    fill = relative_abundance, 
+                                    size = total_abundance_m2),
+                                color = "black", shape = 21,
+                                alpha = 0.8) +
+  # scale_size_continuous(trans = "log10") +
+  scale_fill_viridis_c(option = "turbo") +
+  theme(axis.title = element_blank(),
+        axis.text = element_text(size = 12),
+        legend.position = "bottom",
+        legend.key.spacing.y = unit(0.2, "cm"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12)) +
+  facet_wrap(~TAXON_ID, nrow = 1)
+```
+
+## comparisons
+```{r}
+AA <- species.comp.station %>% 
+  select(YEAR_STATION, reg.inuk, BOTTOM_DEPTH, TAXON_ID, relative_abundance) %>% 
+  pivot_wider(names_from = TAXON_ID, values_from = relative_abundance)
+
+ggplot(AA, aes(x = `Cgla CIV-F`, y = `Chyp CIV-F`)) +
+  geom_abline() +
+  geom_point(aes(color = BOTTOM_DEPTH, shape = reg.inuk),
+             size = 3) +
+  stat_ellipse(aes(group = reg.inuk, linetype = reg.inuk),
+               linewidth = 0.5, level = 0.8, alpha = 0.4) +
+  scale_color_viridis_c(option = "plasma")
+
+ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, y = relative_abundance)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~TAXON_ID, nrow = 1)
+```
+
+
+
+

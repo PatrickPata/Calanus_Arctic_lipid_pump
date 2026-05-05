@@ -19,7 +19,7 @@ library(ggtext)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
 # Integrated UVP results
-load("data/profile_integrated_cflux_20260331.RData")
+load("data/profile_integrated_cflux_20260505.RData")
 
 # UVP-net abundance comparison results
 load("data/comparison_net_uvp_abundance_20260321.RData")

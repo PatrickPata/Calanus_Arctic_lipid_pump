@@ -20,7 +20,7 @@ library(ggtext)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
 # Integrated UVP results
-load("data/profile_integrated_cflux_20260331.RData")
+load("data/profile_integrated_cflux_20260505.RData")
 
 # UVP-net abundance comparison results
 load("data/comparison_net_uvp_abundance_20260321.RData")
@@ -107,16 +107,20 @@ df.profile <- df.profile %>%
   distinct(station_year, .keep_all = T)
 )
 
+# control by sampling date and latitude
 mod <- gam(
-  total_gC_flux_m2 ~ s(bottom_depth_m) + DOY + latitude,
+  total_gC_flux_m2 ~ s(bottom_depth_m) + DOY + Year + latitude,
   data = df.profile,
   method = "REML"
 )
+
+summary(mod)
 
 newdat <- data.frame(
   bottom_depth_m = seq(min(df.profile$bottom_depth_m, na.rm = TRUE),
                        max(df.profile$bottom_depth_m, na.rm = TRUE),
                        length.out = 200),
+  Year = mean(df.profile$Year, na.rm = TRUE),
   DOY = mean(df.profile$DOY, na.rm = TRUE),
   latitude = mean(df.profile$latitude, na.rm = TRUE)
 )
@@ -129,21 +133,57 @@ newdat$upr <- pred$fit + 1.96 * pred$se.fit
 
 ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   geom_point(aes(color = latitude)) +
-  # geom_ribbon(
-  #   data = newdat,
-  #   aes(y = fit, ymin = lwr, ymax = upr),
-  #   inherit.aes = FALSE,
-  #   alpha = 0.2
-  # ) +
+  geom_ribbon(
+    data = newdat,
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
   geom_line(
     data = newdat,
-    aes(y = fit),
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
     color = "black",
     linewidth = 1
   ) +
   geom_vline(xintercept = 200, linetype = "dashed") +
   scale_color_viridis_c() +
   theme(legend.position = "right")
+
+
+newdat2 <- data.frame(
+  latitude = seq(min(df.profile$latitude, na.rm = TRUE),
+                       max(df.profile$latitude, na.rm = TRUE),
+                       length.out = 200),
+  Year = mean(df.profile$Year, na.rm = TRUE),
+  DOY = mean(df.profile$DOY, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile$bottom_depth_m, na.rm = TRUE)
+)
+
+pred2 <- predict(mod, newdata = newdat2, se.fit = TRUE)
+
+newdat2$fit <- pred2$fit
+newdat2$lwr <- pred2$fit - 1.96 * pred2$se.fit
+newdat2$upr <- pred2$fit + 1.96 * pred2$se.fit
+
+ggplot(df.profile, aes(x = latitude, y = total_gC_flux_m2)) +
+  geom_point(aes(color = reg.inuk)) +
+  geom_ribbon(
+    data = newdat2,
+    aes(x = latitude, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = newdat2,
+    aes(x = latitude, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1
+  ) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "right")
+
 ```
 
 # Size gradient with depth

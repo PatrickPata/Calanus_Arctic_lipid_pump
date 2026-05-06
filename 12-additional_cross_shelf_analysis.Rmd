@@ -452,6 +452,62 @@ plot_grid(
 
 ```
 
+# Establish traits from LOKI images and literature
+Same as in file 9-hydrobios_lipid_pump.Rmd, needed to convert net abundance to biomass
+```{r}
+loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
+ 
+# match trait names
+  mutate(total_carbon = prosome_carbon_volume + total_lipids_ugC/1000,
+         lf_carbon = total_lipids_ugC/1000 / total_carbon * 100,
+         waxester_carbon = total_lipids_ugC / 1000) %>% 
+  #  # Recalculated version (lipid carbon not based on the variable total_lipids_carbon_volume)
+  # mutate(lf_carbon = waxester_carbon / (waxester_carbon + prosome_carbon_volume) * 100) %>% 
+  select(object_id, object_annotation_category,
+         prosome_length_mm = prosome_major_axis_mm,
+         prosome_biovolume_mm3 = prosome_volume_mm3,
+         structural_carbon_mgC = prosome_carbon_volume,
+         waxester_carbon_mgC = waxester_carbon,
+         total_carbon_mgC = total_carbon, 
+         lf_carbon) %>% 
+  mutate(source = "LOKI segmented") %>% 
+  mutate(taxaStage = case_when(
+    object_annotation_category == 
+      "female+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus F",
+    object_annotation_category == 
+      "cvstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C5",
+    object_annotation_category == 
+      "civstage+lateral<Calanus hyperboreus" ~ "Calanus hyperboreus C4",
+    object_annotation_category == 
+      "female+lateral<Calanus glacialis" ~ "Calanus glacialis F",
+    object_annotation_category ==
+      "cvstage+lateral<Calanus glacialis" ~ "Calanus glacialis C5",
+    object_annotation_category == 
+      "civstage+lateral<Calanus glacialis" ~ "Calanus glacialis C4",
+    TRUE ~ object_annotation_category ) )
+
+# Calculate average by taxa stage
+loki.averages <- loki.segmentations %>% 
+  group_by(taxaStage) %>% 
+  summarise(across(prosome_length_mm:lf_carbon,
+                   \(x) mean(x, na.rm = T)),
+            n = n(),
+            .groups = "drop") %>% 
+  select(taxaStage, total_carbon_mgC, waxester_carbon_mgC, lf_carbon, n)
+
+# C.finmarchicus derived from literature (Pata and Hunt 2023) (CV averages from Durazzano & Titocci, 2025 and C&DW of 59% from Pata & Hunt 2023)
+Cfin <- data.frame(
+  taxaStage = c("Calanus finmarchicus F", "Calanus finmarchicus C5"),
+  total_carbon_mgC = c(0.2055, 0.1617), # DW * 0.59 C%DW
+  waxester_carbon_mgC = c(0.0885,0.0445) # DW * 0.34 Lipid%DW * 0.81 WE%Lipid
+) %>% 
+  mutate(lf_carbon = waxester_carbon_mgC / total_carbon_mgC * 100)
+
+Calanus.traits <- bind_rows(loki.averages, Cfin)
+
+rm(loki.segmentations, loki.averages, Cfin)
+```
+
 
 # Check taxonomic composition by bottom depth. Where are C. glacialis vs C. hyperboreus
 ```{r}
@@ -477,7 +533,14 @@ calanus.by.depth <- calanus %>%
             total_indiv_count = sum(indiv_count),
             maxDepth = max(MAX_SAMPLE_DEPTH),
             nbins = n(),
-            .groups = "drop")
+            .groups = "drop") %>% 
+  # Add carbon traits
+  mutate(tax_stage = str_replace(tax_stage,"M","F")) %>% # use the F traits for M
+  left_join(Calanus.traits %>% 
+              select(tax_stage = taxaStage, carbonWeight = total_carbon_mgC),
+            by = "tax_stage") %>% 
+  # Calculate biomass
+  mutate(total_biomass_mgC_m2 = total_abundance_m2 * carbonWeight)
 
 ggplot(calanus.by.depth, aes(x = YEAR_STATION, y = total_abundance_m2,
                                 fill = tax_stage)) +
@@ -485,10 +548,20 @@ ggplot(calanus.by.depth, aes(x = YEAR_STATION, y = total_abundance_m2,
   scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
                      labels = c(0,25,50,75,100),
                      expand = c(0,0)) +
-  # scale_x_discrete(labels = BOTTOM_DEPTH) +
   ylab("% Abundance") +
   theme(axis.title.y = element_blank(),
         axis.text.x = element_text(angle = 90))
+
+ggplot(calanus.by.depth, aes(x = YEAR_STATION, y = total_biomass_mgC_m2,
+                                fill = tax_stage)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  ylab("% Biomass") +
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90))
+
 
 # TODO Get biomass instead
 
@@ -499,17 +572,20 @@ species.comp.station <- calanus.by.depth %>%
   group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START,
            TAXON_ID, BOTTOM_DEPTH) %>% 
   summarise(total_abundance_m2 = sum(total_abundance_m2),
+            total_biomass_mgC_m2 = sum(total_biomass_mgC_m2),
             nbins = n(),
             .groups = "drop") %>% 
   mutate(TAXON_ID = case_match(TAXON_ID,
-                               "Calanus finmarchicus" ~ "Cfin CV-F",
-                               "Calanus glacialis" ~ "Cgla CIV-F",
-                               "Calanus hyperboreus" ~ "Chyp CIV-F")) %>% 
+                               "Calanus finmarchicus" ~ "Calanus finmarchicus CV-F",
+                               "Calanus glacialis" ~ "Calanus glacialis CIV-F",
+                               "Calanus hyperboreus" ~ "Calanus hyperboreus CIV-F")) %>% 
   # relative abundance
   group_by(YEAR_STATION) %>% 
   mutate(assem_abundance_m2 = sum(total_abundance_m2)) %>% 
+  mutate(assem_biomass_mgC_m2 = sum(total_biomass_mgC_m2)) %>% 
   ungroup() %>% 
   mutate(relative_abundance = total_abundance_m2/assem_abundance_m2*100) %>% 
+  mutate(relative_biomass = total_biomass_mgC_m2/assem_biomass_mgC_m2*100) %>% 
   left_join(uvp_net_match %>% 
               distinct(STATION_NAME, DEPLOYMENT_DATE_START,
                        LATITUDE, LONGITUDE, reg.inuk),
@@ -523,6 +599,16 @@ ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_abundance_m2,
                      labels = c(0,25,50,75,100),
                      expand = c(0,0)) +
   ylab("% Abundance") +
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90))
+
+ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_biomass_mgC_m2,
+                                fill = TAXON_ID)) +
+  geom_bar(stat = "identity", position = "fill", color = "black") +
+  scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
+                     labels = c(0,25,50,75,100),
+                     expand = c(0,0)) +
+  ylab("% Biomass") +
   theme(axis.title.y = element_blank(),
         axis.text.x = element_text(angle = 90))
 
@@ -562,7 +648,7 @@ basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
 ```
 
 # TODO side-by-side Calanus abundances map
-```{r, fig.width=12, fig.height=7}
+```{r}
 basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
         limits = c(-85,-52,65,83), rotate = T,
         legends = TRUE, land.col = "gray",
@@ -571,19 +657,27 @@ basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
   # mark net samples
   ggspatial::geom_spatial_point(data = species.comp.station,
                                 aes(x = LONGITUDE, y = LATITUDE,
-                                    fill = relative_abundance, 
-                                    size = total_abundance_m2),
+                                    fill = relative_biomass, 
+                                    size = total_biomass_mgC_m2/1000),
                                 color = "black", shape = 21,
                                 alpha = 0.8) +
-  # scale_size_continuous(trans = "log10") +
-  scale_fill_viridis_c(option = "turbo") +
+  scale_size_continuous(name = expression(Biomass~(g~C~m^{-2})),
+                        breaks = c(1,5,10,15)) +
+  scale_fill_viridis_c(option = "turbo", name = "% Total biomass") +
   theme(axis.title = element_blank(),
         axis.text = element_text(size = 12),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 12),
         legend.position = "bottom",
         legend.key.spacing.y = unit(0.2, "cm"),
         legend.text = element_text(size = 12),
         legend.title = element_text(size = 12)) +
+  guides(size = guide_legend(title.position = "top"),
+    fill = guide_colorbar(title.position = "top")) +
   facet_wrap(~TAXON_ID, nrow = 1)
+
+ggsave("figures/Net_calanus_distribution.png", width = 10, height = 5,
+       units = "in", bg = "white")
 ```
 
 ## comparisons
@@ -592,23 +686,64 @@ AA <- species.comp.station %>%
   select(YEAR_STATION, reg.inuk, BOTTOM_DEPTH, TAXON_ID, relative_abundance) %>% 
   pivot_wider(names_from = TAXON_ID, values_from = relative_abundance)
 
-ggplot(AA, aes(x = `Cgla CIV-F`, y = `Chyp CIV-F`)) +
+ggplot(AA, aes(x = `Calanus glacialis CIV-F`, y = `Calanus hyperboreus CIV-F`)) +
   geom_abline() +
-  geom_point(aes(color = BOTTOM_DEPTH, shape = reg.inuk),
-             size = 3) +
-  stat_ellipse(aes(group = reg.inuk, linetype = reg.inuk),
+  geom_point(aes(fill = BOTTOM_DEPTH, shape = reg.inuk, color = reg.inuk),
+             size = 3, shape = 21, stroke = 1) +
+  stat_ellipse(aes(group = reg.inuk, 
+                   color = reg.inuk), name = "Region",
                linewidth = 0.5, level = 0.8, alpha = 0.4) +
-  scale_color_viridis_c(option = "plasma")
+  scale_color_manual(name = "Region", values = clrs) +
+  scale_fill_gradient(name = "Bottom depth\n(m)",
+  low = "white",high = "black")
 
-ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, y = relative_abundance)) +
+ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, y = relative_biomass)) +
   geom_point() +
-  geom_smooth() +
+  geom_smooth(method = "lm") +
   facet_wrap(~TAXON_ID, nrow = 1)
 
-ggplot(species.comp.station, aes(x = LATITUDE, y = relative_abundance)) +
+ggplot(species.comp.station, aes(x = LATITUDE, y = relative_biomass)) +
   geom_point() +
-  geom_smooth() +
+  geom_smooth(method = "lm") +
   facet_wrap(~TAXON_ID, nrow = 1)
+
+
+
+ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, 
+                                 y = total_biomass_mgC_m2/1000)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Bottom depth (m)") +
+  ylab(expression(Biomass~(g~C~m^{-2}))) +
+  scale_x_log10(labels = scales::label_number(),
+    minor_breaks = scales::minor_breaks_log()) +
+  scale_y_log10(labels = scales::label_number(accuracy = 0.001,
+                                              trim = TRUE, 
+                                              drop0trailing = TRUE),
+                minor_breaks = scales::minor_breaks_log())+
+  facet_wrap(~TAXON_ID, nrow = 1) +
+  theme(
+    panel.grid.minor.y = element_line(color = "grey80"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 12))
+
+
+
+ggplot(species.comp.station, aes(x = LATITUDE, 
+                                 y = total_biomass_mgC_m2/1000)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  xlab("Latitude") +
+  ylab(expression(Biomass~(g~C~m^{-2}))) +
+  scale_y_log10(labels = scales::label_number(accuracy = 0.001,
+                                              trim = TRUE, 
+                                              drop0trailing = TRUE),
+                minor_breaks = scales::minor_breaks_log())+
+  facet_wrap(~TAXON_ID, nrow = 1) +
+  theme(
+    panel.grid.minor.y = element_line(color = "grey80"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 12))
 ```
 
 

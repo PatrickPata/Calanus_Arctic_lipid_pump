@@ -14,6 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(cowplot)
 library(ggtext)
+library(mgcv)
 
 
 # Individual level traits
@@ -37,10 +38,9 @@ theme_set(theme_bw() +
 ```
 
 
-
-
 # Relationship between bottom depth and POC and LPC fluxes
-```{r}
+## Exploratory figures
+```{r, eval = FALSE}
 cowplot::plot_grid(
 ggplot(flux.com.profiles.200, aes(y = poc_gC_m2_yr,
                                   x = bottom_depth_m)) +
@@ -80,11 +80,7 @@ ggplot(df.profile, aes(x = abundance_m2, y = total_gC_flux_m2)) +
   scale_color_manual(values = clrs) +
   theme(legend.position = "none"))
 
-```
-
-
-## Depth by LPC vs POC flux, controlled by month and latitude
-```{r}
+# Colored by latitude
 ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
   geom_smooth(color = "black") +
   geom_vline(xintercept = 200, linetype = "dashed") +
@@ -100,31 +96,35 @@ ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
   theme(legend.position = "right")
 ```
 
+
+## Depth by LPC vs POC flux, controlled by month and latitude
+
 ## GAM LPC vs depth
 ```{r}
-library(mgcv)
-df.profile <- df.profile %>% 
+df.profile.lpc <- df.profile %>% 
   left_join(Amund_UVP6_meta %>% 
   select(station_year, DOY) %>% 
   distinct(station_year, .keep_all = T)
 )
 
-# control by sampling date and latitude
+# GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
 mod.lpc <- gam(
-  total_gC_flux_m2 ~ s(bottom_depth_m) + DOY + Year + latitude,
-  data = df.profile,
+  total_gC_flux_m2 ~ s(bottom_depth_m, k = 4) + DOY + Year + s(latitude, k = 4),
+  data = df.profile.lpc,
   method = "REML"
 )
 
+# GAM results
 summary(mod.lpc)
 
+# Fit bottom depth vs LPC flux
 newdat <- data.frame(
-  bottom_depth_m = seq(min(df.profile$bottom_depth_m, na.rm = TRUE),
-                       max(df.profile$bottom_depth_m, na.rm = TRUE),
+  bottom_depth_m = seq(min(df.profile.lpc$bottom_depth_m, na.rm = TRUE),
+                       max(df.profile.lpc$bottom_depth_m, na.rm = TRUE),
                        length.out = 200),
-  Year = mean(df.profile$Year, na.rm = TRUE),
-  DOY = mean(df.profile$DOY, na.rm = TRUE),
-  latitude = mean(df.profile$latitude, na.rm = TRUE)
+  Year = mean(df.profile.lpc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.lpc$DOY, na.rm = TRUE),
+  latitude = mean(df.profile.lpc$latitude, na.rm = TRUE)
 )
 
 pred <- predict(mod.lpc, newdata = newdat, se.fit = TRUE)
@@ -133,33 +133,15 @@ newdat$fit <- pred$fit
 newdat$lwr <- pred$fit - 1.96 * pred$se.fit
 newdat$upr <- pred$fit + 1.96 * pred$se.fit
 
-ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
-  geom_point(aes(color = latitude)) +
-  geom_ribbon(
-    data = newdat,
-    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
-    inherit.aes = FALSE,
-    alpha = 0.2
-  ) +
-  geom_line(
-    data = newdat,
-    aes(x = bottom_depth_m, y = fit),
-    inherit.aes = FALSE,
-    color = "black",
-    linewidth = 1
-  ) +
-  geom_vline(xintercept = 200, linetype = "dashed") +
-  scale_color_viridis_c() +
-  theme(legend.position = "right")
 
-
+# Fit latitude vs LPC flux
 newdat2 <- data.frame(
-  latitude = seq(min(df.profile$latitude, na.rm = TRUE),
-                       max(df.profile$latitude, na.rm = TRUE),
+  latitude = seq(min(df.profile.lpc$latitude, na.rm = TRUE),
+                       max(df.profile.lpc$latitude, na.rm = TRUE),
                        length.out = 208),
-  Year = mean(df.profile$Year, na.rm = TRUE),
-  DOY = mean(df.profile$DOY, na.rm = TRUE),
-  bottom_depth_m = mean(df.profile$bottom_depth_m, na.rm = TRUE)
+  Year = mean(df.profile.lpc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.lpc$DOY, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.lpc$bottom_depth_m, na.rm = TRUE)
 )
 
 pred2 <- predict(mod.lpc, newdata = newdat2, se.fit = TRUE)
@@ -168,25 +150,8 @@ newdat2$fit <- pred2$fit
 newdat2$lwr <- pred2$fit - 1.96 * pred2$se.fit
 newdat2$upr <- pred2$fit + 1.96 * pred2$se.fit
 
-ggplot(df.profile, aes(x = latitude, y = total_gC_flux_m2)) +
-  geom_point(aes(color = reg.inuk)) +
-  geom_ribbon(
-    data = newdat2,
-    aes(x = latitude, ymin = lwr, ymax = upr),
-    inherit.aes = FALSE,
-    alpha = 0.2
-  ) +
-  geom_line(
-    data = newdat2,
-    aes(x = latitude, y = fit),
-    inherit.aes = FALSE,
-    color = "black",
-    linewidth = 1
-  ) +
-  scale_color_manual(values = clrs) +
-  theme(legend.position = "right")
-
 ```
+
 
 ## GAM POC vs depth
 ```{r}
@@ -196,17 +161,16 @@ df.profile.poc <- flux.com.profiles.200 %>%
               distinct(station_year, .keep_all = T)
   )
 
-# control by sampling date and latitude
+# GAM of POC flux at 200 m with bottom depth, latitude, and sampling day and year as predictors
 mod.poc <- gam(
-  poc_gC_m2_yr ~ s(bottom_depth_m) + DOY + Year + latitude,
+  poc_gC_m2_yr ~ s(bottom_depth_m, k = 3) + DOY + Year + s(latitude, k = 3),
   data = df.profile.poc,
   method = "REML"
 )
 
 summary(mod.poc)
 
-
-
+# Fit POC flux at 200m vs bottom depth
 newdat.poc <- data.frame(
   bottom_depth_m = seq(min(df.profile.poc$bottom_depth_m, na.rm = TRUE),
                        max(df.profile.poc$bottom_depth_m, na.rm = TRUE),
@@ -222,28 +186,8 @@ newdat.poc$fit <- pred$fit
 newdat.poc$lwr <- pred$fit - 1.96 * pred$se.fit
 newdat.poc$upr <- pred$fit + 1.96 * pred$se.fit
 
-ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
-  geom_point(aes(color = latitude)) +
-  geom_ribbon(
-    data = newdat.poc,
-    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
-    inherit.aes = FALSE,
-    alpha = 0.2
-  ) +
-  geom_line(
-    data = newdat.poc,
-    aes(x = bottom_depth_m, y = fit),
-    inherit.aes = FALSE,
-    color = "black",
-    linewidth = 1
-  ) +
-  geom_vline(xintercept = 200, linetype = "dashed") +
-  scale_color_viridis_c() +
-  theme(legend.position = "right")
 
-
-
-
+# Fit POC flux at 200m vs latitude
 newdat.poc2 <- data.frame(
   latitude = seq(min(df.profile.poc$latitude, na.rm = TRUE),
                  max(df.profile.poc$latitude, na.rm = TRUE),
@@ -258,28 +202,111 @@ pred2 <- predict(mod.poc, newdata = newdat.poc2, se.fit = TRUE)
 newdat.poc2$fit <- pred2$fit
 newdat.poc2$lwr <- pred2$fit - 1.96 * pred2$se.fit
 newdat.poc2$upr <- pred2$fit + 1.96 * pred2$se.fit
+```
 
-ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
+The LPC flux model explained 44.8% of deviance with Radj2 = 0.43 (n = 208) with a weak negative effect of day of year (β = −0.012, p = 0.023) and no significant effect of year. The GAM smooths (±95% CI) terms were significant between LPC flux and (a) latitude (edf = 2.82, F = 9.1, p < 0.001) and (b) bottom depth (edf = 2.85, F = 33.11, p < 0.001). 
+
+The POC flux model explained 27.6% of deviance with Radj2 = 0.25 (n = 151) with a positive year (β = 1.25, p = 0.001) and no significant effect of day of year. The GAM smooths (±95% CI) terms were significant between POC flux and (c) latitude (edf = 1.61, F = 6.65, p = 0.006) and (d) bottom depth (edf = 1.84, F = 5.88, p = 0.007). 
+
+# TODO Combine GAM results in 1 figure
+```{r, fig.width=7, fig.height=5}
+p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
+  geom_ribbon(data = newdat2,
+              aes(x = latitude, ymin = lwr, ymax = upr),
+              inherit.aes = FALSE,
+              alpha = 0.2) +
+  geom_line(data = newdat2,
+            aes(x = latitude, y = fit),
+            inherit.aes = FALSE,
+            color = "black",
+            linewidth = 1) +
   geom_point(aes(color = reg.inuk)) +
-  geom_ribbon(
-    data = newdat.poc2,
+  scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
+  xlab("Latitude") + 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) +
+  scale_color_manual(values = clrs, name = "Region") +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white", color = "black"))
+
+p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
+  geom_ribbon( data = newdat,
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = newdat,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
+  geom_point(aes(color = abundance_m2)) +
+  xlab("Bottom depth (m)") + 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) +
+  scale_color_viridis_c(name = expression(atop(Abundance,("#"~m^{-2}))),
+                         option = "plasma") +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white",color = "black"))
+
+p3 <- ggplot(df.profile.lpc, aes(x = DOY, y = total_gC_flux_m2)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(color = "pink") +
+  xlab("Day of year") +
+  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) 
+
+
+p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
+   geom_ribbon(data = newdat.poc2,
     aes(x = latitude, ymin = lwr, ymax = upr),
     inherit.aes = FALSE,
-    alpha = 0.2
-  ) +
-  geom_line(
-    data = newdat.poc2,
+    alpha = 0.2) +
+  geom_line(data = newdat.poc2,
     aes(x = latitude, y = fit),
     inherit.aes = FALSE,
     color = "black",
-    linewidth = 1
-  ) +
-  scale_color_manual(values = clrs) +
-  theme(legend.position = "right")
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
+  scale_color_manual(values = clrs, name = "Region") +
+  geom_point(aes(color = reg.inuk)) +
+  xlab("Latitude") + 
+  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
+  theme(legend.position = "none")
 
-ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
-  geom_point(aes(color = as.factor(Year))) 
 
+p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
+  geom_ribbon(data = transform(newdat.poc, lwr = pmax(lwr, 0)), # truncate at zeo
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = newdat.poc,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
+  geom_point(aes(color = poc_mgC_m2_d)) +
+  scale_color_viridis_c(name = expression(atop(POC~flux[200*m],(mg~C~m^{-2}~d^{-1})))) +
+  theme(legend.position = "right") +
+  xlab("Bottom depth (m)") + 
+  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white", color = "black"))
+
+p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_gC_m2_yr)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(color = "skyblue") +
+  xlab("Year") + 
+  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1})))
+
+cowplot::plot_grid(p1,p2,
+                   p4,p5,
+                   labels = "auto",
+                   nrow = 2, align = "hv")
+
+ggsave("figures/Supp_LPC_POC_GAM_fits_v2.png", width = 14, height = 10,
+       units = "in", bg = "white")
 ```
 
 
@@ -413,14 +440,14 @@ plot_grid(
     geom_point(aes(color = prosome_length_mm)) +
     geom_smooth() +
     scale_color_viridis_c()+
-    theme(legend.position = "none"),
+    theme(legend.position = "bottom"),
   
   
   ggplot(df.profile2, aes(x = abundance_m2, y = total_gC_flux_m2)) +
     geom_point(aes(color = diapauseDuration_day)) +
     geom_smooth() +
     scale_color_viridis_c()+
-    theme(legend.position = "none")
+    theme(legend.position = "bottom")
 )
 
 ```
@@ -464,6 +491,7 @@ ggplot(calanus.by.depth, aes(x = YEAR_STATION, y = total_abundance_m2,
         axis.text.x = element_text(angle = 90))
 
 # TODO Get biomass instead
+
 
 # Species composition of nets by region
 # Calculate net integrated abundance and biomass
@@ -573,6 +601,11 @@ ggplot(AA, aes(x = `Cgla CIV-F`, y = `Chyp CIV-F`)) +
   scale_color_viridis_c(option = "plasma")
 
 ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, y = relative_abundance)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~TAXON_ID, nrow = 1)
+
+ggplot(species.comp.station, aes(x = LATITUDE, y = relative_abundance)) +
   geom_point() +
   geom_smooth() +
   facet_wrap(~TAXON_ID, nrow = 1)

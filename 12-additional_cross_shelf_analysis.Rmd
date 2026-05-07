@@ -585,7 +585,8 @@ species.comp.station <- calanus.by.depth %>%
   mutate(assem_biomass_mgC_m2 = sum(total_biomass_mgC_m2)) %>% 
   ungroup() %>% 
   mutate(relative_abundance = total_abundance_m2/assem_abundance_m2*100) %>% 
-  mutate(relative_biomass = total_biomass_mgC_m2/assem_biomass_mgC_m2*100) %>% 
+  mutate(relative_biomass = total_biomass_mgC_m2/assem_biomass_mgC_m2*100) %>%
+  mutate(total_biomass_gC_m2 = total_biomass_mgC_m2 / 1000) %>% 
   left_join(uvp_net_match %>% 
               distinct(STATION_NAME, DEPLOYMENT_DATE_START,
                        LATITUDE, LONGITUDE, reg.inuk),
@@ -602,7 +603,7 @@ ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_abundance_m2,
   theme(axis.title.y = element_blank(),
         axis.text.x = element_text(angle = 90))
 
-ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_biomass_mgC_m2,
+ggplot(species.comp.station, aes(x = YEAR_STATION, y = total_biomass_gC_m2,
                                 fill = TAXON_ID)) +
   geom_bar(stat = "identity", position = "fill", color = "black") +
   scale_y_continuous(breaks = c(0,0.25,0.5,0.75,1), 
@@ -658,7 +659,7 @@ basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
   ggspatial::geom_spatial_point(data = species.comp.station,
                                 aes(x = LONGITUDE, y = LATITUDE,
                                     fill = relative_biomass, 
-                                    size = total_biomass_mgC_m2/1000),
+                                    size = total_biomass_gC_m2),
                                 color = "black", shape = 21,
                                 alpha = 0.8) +
   scale_size_continuous(name = expression(Biomass~(g~C~m^{-2})),
@@ -676,7 +677,7 @@ basemap("ArcticStereographic", bathymetry = F, glaciers = FALSE,
     fill = guide_colorbar(title.position = "top")) +
   facet_wrap(~TAXON_ID, nrow = 1)
 
-ggsave("figures/Net_calanus_distribution.png", width = 10, height = 5,
+ggsave("figures/Net_calanus_distribution.png", width = 10, height = 6,
        units = "in", bg = "white")
 ```
 
@@ -697,53 +698,59 @@ ggplot(AA, aes(x = `Calanus glacialis CIV-F`, y = `Calanus hyperboreus CIV-F`)) 
   scale_fill_gradient(name = "Bottom depth\n(m)",
   low = "white",high = "black")
 
-ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, y = relative_biomass)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~TAXON_ID, nrow = 1)
-
-ggplot(species.comp.station, aes(x = LATITUDE, y = relative_biomass)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~TAXON_ID, nrow = 1)
-
-
-
-ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, 
-                                 y = total_biomass_mgC_m2/1000)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
+p1 <- ggplot(species.comp.station, aes(x = BOTTOM_DEPTH, 
+                                 y = total_biomass_gC_m2)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
   xlab("Bottom depth (m)") +
   ylab(expression(Biomass~(g~C~m^{-2}))) +
-  scale_x_log10(labels = scales::label_number(),
-    minor_breaks = scales::minor_breaks_log()) +
+  scale_color_manual(values = clrs, guide = F) +
+  # scale_x_log10(labels = scales::label_number(),
+  #   minor_breaks = scales::minor_breaks_log()) +
   scale_y_log10(labels = scales::label_number(accuracy = 0.001,
                                               trim = TRUE, 
                                               drop0trailing = TRUE),
                 minor_breaks = scales::minor_breaks_log())+
   facet_wrap(~TAXON_ID, nrow = 1) +
   theme(
-    panel.grid.minor.y = element_line(color = "grey80"),
+    panel.grid.minor.y = element_line(color = "grey90"),
     strip.background = element_blank(),
     strip.text = element_text(size = 12))
 
 
 
-ggplot(species.comp.station, aes(x = LATITUDE, 
-                                 y = total_biomass_mgC_m2/1000)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
+p2 <- ggplot(species.comp.station, aes(x = LATITUDE, 
+                                 y = total_biomass_gC_m2)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
   xlab("Latitude") +
   ylab(expression(Biomass~(g~C~m^{-2}))) +
+  scale_color_manual(values = clrs, guide = F) +
   scale_y_log10(labels = scales::label_number(accuracy = 0.001,
                                               trim = TRUE, 
                                               drop0trailing = TRUE),
                 minor_breaks = scales::minor_breaks_log())+
   facet_wrap(~TAXON_ID, nrow = 1) +
   theme(
-    panel.grid.minor.y = element_line(color = "grey80"),
+    panel.grid.minor.y = element_line(color = "grey90"),
     strip.background = element_blank(),
     strip.text = element_text(size = 12))
+
+cowplot::plot_grid(p1,p2, ncol=1, labels = "auto")
+
+
+ggsave("figures/Net_calanus_biomass_variation.png", width = 10, height = 6,
+       units = "in", bg = "white")
+
+mod.results <- species.comp.station %>%
+  group_by(TAXON_ID) %>%
+  do(
+    broom::tidy(lm(log10(total_biomass_gC_m2) ~ LATITUDE + BOTTOM_DEPTH, data = .))
+  ) %>%
+  ungroup() %>% 
+  filter(p.value < 0.05)
+
+
 ```
 
 

@@ -55,9 +55,9 @@ species.comp.region <- calanus %>%
             n = n(),
             .groups = "drop") %>% 
   mutate(TAXON_ID = case_match(TAXON_ID,
-                               "Calanus finmarchicus" ~ "Cfin CV-F",
-                               "Calanus glacialis" ~ "Cgla CIV-F",
-                               "Calanus hyperboreus" ~ "Chyp CIV-F"))
+                               "Calanus finmarchicus" ~ "C.fin CV-F",
+                               "Calanus glacialis" ~ "C.gla CIV-F",
+                               "Calanus hyperboreus" ~ "C.hyp CIV-F"))
   # mutate(TAXON_ID = case_match(TAXON_ID,
   #                              "Calanus finmarchicus" ~ "C. finmarchicus CV-F",
   #                              "Calanus glacialis" ~ "C. glacialis CIV-F",
@@ -82,7 +82,6 @@ ggplot(species.comp.region, aes(x = reg.inuk, y = mean_total_abund_m2,
 # Compare net and uvp abundances
 ```{r}
 comp_uvp_net <- df.profile %>% 
-  filter(taxa == "Calanus") %>%
   
   # # If all large copepods
   # group_by(station_year, 
@@ -180,7 +179,7 @@ reg.model
 
 save(comp_uvp_net, species.comp.region, 
      reg.model, line_df, b0, b1,
-     file = "data/comparison_net_uvp_abundance_20260321.RData")
+     file = "data/comparison_net_uvp_abundance_20260508.RData")
 
 ```
 

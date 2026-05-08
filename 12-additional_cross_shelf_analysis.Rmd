@@ -30,8 +30,9 @@ load("data/comparison_net_uvp_abundance_20260321.RData")
 load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
 
 
-clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
-          "blue1","purple2","deeppink1")
+# clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+#           "blue1","purple2","deeppink1")
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 `%notin%` <- Negate(`%in%`)
 theme_set(theme_bw() +
             theme(text = element_text(size=16)))
@@ -224,10 +225,10 @@ p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
   scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
   xlab("Latitude") + 
   ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) +
-  scale_color_manual(values = clrs, name = "Region") +
+  scale_color_manual(values = clrs, name = "Subregion") +
   theme(legend.position = c(0.98, 0.98),
         legend.justification = c(1, 1),
-        legend.background = element_rect(fill = "white", color = "black"))
+        legend.background = element_rect(fill = "white", color = "gray50"))
 
 p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   geom_ribbon( data = newdat,
@@ -247,7 +248,7 @@ p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
                          option = "plasma") +
   theme(legend.position = c(0.98, 0.98),
         legend.justification = c(1, 1),
-        legend.background = element_rect(fill = "white",color = "black"))
+        legend.background = element_rect(fill = "white",color = "gray50"))
 
 p3 <- ggplot(df.profile.lpc, aes(x = DOY, y = total_gC_flux_m2)) +
   geom_smooth(method = "lm", color = "black") +
@@ -267,7 +268,7 @@ p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
     color = "black",
     linewidth = 1) +
   scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
-  scale_color_manual(values = clrs, name = "Region") +
+  scale_color_manual(values = clrs, name = "Subregion") +
   geom_point(aes(color = reg.inuk)) +
   xlab("Latitude") + 
   ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
@@ -292,7 +293,7 @@ p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
   ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
   theme(legend.position = c(0.98, 0.98),
         legend.justification = c(1, 1),
-        legend.background = element_rect(fill = "white", color = "black"))
+        legend.background = element_rect(fill = "white", color = "gray50"))
 
 p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_gC_m2_yr)) +
   geom_smooth(method = "lm", color = "black") +
@@ -305,7 +306,7 @@ cowplot::plot_grid(p1,p2,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
-ggsave("figures/Supp_LPC_POC_GAM_fits_v2.png", width = 14, height = 10,
+ggsave("figures/Supp_LPC_POC_GAM_fits_2060508.png", width = 14, height = 10,
        units = "in", bg = "white")
 ```
 

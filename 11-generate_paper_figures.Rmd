@@ -125,41 +125,7 @@ ggplot(prosome.lit,
     legend.justification = c(1, 0),
     legend.background = element_rect(fill = "white", color = NA)
   )
-```
 
-
-## Figure 2
-```{r}
-df_to_plot <- indiv_traits %>% 
-  filter(taxa == "Calanus") %>% 
-  # Change the data source tag to simply model prediction for the main figure
-  mutate(source = if_else(source %in% c("CNN segmentation", "Random Forest"),
-                          "Model prediction", source)) %>% 
-  mutate(source = factor(source, levels = c("Model prediction","Manual segmentation")))
-  
-# For Fig 2c, calculate values if no interindividual variability 
-# Assume median in situ temperature and lipid fullness
-median_temp <- median(df_to_plot$temperature_kelvin, na.rm = T) #-273.15 = -0.13
-median_fullness <- median(df_to_plot$lipid_fullness, na.rm = T)/100
-bb <- 2.27# Metabolic constant (x 10-7)
-eV <- 0.6 # Activation energy
-no_traitvar <- indiv_traits %>% 
-  filter(taxa == "Calanus") %>% 
-  distinct(prosome_total_mgC,
-           orig_respirationRate_ugCday = respirationRate_ugCday) %>% 
-  mutate(new_mass_ugC = prosome_total_mgC * 1000 * (1-median_fullness),
-         waxester_mass_mgC = prosome_total_mgC * median_fullness,
-         waxester_mass_ugC = waxester_mass_mgC * 1000) %>% 
-  
-  mutate(respirationRate_ugCday = 
-           (bb*10^-7 ) * (new_mass_ugC^0.75) * 
-           exp(eV * (median_temp-273)/ 
-                 ((8.62*10^-5)*median_temp*273)) * 86400) %>%
-  mutate(diapauseDuration_day = 
-           (0.8*waxester_mass_ugC)/(respirationRate_ugCday)) 
-
-# # only include the samples in the final analysis?
-#   filter(sample_id %notin% excluded_profiles$sample_id)
 
 clrs <- c("hotpink","deepskyblue")
 
@@ -203,6 +169,47 @@ g2 <- ggplot(prosome.lit,
         legend.position = "bottom",
         legend.background = element_rect(fill = "white", color = NA))
 
+
+plot_grid(g1,g2, ncol = 1, align = "v", labels = c("a","b"))
+ggsave("figures/FigureS3_20260508.png",
+       width = 8, height = 10, units = "in", bg = "white")
+
+```
+
+
+## Figure 2
+```{r}
+df_to_plot <- indiv_traits %>% 
+  filter(taxa == "Calanus") %>% 
+  # Only include images used in the final analysis?
+  filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
+  # Change the data source tag to simply model prediction for the main figure
+  mutate(source = if_else(source %in% c("CNN segmentation", "Random Forest"),
+                          "Model prediction", source)) %>% 
+  mutate(source = factor(source, levels = c("Model prediction","Manual segmentation"))) %>% 
+  mutate(taxa = "Calanus spp.")
+  
+# For Fig 2c, calculate values if no interindividual variability 
+# Assume median in situ temperature and lipid fullness
+# median_temp <- median(df_to_plot$temperature_kelvin, na.rm = T) #
+median_temp <- 273.15
+median_fullness <- median(df_to_plot$lipid_fullness, na.rm = T)/100
+bb <- 2.27# Metabolic constant (x 10-7)
+eV <- 0.6 # Activation energy
+no_traitvar <- data.frame(prosome_total_mgC = seq(0.1,5.5,0.1)) %>% 
+  
+  mutate(new_mass_ugC = prosome_total_mgC * 1000 * (1-median_fullness),
+         waxester_mass_mgC = prosome_total_mgC * median_fullness,
+         waxester_mass_ugC = waxester_mass_mgC * 1000) %>% 
+  
+  mutate(respirationRate_ugCday = 
+           (bb*10^-7 ) * (new_mass_ugC^0.75) * 
+           exp(eV * (median_temp-273)/ 
+                 ((8.62*10^-5)*median_temp*273)) * 86400) %>%
+  mutate(diapauseDuration_day = 
+           (0.8*waxester_mass_ugC)/(respirationRate_ugCday)) 
+
+
 g3 <- ggplot() +
   geom_point(data = df_to_plot %>%
          mutate(Temperature = temperature_kelvin - 273.15),
@@ -210,16 +217,16 @@ g3 <- ggplot() +
            color = Temperature), alpha = 0.5) +
   
   # if no interindividual variability
-  geom_point(data = no_traitvar,
+  geom_line(data = no_traitvar,
              aes(x = waxester_mass_mgC, y = respirationRate_ugCday),
-             shape = 1, color = "firebrick2") +
+             size = 2, color = "firebrick1") +
   
   scale_x_continuous(limits = c(0, 3.2), expand = c(0,0)) +
   scale_color_viridis_c(name = "(°C)",
                         limits = c(-1.7,5), oob = scales::squish) +
   xlab("Wax ester carbon (mg C)") +
   ylab("Diapause respiration rate (\u03bcg C day⁻¹)")+
-  theme(legend.position = c(0.1, 0.78), # c(0.9, 0.2),
+  theme(legend.position = c(0.1, 0.8), # c(0.9, 0.2),
         legend.background = element_rect(fill = "white", color = "gray50"),
         legend.key = element_blank())
 
@@ -227,15 +234,14 @@ g4 <- ggplot(df_to_plot %>%
                arrange(prosome_length_mm),
        aes(x = lipid_fullness, y = diapauseDuration_day)) +
   geom_point(aes(color = prosome_length_mm), alpha = 0.5) +
-  geom_hline(yintercept = 240, color = "gray50", size = 1, linetype = "dashed") +
+  geom_hline(yintercept = 240, color = "gray20", size = 1, linetype = "dashed") +
   scale_color_viridis_c(option = "inferno", , end = 0.95,
                         name = "Prosome\nlength (mm)") +
   xlab("Lipid fullness (%)")+
   ylab("Potential diapause duration (day)") +
-  theme(legend.position = c(0.15, 0.75),
+  theme(legend.position = c(0.15, 0.8),
         legend.background = element_rect(fill = "white", color = "gray50"),
         legend.key = element_blank())
-  
 
 
 # Add histograms
@@ -245,15 +251,11 @@ g4 <- ggExtra::ggMarginal(g4, type = "histogram", bins = 50,
                     size = 10, fill = "gray")
 
 
-  
-cowplot::plot_grid(
-  plot_grid(g1,g2, ncol = 1, align = "v", labels = c("a","b"),
-            rel_heights = c(1.33,1)),
-  plot_grid(g3,g4, ncol = 1, align = "v", labels = c("c","d")),
-  nrow = 1)
 
-ggsave("figures/Figure2_March_20260508.png",
-       width = 12, height = 10, units = "in", bg = "white")
+plot_grid(g3,g4, ncol = 2, align = "h", labels = c("a","b"))
+
+ggsave("figures/Figure2_March_20260508_v2.png",
+       width = 12, height = 6, units = "in", bg = "white")
 ```
 
 
@@ -403,11 +405,14 @@ biomass_vert_region <- df.station.100m %>%
 biomass_vert_region_to_plot <- biomass_vert_region %>% 
   group_by(reg.inuk) %>% 
   filter(nprofiles >= 3) %>% 
-  ungroup() %>% 
-  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles))
+  arrange(Depth_100m, .by_group = TRUE) %>% 
+  mutate(biomass_mgC_m3_se = biomass_mgC_m3_sd / sqrt(nprofiles),
+         cumulative_biomass_m3 = cumsum(biomass_m3)) %>% 
+  mutate(perc_cumsum = cumulative_biomass_m3/
+           max(cumulative_biomass_m3)*100) %>% 
+  ungroup() 
 
-
-p4 <- ggplot(biomass_vert_region_to_plot,
+ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
                  color = reg.inuk)) +
 
@@ -416,13 +421,9 @@ p4 <- ggplot(biomass_vert_region_to_plot,
                    fill = reg.inuk),
                alpha = 0.15, color = NA) +
   geom_line(alpha = 1) +
-  # geom_errorbar(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
-  #                   ymax = biomass_m3 + biomass_mgC_m3_se),
-  #               alpha = 0.2) +
   geom_point(shape = 16, size = 2) +
+
   
-  # geom_line(aes(y = lipid_m3), linetype = "dashed", alpha = 0.8) +
-  # geom_point(aes(y = lipid_m3), shape = 1, size = 1) +
   geom_bar(aes(y = lipid_m3, fill = reg.inuk),
            color = "white", stat = "identity") +
   
@@ -446,6 +447,153 @@ p4
 #        width = 12, height = 6, units = "in", bg = "white")
 ```
 
+### Alt 3d With cumulative biomass but not nice to visualize
+```{r, eval = FALSE}
+region_max <- biomass_vert_region_to_plot %>% 
+  group_by(reg.inuk) %>% 
+  summarise(max_biomass = max(biomass_m3, na.rm = TRUE),
+            .groups = "drop")
+biomass_vert_region_to_plot <- biomass_vert_region_to_plot %>% 
+  left_join(region_max, by = "reg.inuk") %>% 
+  mutate(
+    cumulative_scaled =
+      perc_cumsum / 100 * max_biomass
+  )
+
+p4 <- ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = biomass_m3,
+                 color = reg.inuk)) +
+
+  geom_ribbon(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
+                  ymax = biomass_m3 + biomass_mgC_m3_se,
+                  fill = reg.inuk),
+              alpha = 0.15, color = NA) +
+
+  geom_line(alpha = 1) +
+  geom_point(shape = 16, size = 2) +
+
+  geom_bar(aes(y = lipid_m3, fill = reg.inuk),
+           color = "white", stat = "identity") +
+
+  # cumulative %
+  geom_line(aes(y = cumulative_scaled),
+            linewidth = 0.5,
+            linetype = "dotted",
+            color = "black") +
+
+  coord_flip() +
+
+  scale_x_reverse(breaks = seq(0,2500,200),
+                  expand = c(0.01,0.01)) +
+
+  scale_y_continuous(
+    expand = c(0.01,0.01),
+    labels = scales::label_number(accuracy = 1),
+
+    sec.axis = sec_axis(
+      ~ . / max_biomass * 100,
+      name = "Cumulative biomass (%)"
+    )
+  ) +
+
+  scale_color_manual(values = unique(clrs),
+                     name = "Region") +
+
+  scale_fill_manual(values = unique(clrs),
+                    name = "Region") +
+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 16)
+  ) +
+
+  xlab("Depth (m)") +
+  ylab("Biomass (mg C m⁻³)") +
+
+  facet_wrap(~reg.inuk,
+             scales = "free_x",
+             nrow = 1)
+
+p4
+```
+
+### Alt 3d With number %biomass
+```{r}
+biomass_pct_depth_bins <- biomass_vert_region_to_plot %>% 
+  mutate(depth_bin = case_when(
+    Depth_100m <= 200 ~ "0_200",
+    Depth_100m > 200 & Depth_100m <= 500 ~ "200_500",
+    Depth_100m > 500 ~ "500_plus"
+  )) %>% 
+  group_by(reg.inuk, depth_bin) %>% 
+  summarise(bin_biomass = sum(biomass_m3, na.rm = TRUE),
+            .groups = "drop") %>% 
+  group_by(reg.inuk) %>% 
+  mutate(pct_total_biomass = bin_biomass / sum(bin_biomass, na.rm = TRUE) * 100) %>% 
+  ungroup() %>% 
+  mutate(
+    label = paste0(round(pct_total_biomass), "%"),
+    Depth_100m = case_when(
+      depth_bin == "0_200" ~ 100,
+      depth_bin == "200_500" ~ 300,
+      depth_bin == "500_plus" ~ 600
+    ),
+    y = Inf
+  )
+
+p4 <- ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = biomass_m3,
+                 color = reg.inuk)) +
+
+  geom_ribbon(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
+                  ymax = biomass_m3 + biomass_mgC_m3_se,
+                  fill = reg.inuk),
+              alpha = 0.15, color = NA) +
+
+  geom_line(alpha = 1) +
+  geom_point(shape = 16, size = 2) +
+
+  geom_bar(aes(y = lipid_m3, fill = reg.inuk),
+           color = "white", stat = "identity") +
+
+ geom_vline(xintercept = c(200, 500),
+           linetype = "dashed",
+           linewidth = 0.4,
+           color = "grey40") +
+  
+  geom_text(data = biomass_pct_depth_bins,
+            aes(x = Depth_100m, y = y, label = label),
+            inherit.aes = FALSE,
+            hjust = 1.05,
+            vjust = 0,
+            size = 4) +
+
+  coord_flip(clip = "off") +
+
+  scale_x_reverse(breaks = seq(0,2500,200),
+                  expand = c(0.01,0.01)) +
+
+  scale_y_continuous(expand = expansion(mult = c(0.01, 0.20)),
+                     labels = scales::label_number(accuracy = 1)) +
+
+  scale_color_manual(values = unique(clrs), name = "Region") +
+  scale_fill_manual(values = unique(clrs), name = "Region") +
+
+  theme(
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text = element_text(size = 16),
+    plot.margin = margin(5.5, 30, 5.5, 5.5)
+  ) +
+
+  xlab("Depth (m)") +
+  ylab("Biomass (mg C m⁻³)") +
+
+  facet_wrap(~reg.inuk, scales = "free_x", nrow = 1)
+
+p4
+```
 
 
 ## Combine all to Fig3
@@ -461,7 +609,7 @@ plot_grid(
   p4, ncol = 1, rel_heights = c(1,1),
             labels = c("a","d"))
 
-ggsave("figures/Fig3_20260508.png", width = 12, height = 14,
+ggsave("figures/Fig3_20260511.png", width = 12, height = 14,
        units = "in", bg = "white")
 ```
 

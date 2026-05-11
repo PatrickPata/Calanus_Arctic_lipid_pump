@@ -29,7 +29,6 @@ load("data/comparison_net_uvp_abundance_20260321.RData")
 # Comparison between POC flux and lipid pump C flux
 load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
 
-
 # clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
 #           "blue1","purple2","deeppink1")
 clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
@@ -104,13 +103,13 @@ ggplot(df.profile, aes(x = bottom_depth_m, y = total_gC_flux_m2,)) +
 ```{r}
 df.profile.lpc <- df.profile %>% 
   left_join(Amund_UVP6_meta %>% 
-  select(station_year, DOY) %>% 
-  distinct(station_year, .keep_all = T)
-)
+              select(station_year, DOY) %>% 
+              distinct(station_year, .keep_all = T) )
 
 # GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
 mod.lpc <- gam(
-  total_gC_flux_m2 ~ s(bottom_depth_m, k = 4) + DOY + Year + s(latitude, k = 4),
+  total_gC_flux_m2 ~ s(bottom_depth_m, k = 4) + s(latitude, k = 4) +
+    DOY + Year,
   data = df.profile.lpc,
   method = "REML"
 )

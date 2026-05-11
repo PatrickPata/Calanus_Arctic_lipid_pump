@@ -89,7 +89,9 @@ theme_set(theme_bw())
 
 load("data/uvp6_images_calculated_traits_20260321.RData")
 load("data/profile_integrated_cflux_20260321.RData")
-load("data/POC_flux_UVP6_confident_20260326.RData")
+load("data/POC_flux_UVP6_confident_20260329.RData")
+
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 
 # Outlier profiles to exclude
 to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
@@ -157,12 +159,113 @@ ggplot() +
   geom_boxplot(data = pocFlux.ave.200, 
                aes(x = reg.inuk, y = poc_mgC_m2_d, color = reg.inuk),
                position = position_nudge(x = -0.2)) +
-  geom_boxplot(data = pocFlux.ave.500, 
-               aes(x = reg.inuk, y = poc_mgC_m2_d),
-               alpha = 0.5, color = "black",
-               position = position_nudge(x = 0.2)) +
-  scale_color_manual(values = unique(region_rename$region.color)) 
+  # geom_boxplot(data = pocFlux.ave.500, 
+  #              aes(x = reg.inuk, y = poc_mgC_m2_d),
+  #              alpha = 0.5, color = "black",
+  #              position = position_nudge(x = 0.2)) +
+  scale_color_manual(values = clrs) +
+  ggtitle("Daily POC flux")
 ```
+
+## TODO plot profiles with depth
+```{r}
+df.meta.depths <- Amund_UVP6_meta %>% 
+  arrange(-maxSampleDepth) %>% 
+  distinct(station_year, .keep_all = T)  %>% 
+  group_by(reg.inuk) %>% 
+  summarise(nprofiles = n(), 
+            mean_bottom = mean(bottom_depth_m),
+            sd_bottom = sd(bottom_depth_m),
+            .groups = "drop") 
+
+region_pocFlux <- pocFlux_station_year %>% 
+  filter(station_year %in% pocFlux.ave.200$station_year) %>%
+  # limit the mean+sd bottom depth
+  left_join(df.meta.depths, by = join_by(reg.inuk)) %>% 
+  filter(Depth_5m <= (mean_bottom + sd_bottom)) %>% 
+  group_by(reg.inuk, Depth_5m) %>% 
+  summarise(daily_poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
+            daily_poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
+            n5mbins = n(),
+            .groups = "drop")
+  
+
+# Separate 2 rows of regions
+upperplot <- c("NarSt","Pikia","TalIm")
+
+g1 <- ggplot() +
+   geom_vline(xintercept = 175, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 225, color = "gray", linetype = "dotted") +
+  geom_line(data = pocFlux_station_year %>% 
+  filter(station_year %in% pocFlux.ave.200$station_year) %>%
+         filter(reg.inuk %in% upperplot), 
+       aes(x = Depth_5m, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.2) +
+  geom_line(data = region_pocFlux %>% 
+         filter(reg.inuk %in% upperplot), 
+       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, group = reg.inuk), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = clrs[1:3], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
+
+g2 <- ggplot() +
+   geom_vline(xintercept = 175, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 225, color = "gray", linetype = "dotted") +
+  geom_line(data = pocFlux_station_year %>% 
+  filter(station_year %in% pocFlux.ave.200$station_year) %>%
+         filter(reg.inuk %notin% upperplot), 
+       aes(x = Depth_5m, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.2) +
+  geom_line(data = region_pocFlux %>% 
+         filter(reg.inuk %notin% upperplot), 
+       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, group = reg.inuk), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("POC flux (mg C m⁻² d⁻¹)") +
+  theme(legend.position = "none", strip.background = element_blank()) +
+  scale_color_manual(values = clrs[4:7], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
+
+cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL, 
+                                      nrow = 1, rel_widths = c(0.5,3,0.5)),
+                   g2,ncol = 1)
+
+ggsave("figures/Supp_region_POC_flux_20260511.png",
+       width = 9, height = 8, units = "in", bg = "white")
+
+# TODO only select profiles used in the LPC vs POC fluxc comparison?
+ggplot() +
+  geom_line(data = region_pocFlux, 
+       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, 
+           group = reg.inuk, color = reg.inuk), 
+       linewidth = 1, alpha = 0.8) +
+  scale_x_reverse(expand = c(0,0), limits = c(0,500)) +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("Nitrate") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = clrs, 
+                     name = "Region") 
+
+
+```
+
 
 ## Prepare comparisons
 ```{r}

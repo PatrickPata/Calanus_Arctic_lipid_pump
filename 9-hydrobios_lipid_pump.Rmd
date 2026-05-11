@@ -266,7 +266,7 @@ tableS8 <- net_lipid_pump_region %>%
 # Net VS UVP LPC flux
 ```{r}
 # Load the UVP6-based results
-load("data/profile_integrated_cflux_20260331.RData")
+load("data/profile_integrated_cflux_20260505.RData")
 
 comp_uvp_net <- df.profile %>% 
   filter(station_year %in% uvp_net_match$station_year) %>% 
@@ -371,18 +371,43 @@ ggplot() +
   
   scale_x_log10() + 
   scale_y_log10() + 
-  scale_color_manual(values = c("firebrick2","sienna1","goldenrod2","forestgreen",
-          "blue1","purple2"),
-                     name = "Region") +
+  scale_color_manual(values = c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2"),
+                     name = "Subregion") +
   coord_fixed(ratio = 1) +
   xlab("UVP6 LPC flux (g C m⁻² y⁻¹)") + 
   ylab("Net LPC flux (g C m⁻² y⁻¹)") +
   theme(legend.position = "right") 
 
-ggsave("figures/SuppFig3_LPC_flux_net_uvp_comparison.png",
+ggsave("figures/SuppFig3_LPC_flux_net_uvp_comparison_20260508.png",
        width = 6, height = 6, units = "in", bg = "white")
 
 ```
 
+# Per subregion: are LPC fluxes based on UVP6 and nets significantly different?
+```{r}
+AA <- comp_uvp_net %>% 
+  select(region.inuk, uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2) %>% 
+  group_by(region.inuk) %>%
+  summarise(
+    n_pairs = n(),
+    median_FluxA = median(uvp_LPC_flux_gC_m2, na.rm = TRUE),
+    median_FluxB = median(net_LPC_flux_gC_m2, na.rm = TRUE),
+    median_diff = median(net_LPC_flux_gC_m2 - uvp_LPC_flux_gC_m2, na.rm = TRUE),
+    
+    wilcox_obj = list(wilcox.test(uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2, 
+                                  paired = TRUE)),
+    
+    V = wilcox_obj[[1]]$statistic,
+    p_value = wilcox_obj[[1]]$p.value,
+    
+    .groups = "drop"
+  ) %>% 
+  select(-wilcox_obj) %>% 
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
+  mutate(is_sig = if_else(p_adj < 0.05, T, F))
+
+
+
+```
 
 

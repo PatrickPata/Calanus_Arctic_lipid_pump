@@ -25,7 +25,8 @@ load("data/profile_integrated_cflux_20260505.RData")
 load("data/comparison_net_uvp_abundance_20260508.RData")
 
 # Comparison between POC flux and lipid pump C flux
-load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+# load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+load("data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
 
 
 `%notin%` <- Negate(`%in%`)
@@ -412,7 +413,7 @@ biomass_vert_region_to_plot <- biomass_vert_region %>%
            max(cumulative_biomass_m3)*100) %>% 
   ungroup() 
 
-ggplot(biomass_vert_region_to_plot,
+p4 <- ggplot(biomass_vert_region_to_plot,
              aes(x = Depth_100m, y = biomass_m3,
                  color = reg.inuk)) +
 
@@ -446,155 +447,6 @@ p4
 # ggsave("figures/Vertical_biomass_se_v2.png",
 #        width = 12, height = 6, units = "in", bg = "white")
 ```
-
-### Alt 3d With cumulative biomass but not nice to visualize
-```{r, eval = FALSE}
-region_max <- biomass_vert_region_to_plot %>% 
-  group_by(reg.inuk) %>% 
-  summarise(max_biomass = max(biomass_m3, na.rm = TRUE),
-            .groups = "drop")
-biomass_vert_region_to_plot <- biomass_vert_region_to_plot %>% 
-  left_join(region_max, by = "reg.inuk") %>% 
-  mutate(
-    cumulative_scaled =
-      perc_cumsum / 100 * max_biomass
-  )
-
-p4 <- ggplot(biomass_vert_region_to_plot,
-             aes(x = Depth_100m, y = biomass_m3,
-                 color = reg.inuk)) +
-
-  geom_ribbon(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
-                  ymax = biomass_m3 + biomass_mgC_m3_se,
-                  fill = reg.inuk),
-              alpha = 0.15, color = NA) +
-
-  geom_line(alpha = 1) +
-  geom_point(shape = 16, size = 2) +
-
-  geom_bar(aes(y = lipid_m3, fill = reg.inuk),
-           color = "white", stat = "identity") +
-
-  # cumulative %
-  geom_line(aes(y = cumulative_scaled),
-            linewidth = 0.5,
-            linetype = "dotted",
-            color = "black") +
-
-  coord_flip() +
-
-  scale_x_reverse(breaks = seq(0,2500,200),
-                  expand = c(0.01,0.01)) +
-
-  scale_y_continuous(
-    expand = c(0.01,0.01),
-    labels = scales::label_number(accuracy = 1),
-
-    sec.axis = sec_axis(
-      ~ . / max_biomass * 100,
-      name = "Cumulative biomass (%)"
-    )
-  ) +
-
-  scale_color_manual(values = unique(clrs),
-                     name = "Region") +
-
-  scale_fill_manual(values = unique(clrs),
-                    name = "Region") +
-
-  theme(
-    legend.position = "none",
-    strip.background = element_blank(),
-    strip.text = element_text(size = 16)
-  ) +
-
-  xlab("Depth (m)") +
-  ylab("Biomass (mg C m⁻³)") +
-
-  facet_wrap(~reg.inuk,
-             scales = "free_x",
-             nrow = 1)
-
-p4
-```
-
-### Alt 3d With number %biomass
-```{r}
-biomass_pct_depth_bins <- biomass_vert_region_to_plot %>% 
-  mutate(depth_bin = case_when(
-    Depth_100m <= 200 ~ "0_200",
-    Depth_100m > 200 & Depth_100m <= 500 ~ "200_500",
-    Depth_100m > 500 ~ "500_plus"
-  )) %>% 
-  group_by(reg.inuk, depth_bin) %>% 
-  summarise(bin_biomass = sum(biomass_m3, na.rm = TRUE),
-            .groups = "drop") %>% 
-  group_by(reg.inuk) %>% 
-  mutate(pct_total_biomass = bin_biomass / sum(bin_biomass, na.rm = TRUE) * 100) %>% 
-  ungroup() %>% 
-  mutate(
-    label = paste0(round(pct_total_biomass), "%"),
-    Depth_100m = case_when(
-      depth_bin == "0_200" ~ 100,
-      depth_bin == "200_500" ~ 300,
-      depth_bin == "500_plus" ~ 600
-    ),
-    y = Inf
-  )
-
-p4 <- ggplot(biomass_vert_region_to_plot,
-             aes(x = Depth_100m, y = biomass_m3,
-                 color = reg.inuk)) +
-
-  geom_ribbon(aes(ymin = biomass_m3 - biomass_mgC_m3_se,
-                  ymax = biomass_m3 + biomass_mgC_m3_se,
-                  fill = reg.inuk),
-              alpha = 0.15, color = NA) +
-
-  geom_line(alpha = 1) +
-  geom_point(shape = 16, size = 2) +
-
-  geom_bar(aes(y = lipid_m3, fill = reg.inuk),
-           color = "white", stat = "identity") +
-
- geom_vline(xintercept = c(200, 500),
-           linetype = "dashed",
-           linewidth = 0.4,
-           color = "grey40") +
-  
-  geom_text(data = biomass_pct_depth_bins,
-            aes(x = Depth_100m, y = y, label = label),
-            inherit.aes = FALSE,
-            hjust = 1.05,
-            vjust = 0,
-            size = 4) +
-
-  coord_flip(clip = "off") +
-
-  scale_x_reverse(breaks = seq(0,2500,200),
-                  expand = c(0.01,0.01)) +
-
-  scale_y_continuous(expand = expansion(mult = c(0.01, 0.20)),
-                     labels = scales::label_number(accuracy = 1)) +
-
-  scale_color_manual(values = unique(clrs), name = "Region") +
-  scale_fill_manual(values = unique(clrs), name = "Region") +
-
-  theme(
-    legend.position = "none",
-    strip.background = element_blank(),
-    strip.text = element_text(size = 16),
-    plot.margin = margin(5.5, 30, 5.5, 5.5)
-  ) +
-
-  xlab("Depth (m)") +
-  ylab("Biomass (mg C m⁻³)") +
-
-  facet_wrap(~reg.inuk, scales = "free_x", nrow = 1)
-
-p4
-```
-
 
 ## Combine all to Fig3
 ```{r}
@@ -692,16 +544,22 @@ clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F67
 np1 <- ggplot(df.profile,
        aes(y = reg.inuk)) +
   geom_violin(aes(x = total_gC_flux_m2, fill = reg.inuk),
-              scale = "width", color = "white", alpha = 0.4) +
+              scale = "width", color = "white", alpha = 0.6) +
   
-  geom_boxplot(aes(x = total_gC_flux_m2, fill = reg.inuk),
-              color = "gray30", alpha = 0.6, width = 0.2) +
+  # geom_boxplot(aes(x = total_gC_flux_m2, fill = reg.inuk),
+  #             color = "gray30", alpha = 0.6, width = 0.2) +
+  # geom_linerange(data = df_to_plot,
+  #                aes(x = total_gC_flux_m2_mean,
+  #                    ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
+  #                color = "black", linewidth = 1) +
   
- # MEAN (solid blue vertical line)
+  geom_point(data = df_to_plot,
+                 aes(x = total_gC_flux_m2_mean),
+              color = "black", alpha = 1, size = 3) +
   geom_linerange(data = df_to_plot,
-                 aes(x = total_gC_flux_m2_mean,
-                     ymin = after_stat(y) - 0.3, ymax = after_stat(y) + 0.3),
-                 color = "black", linewidth = 1) +
+                 aes(xmin = total_gC_flux_m2_mean - total_gC_flux_m2_sd, 
+                     xmax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
+                 color = "black", linewidth = 0.7) +
   
   
   scale_color_manual(values = unique(clrs)) +
@@ -735,7 +593,7 @@ np2 <- ggplot(df.region.long,
                      guide = "none") +
   ggpattern::scale_pattern_manual(values = c("circle","stripe","none")) +
   
-  scale_y_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 4.3)) +
   scale_x_discrete(limits = rev) +
   theme(legend.position = "bottom",
         legend.text = element_text(size = 12),
@@ -840,7 +698,7 @@ plot_grid(
   np3, nrow = 1, labels = c("","c"))
 
 # 
-ggsave("figures/Fig4_20260508.png", width = 12, height = 7.5,
+ggsave("figures/Fig4_20260513.png", width = 12, height = 7.5,
        units = "in", bg = "white")
 ```
 

@@ -122,10 +122,10 @@ pocFlux_station_year <- pocFlux_UVP6 %>%
   # Exclude depth bins 50 m  above the bottom depth (Barth and Stone 2022)
   filter(Depth_5m <= bottom_depth_m-50)
 
-# Calculate POC flux at 200 m (+- 25m)
+# Calculate POC flux at 200 m (+- 10m)
 pocFlux.ave.200 <- pocFlux_station_year %>% 
   filter(station_year %notin% to_exclude_200) %>% 
-  filter(Depth_5m >= 175 & Depth_5m < 225) %>% 
+  filter(Depth_5m >= 190 & Depth_5m < 210) %>% 
   # calculate the total flux per profile
   group_by(station_year, bottom_depth_m, reg.inuk) %>% 
   summarise(n5mbins = n(),
@@ -138,10 +138,28 @@ pocFlux.ave.200 <- pocFlux_station_year %>%
   # Nares strait has shorter productive period (June-September)
   mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
 
-# Calculate POC flux at 500 m (+- 25m)
+
+# Calculate POC flux at 100 m (+- 10m)
+pocFlux.ave.100 <- pocFlux_station_year %>% 
+  filter(station_year %notin% to_exclude_200) %>% 
+  filter(Depth_5m >= 90 & Depth_5m < 110) %>% 
+  # calculate the total flux per profile
+  group_by(station_year, bottom_depth_m, reg.inuk) %>% 
+  summarise(n5mbins = n(),
+            poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
+            poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
+            .groups = "drop") %>% 
+  # Estimate the annual flux (winter:summer conversion factor of 0.25)
+  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000) %>% 
+  
+  # Nares strait has shorter productive period (June-September)
+  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
+
+
+# Calculate POC flux at 500 m (+- 10m)
 pocFlux.ave.500 <- pocFlux_station_year %>% 
   filter(station_year %notin% to_exclude_500) %>% 
-  filter(Depth_5m >= 475 & Depth_5m < 525) %>% 
+  filter(Depth_5m >= 490 & Depth_5m < 510) %>% 
   # calculate the total flux per profile
   group_by(station_year, bottom_depth_m, reg.inuk) %>% 
   summarise(n5mbins = n(),
@@ -159,16 +177,16 @@ ggplot() +
   geom_boxplot(data = pocFlux.ave.200, 
                aes(x = reg.inuk, y = poc_mgC_m2_d, color = reg.inuk),
                position = position_nudge(x = -0.2)) +
-  # geom_boxplot(data = pocFlux.ave.500, 
-  #              aes(x = reg.inuk, y = poc_mgC_m2_d),
-  #              alpha = 0.5, color = "black",
-  #              position = position_nudge(x = 0.2)) +
+  geom_boxplot(data = pocFlux.ave.100,
+               aes(x = reg.inuk, y = poc_mgC_m2_d),
+               alpha = 0.2, 
+               position = position_nudge(x = 0.2)) +
   scale_color_manual(values = clrs) +
   ggtitle("Daily POC flux")
 ```
 
-## TODO plot profiles with depth
-```{r}
+## Plot profiles with depth
+```{r, eval = FALSE}
 df.meta.depths <- Amund_UVP6_meta %>% 
   arrange(-maxSampleDepth) %>% 
   distinct(station_year, .keep_all = T)  %>% 
@@ -194,8 +212,9 @@ region_pocFlux <- pocFlux_station_year %>%
 upperplot <- c("NarSt","Pikia","TalIm")
 
 g1 <- ggplot() +
-   geom_vline(xintercept = 175, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 225, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
   geom_line(data = pocFlux_station_year %>% 
   filter(station_year %in% pocFlux.ave.200$station_year) %>%
          filter(reg.inuk %in% upperplot), 
@@ -218,8 +237,9 @@ g1 <- ggplot() +
   facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
 
 g2 <- ggplot() +
-   geom_vline(xintercept = 175, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 225, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
   geom_line(data = pocFlux_station_year %>% 
   filter(station_year %in% pocFlux.ave.200$station_year) %>%
          filter(reg.inuk %notin% upperplot), 
@@ -244,7 +264,7 @@ cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL,
                                       nrow = 1, rel_widths = c(0.5,3,0.5)),
                    g2,ncol = 1)
 
-ggsave("figures/Supp_region_POC_flux_20260511.png",
+ggsave("figures/Supp_region_POC_flux_20260513.png",
        width = 9, height = 8, units = "in", bg = "white")
 
 # TODO only select profiles used in the LPC vs POC fluxc comparison?
@@ -289,6 +309,16 @@ pocFlux.region.500 <- pocFlux.ave.500 %>%
             poc_mgC_m2_d_sd = sd(poc_mgC_m2_d, na.rm = T),
             n = n(), .groups = "drop")
 
+pocFlux.region.100 <- pocFlux.ave.100 %>% 
+  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
+                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
+  group_by(reg.inuk) %>% 
+  summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
+            poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
+            poc_mgC_m2_d_mean = mean(poc_mgC_m2_d, na.rm = T),
+            poc_mgC_m2_d_sd = sd(poc_mgC_m2_d, na.rm = T),
+            n = n(), .groups = "drop")
+
 # Pairwise matching of POC flux and lipid flux
 lipid.Cflux.profile.200 <- df.profile %>% 
   filter(station_year %in% pocFlux.ave.200$station_year) %>% 
@@ -323,17 +353,38 @@ lipid.Cflux.region.500 <- lipid.Cflux.profile.500 %>%
             n = n(), .groups = "drop")
 
 
+lipid.Cflux.profile.100 <- df.profile %>% 
+  filter(station_year %in% pocFlux.ave.100$station_year) %>% 
+  filter(taxa == "Calanus") %>% 
+  rename(lipid_gC_m2_yr = total_gC_flux_m2) %>% 
+  select(reg.inuk, station_year, lipid_gC_m2_yr) %>% 
+  # calculate daily flux
+  mutate(lipid_mgC_m2_d = lipid_gC_m2_yr/365 * 1000) 
+  
+lipid.Cflux.region.100 <- lipid.Cflux.profile.100 %>% 
+  group_by(reg.inuk) %>% 
+  summarise(lipid_gC_m2_yr_mean = mean(lipid_gC_m2_yr, na.rm = T),
+            lipid_gC_m2_yr_sd = sd(lipid_gC_m2_yr, na.rm = T),
+            lipid_mgC_m2_d_mean = mean(lipid_mgC_m2_d, na.rm = T),
+            lipid_mgC_m2_d_sd = sd(lipid_mgC_m2_d, na.rm = T),
+            n = n(), .groups = "drop")
+
 ```
 
 ## Compare POC flux and lipid pump carbon flux
 Compare for both daily and annual flux, at 200 m and 500 m
 ```{r}
 # Combine for comparisons
+flux.comp.100 <- left_join(lipid.Cflux.region.100, pocFlux.region.100,
+                           by = join_by(reg.inuk, n))
 flux.comp.200 <- left_join(lipid.Cflux.region.200, pocFlux.region.200,
                            by = join_by(reg.inuk, n))
 flux.comp.500 <- left_join(lipid.Cflux.region.500, pocFlux.region.500,
                            by = join_by(reg.inuk, n))
 
+flux.com.profiles.100 <- left_join(lipid.Cflux.profile.100,
+                                   pocFlux.ave.100,
+                                   by = join_by(reg.inuk, station_year))
 flux.com.profiles.200 <- left_join(lipid.Cflux.profile.200,
                                    pocFlux.ave.200,
                                    by = join_by(reg.inuk, station_year))
@@ -369,20 +420,31 @@ ggplot(flux.comp.200,
                      name = "Region", guide = "none")  +
   
   xlab("Lipid pump (mg C m⁻² d⁻¹)")+
-  ylab("POC flux (mg C m⁻² d⁻¹)")
+  ylab("POC flux (mg C m⁻² d⁻¹)")+
+  ggtitle("Daily flux")
 
 # Maybe do histograms of daily POC flux for UVP6 and the literature values for NOW
 ```
 
 ## Plot figures
+### Prepare data to plot
 ```{r}
 # Legend labels
+flux.comp.100 <- flux.comp.100 %>%
+  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")"))
 flux.comp.200 <- flux.comp.200 %>%
   mutate(region_label = paste0(reg.inuk, "\n(n=", n,")"))
 flux.comp.500 <- flux.comp.500 %>%
   mutate(region_label = paste0(reg.inuk, "\n(n=", n,")"))
 
 # Reorder the regions
+label_levels <- flux.comp.100 %>%
+  distinct(reg.inuk, region_label) %>%
+  arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
+  pull(region_label)
+flux.comp.100 <- flux.comp.100 %>%
+  mutate(region_label = factor(region_label, levels = label_levels))
+
 label_levels <- flux.comp.200 %>%
   distinct(reg.inuk, region_label) %>%
   arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
@@ -397,91 +459,28 @@ label_levels <- flux.comp.500 %>%
 flux.comp.500 <- flux.comp.500 %>%
   mutate(region_label = factor(region_label, levels = label_levels))
 
-# Compare annual
-p0 <- ggplot(flux.comp.200, 
-       aes(x = lipid_gC_m2_yr_mean, y = poc_gC_m2_yr_mean,
-           color = region_label)) +
-  geom_abline() +
-  geom_errorbar(aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
-                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd),
-                width = 0, alpha = 0.9) +
-  geom_errorbar(aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
-                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd),
-                width = 0, alpha = 0.9) +
-  geom_point(aes(fill = region_label),
-             shape = 21, alpha = 0.9, size = 6, color ="black") +
-  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 8), ylim = c(0, 12)) +
-  # coord_cartesian(xlim = c(0, 12.5), ylim = c(0, 12)) +
-  
-  scale_fill_manual(values = unique(region_rename$region.color),
-                     name = "Region")  +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region", guide = "none")  +
-  
-  xlab("Lipid pump (g C m⁻² y⁻¹)")+
-  ylab("POC flux (g C m⁻² y⁻¹)") 
 
-
-p1 <- ggplot(flux.comp.500, 
-       aes(x = lipid_gC_m2_yr_mean, y = poc_gC_m2_yr_mean,
-           color = region_label)) +
-  geom_abline() +
-  geom_errorbar(aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
-                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd),
-                width = 0, alpha = 0.9) +
-  geom_errorbar(aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
-                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd),
-                width = 0, alpha = 0.9) +
-  geom_point(aes(fill = region_label),
-             shape = 21, alpha = 0.9, size = 6, color ="black") +
-  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 12.5), ylim = c(0, 12)) +
-  
-  scale_fill_manual(values = unique(region_rename$region.color),
-                     name = "Region")  +
-  scale_color_manual(values = unique(region_rename$region.color),
-                     name = "Region", guide = "none")  +
-  
-  
-  xlab("Lipid pump (g C m⁻² y⁻¹)")+
-  ylab("POC flux (g C m⁻² y⁻¹)") 
-
-
-
-p2 <- ggplot(data = sed.trap.NOW %>% 
-               mutate(Depth_m = paste(Depth_m,"m")),
-             aes(x = 0, y = Annual_Flux)) +
-  geom_boxplot(data = sed.trap.NOW,
-               aes(x = 1, y = Annual_Flux), 
-               inherit.aes = FALSE,
-               color = "deeppink1",  width = 0.5) +
-  geom_point(shape = 18, size = 2, color = "deeppink1") +
-  ggrepel::geom_text_repel(aes(label = Depth_m), 
-            hjust = -0.2, size = 3) +
-  ylab(NULL) +
-  xlab("Sediment\ntrap") +
-  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  coord_cartesian(ylim = c(0, 12)) +
-  theme(axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-    axis.title.x = element_text(margin = margin(t = -10)) )
-
-
-cowplot::plot_grid(p0 + ggtitle("200 m"),
-                   p1 + ggtitle("500 m"),
-                   p2, rel_widths = c(8,10,2), nrow = 1, align = "h")
-```
-
-Combine the 200 m and 500 m flux values in the same figure
-```{r}
 flux.comp.500 <- flux.comp.500 %>% 
                   filter(n > 3) %>% 
                   droplevels()
+
+# Annual Arctic data
+sedTrap.Arctic <- sedTrap %>%
+  filter(!is.na(Annual_Flux)) %>% 
+  mutate(AreaCode = case_match(AreaCode,
+                               "NOW" ~ "Pikia",
+                               "Amundsen" ~ "Amun",
+                               "Laptev" ~ "Lapt",
+                               "Mackenzie" ~ "Mack",
+                               .default = "") ) %>% 
+  mutate(AreaCode = factor(AreaCode,
+                           levels = c("Pikia","Amun",
+                                      "Lapt","Mack")))
+```
+
+### Plot 200 m separate and 100 & 500 combined as supplementary
+```{r}
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 
 # Combine the 200 m and 500 m points, only use the n > 3 for 500 m 
 ggplot() +
@@ -505,13 +504,58 @@ ggplot() +
                  y = poc_gC_m2_yr_mean,
                  fill = region_label),
              shape = 21, alpha = 0.9, size = 4, color ="black") +
-  scale_fill_manual(values = unique(region_rename$region.color),
+  scale_fill_manual(values = clrs,
                     name = "C flux at 200 m",
                     guide = guide_legend(nrow = 1, byrow = TRUE)) + 
-  scale_color_manual(values = unique(region_rename$region.color),
+  scale_color_manual(values = clrs,
                      guide = "none")  +
+  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 8), ylim = c(0, 11)) +
+  theme(legend.position = "bottom",
+        legend.box = "vertical") +
+  xlab("Lipid pump (g C m⁻² y⁻¹)"  )+
+  ylab("POC flux 200 m (g C m⁻² y⁻¹)")
+```
+
+### Sup Fig S7. 100 m & 500 m + literature
+```{r}
+# For 100 m points
+p1 <- ggplot() +
+  geom_abline() +
+  geom_errorbar(data = flux.comp.100,
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_errorbar(data = flux.comp.100,
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_point(data = flux.comp.100,
+             aes(x = lipid_gC_m2_yr_mean,
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 23, alpha = 0.9, size = 4, color ="black") +
+  scale_color_manual(values = clrs,
+                     guide = "none")  +
+  scale_fill_manual(values = clrs,
+                    name = "Subregion",
+                    guide = guide_legend(nrow = 3, byrow = TRUE))  +  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 7), ylim = c(0, 15)) +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.box = "vertical") +
+  xlab(expression(LPC~flux~(g~C~m^{-2}~y^{-1})) )+
+  ylab(expression(POC~flux[100*m]~(g~C~m^{-2}~y^{-1}))) 
   
   # For 500 m points
+p2 <- ggplot() +
+  geom_abline() +
   ggnewscale::new_scale_color() +
   geom_errorbar(data = flux.comp.500,
                 aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
@@ -525,93 +569,342 @@ ggplot() +
                     x = lipid_gC_m2_yr_mean,
                     color = region_label),
                 width = 0, alpha = 0.7) +
-  scale_color_manual(values = c("deeppink1","forestgreen",
-                                "goldenrod2","turquoise3"),
+  scale_color_manual(values = clrs[2:5],
                      guide = "none")  +
-  
+
   ggnewscale::new_scale_fill() +
   geom_point(data = flux.comp.500,
-             aes(x = lipid_gC_m2_yr_mean, 
+             aes(x = lipid_gC_m2_yr_mean,
                  y = poc_gC_m2_yr_mean,
                  fill = region_label),
              shape = 23, alpha = 0.7, size = 4, color ="black",
              name = "C flux at 500 m") +
-  
-  scale_fill_manual(values = c("deeppink1","forestgreen",
-                               "goldenrod2","turquoise3"),
-                    name = "C flux at 500 m",
-                    guide = guide_legend(nrow = 1, byrow = TRUE))  +
+
+  scale_fill_manual(values = clrs[2:5],
+                    name = "Subregion",
+                    guide = guide_legend(nrow = 2, byrow = TRUE))  +
   
   scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
-  coord_cartesian(xlim = c(0, 8), ylim = c(0, 12)) +
+  coord_cartesian(xlim = c(0, 5), ylim = c(0, 15)) +
   
   theme(legend.position = "bottom",
+        legend.title.position = "top",
         legend.box = "vertical") +
-  xlab("Lipid pump (g C m⁻² y⁻¹)"  )+
-  ylab("POC flux (g C m⁻² y⁻¹)") 
+  xlab(expression(LPC~flux~(g~C~m^{-2}~y^{-1})) )+
+  ylab(expression(POC~flux[500*m]~(g~C~m^{-2}~y^{-1}))) 
+
+
+
+p3 <- ggplot(data = sedTrap.Arctic,
+             aes(x = 0, y = Annual_Flux)) +
+  geom_violin(data = sedTrap %>%
+               filter(!is.na(Annual_Flux)),
+               aes(x = 0, y = Annual_Flux),
+               inherit.aes = FALSE,
+               color = "gray50",  width = 0.5) +
+
+  geom_point(aes(shape = AreaCode, fill = Depth_m), 
+             size = 3, alpha = 0.8,
+             position = position_jitter(width = 0.02, height = 0)) +
+  ylab(expression(POC~flux~(g~C~m^{-2}~y^{-1}))) +
+  xlab("Sediment\ntrap") +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_fill_viridis_c(end = 0.9, direction = -1, name = "Depth (m)") +
+  scale_shape_manual(values = c(23,21,22,24), name = "Region",
+                    guide = guide_legend(nrow = 2, byrow = TRUE)) +
+  coord_cartesian(ylim = c(0, 15)) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.title.position = "top",
+        legend.position = "bottom",
+        legend.box = "vertical",
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.title.x = element_text(margin = margin(t = -10)) )
+
+
+cowplot::plot_grid(p3, p1, p2,labels = "auto",
+                   rel_widths = c(3,6,4), nrow = 1, align = "h")
+
+ggsave("figures/figS7_POC_flux_diff_depths_20260513.png",
+       width = 10, height = 6, units = "in", bg = "white")
 ```
 
 # Export comparison results
 ```{r}
-save(flux.comp.200, flux.comp.500, sed.trap.NOW,
-     flux.com.profiles.200, flux.com.profiles.500,
-     file = "data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+save(flux.comp.100, flux.comp.200, flux.comp.500, sed.trap.NOW,
+     flux.com.profiles.100, flux.com.profiles.200, flux.com.profiles.500,
+     file = "data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
+
+# Note these are the profiles not included in the LPC vs POC flux comparison
+AA <- Amund_UVP6_meta %>% 
+  filter(station_year %notin% flux.com.profiles.200$station_year) %>%
+  distinct(station_year, bottom_depth_m)
 ```
 
 
 # Stat tests
-```{r}
-# two-sided Wilcoxon signed rank test
-results.200 <- flux.com.profiles.200 %>%
-  mutate(POC_Flux = poc_gC_m2_yr, LipidC_Flux = lipid_gC_m2_yr) %>% 
-  group_by(reg.inuk) %>%
-  summarise(
-    n_pairs = n(),
-    median_FluxA = median(POC_Flux, na.rm = TRUE),
-    median_FluxB = median(LipidC_Flux, na.rm = TRUE),
-    median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
-    
-    wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
-                                  paired = TRUE)),
-    
-    V = wilcox_obj[[1]]$statistic,
-    p_value = wilcox_obj[[1]]$p.value,
-    
-    .groups = "drop"
-  ) %>% 
-  select(-wilcox_obj) %>% 
-  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
-  mutate(is_sig = if_else(p_adj < 0.05, T, F))
+- Run paired t-test first, if normality violated, used wilcoxon signed rank test
 
-results.200 %>% 
-  arrange(p_adj) %>% 
-  relocate(is_sig, p_adj, median_diff) 
+## Paired t-test + wilxox signed
+```{r}
+# paired t-test + normality check of paired differences
+results.200 <- flux.com.profiles.200 %>%
+  
+  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
+                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
+  ) %>% 
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
+
+
+Table.S9 <- results.200 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
+
+write.csv(Table.S9, file = "tables/Table9_POC_vs_LPC_flux.csv")
+```
+
+## similar test for 100 m and 500 m
+```{r}
+results.100 <- flux.com.profiles.100 %>%
+  
+  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
+                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
+  ) %>% 
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
+
+
+Table.S9.100 <- results.100 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
 
 results.500 <- flux.com.profiles.500 %>%
-  mutate(POC_Flux = poc_gC_m2_yr, LipidC_Flux = lipid_gC_m2_yr) %>% 
-  group_by(reg.inuk) %>%
-  summarise(
-    n_pairs = n(),
-    median_FluxA = median(POC_Flux, na.rm = TRUE),
-    median_FluxB = median(LipidC_Flux, na.rm = TRUE),
-    median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
-    
-    wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
-                                  paired = TRUE)),
-    
-    V = wilcox_obj[[1]]$statistic,
-    p_value = wilcox_obj[[1]]$p.value,
-    
-    .groups = "drop"
+  
+  # Exclude regions with low sample sizes
+  filter(reg.inuk %notin% c("NarSt","QikSh","NunSh")) %>% 
+  
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
   ) %>% 
-  select(-wilcox_obj) %>% 
-  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
-  mutate(is_sig = if_else(p_adj < 0.05, T, F))
+  
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
 
-results.500 %>% 
-  arrange(p_adj) %>% 
-  relocate(is_sig, p_adj, median_diff) 
+
+Table.S9.500 <- results.500 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
 ```
 
 

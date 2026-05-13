@@ -228,16 +228,32 @@ net_lipid_pump <- net_traits %>%
   left_join(region_rename, by = join_by(reg.inuk))
 
 
+# Percent of biomass below 200 m 
+df.net.200m <- net_traits %>% 
+  mutate(biomass_gC_m2 = abundance_m2 * total_carbon_mgC  / 1000) %>% 
+  filter(MIN_SAMPLE_DEPTH >= 200) %>% 
+  group_by(station_year) %>% 
+  summarise(total_200m_biomass_gC_m2 = sum(biomass_gC_m2, na.rm = T),
+           .groups = "drop") %>% 
+  full_join(net_lipid_pump %>% 
+              select(station_year, region.inuk, biomass_gC_m2)) %>% 
+  mutate(total_200m_biomass_gC_m2 = coalesce(total_200m_biomass_gC_m2, 
+                                             0)) %>% 
+  mutate(perc_biomass_200m = total_200m_biomass_gC_m2/
+           biomass_gC_m2*100) 
+
+
 # Step 4. Calculate regional averages
 net_lipid_pump_region <- net_lipid_pump %>% 
-  group_by(region.inuktitut, region.inuk,) %>% 
+  left_join(df.net.200m %>% 
+              select(station_year, perc_biomass_200m), 
+            by = "station_year") %>% 
+  group_by(region.inuktitut, region.inuk) %>% 
   summarise(n = n(),
-            across(abundance_m2:frac_waxe_total,
+            across(c(abundance_m2:frac_waxe_total,perc_biomass_200m),
               list(mean = mean, sd = sd, median = median),
               na.rm = TRUE),
             .groups = "drop")
-
-
 
 
 # Format csv for Table 3: Regional averages
@@ -253,11 +269,13 @@ tableS8 <- net_lipid_pump_region %>%
          perc_structural = sprintf("%.0f ± %.0f",frac_strut_total_mean*100, 
                                  frac_strut_total_sd*100),
          perc_waxester = sprintf("%.0f ± %.0f",frac_waxe_total_mean*100, 
-                                 frac_waxe_total_sd*100)) %>%
+                                 frac_waxe_total_sd*100),
+         perc_biomass_200m = sprintf("%.0f ± %.0f", perc_biomass_200m_mean,
+                                     perc_biomass_200m_sd)) %>%
   select(region.inuktitut, n,
          abundance_m2, biomass_gC_m2, waxester_gC_m2, 
          total_gC_flux_m2, total_gC_flux_m2_median, perc_C_flux, perc_respired,
-         perc_structural, perc_waxester)
+         perc_structural, perc_waxester, perc_biomass_200m)
 
 # write.csv(tableS8, file = "tables/TableS4_net_regional_averages.csv")  
   

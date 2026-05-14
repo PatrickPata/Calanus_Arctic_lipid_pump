@@ -27,7 +27,7 @@ load("data/profile_integrated_cflux_20260505.RData")
 load("data/comparison_net_uvp_abundance_20260321.RData")
 
 # Comparison between POC flux and lipid pump C flux
-load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+load("data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
 
 # clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
 #           "blue1","purple2","deeppink1")
@@ -305,7 +305,7 @@ cowplot::plot_grid(p1,p2,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
-ggsave("figures/Supp_LPC_POC_GAM_fits_2060508.png", width = 14, height = 10,
+ggsave("figures/Supp_LPC_POC_GAM_fits_2060514.png", width = 14, height = 10,
        units = "in", bg = "white")
 ```
 

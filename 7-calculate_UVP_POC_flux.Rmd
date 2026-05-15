@@ -104,7 +104,7 @@ calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
 ```
 
 # **** UVP6 ****
-Calculate POC flux with 45-size class detailed particle data
+# Calculate POC flux with 45-size class detailed particle data
 ```{r}
 load("data/UVP6_ECOPART_Data_20260320.RData")
 
@@ -191,6 +191,251 @@ pocFlux_UVP6 <- pocFlux_UVP6 %>%
 save(pocFlux_UVP6, bins,
 file = "data/POC_flux_UVP6_confident_20260329.RData")
 ```
+
+# Particle size distributions
+Are there regional differences in the NBSS? Are there depth differences? What are the characteristics of the marine snow in regions where POC>LPC flux?
+```{r}
+# For Station_year and region metadata
+load("data/uvp6_images_calculated_traits_20260321.RData")
+rm(indiv_traits, region_rename, volumes.df)
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+
+# Outlier profiles to exclude
+to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
+                "RA38 2024", "RA06 2024", "RA07 2024", "RA08 2024", "RA31 2024",
+                "RA42 2024", "RA43 2024", "RA73 2024", 
+                "Kangalasiorvik Shelf 2024",
+                "TCA-QFA1 2024", "de500 2021",
+                "keb_S05 2024","RA72 2024","RA02 2024","RA52 2024")
+
+depths_2_extract <- data.frame(Depth_5m = c(92.5,97.5,102.5,107.5,
+                                            192.5,197.5,202.5,207.5,
+                                            492.5,497.5,502.5,507.5),
+                               Depth_bin = c(100,100,100,100,
+                                             200,200,200,200,
+                                             500,500,500,500))
+bins <- uvp6_par_cnames %>% 
+  filter(grepl("biovolume", AnnotatedColumnName)) %>% 
+  filter(Lower_limit_um >= 128 & Lower_limit_um < 16400) %>%
+  # calculate the midpoint as the geometric mean instead
+  mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
+  
+
+# Apply truncated power law model and calculate the NBSS from this (the same in the POC flux calculation but based on particle concentration)
+
+# Get width of size bins
+UVP6_sizebins_width <- bins$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
+
+particle.biov <- uvp6_PAR[, c(1,6,7,12:32)] %>% 
+  # Extract the 100, 200, and 500 m +- 10m depth bins
+  left_join(depths_2_extract, by = join_by(Depth_5m)) %>% 
+  filter(!is.na(Depth_bin)) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, station_year, reg.inuk), 
+            by = join_by(sample_id)) %>% 
+  filter(!is.na(station_year)) %>% 
+  filter(station_year %notin% to_exclude_200) %>% 
+  # average by depth bin and station_year
+  group_by(station_year, Depth_bin,reg.inuk) %>% 
+  summarise(n5mbins = n(),
+            across(where(is.numeric),  
+                   ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") 
+
+# Calculate the truncated power law model concentration on each row
+particle.biov_long <- particle.biov %>%
+  rowwise() %>%
+  mutate(par_comp = list({
+    a_par <- c_across(concentration_sc_22:concentration_sc_42)
+    a_vol <- Sampled_volume_L
+    observedN <- round(a_par * a_vol)
+    
+    trunc <- calculateModelledPsd(observedN,a_vol,
+                                  UVP6_sizebins_width,UVP6_sizebins_mid)
+    
+    data.frame(Size_class_midpoint_mm = UVP6_sizebins_mid,
+               sizebins_width = UVP6_sizebins_width,
+               orig_conc = as.numeric(a_par),
+               trunc_conc = trunc$estimNbl)})) %>%
+  ungroup() %>%
+  select(station_year, reg.inuk, Depth_bin, n5mbins, 
+         Sampled_volume_L, par_comp) %>%
+  unnest(par_comp) %>% 
+  
+  mutate(sc_biovolume_mm3 = (4/3) * pi * (Size_class_midpoint_mm / 2)^3) %>% 
+  # Convert particle concentration to biovolume
+  mutate(trunc_biov = trunc_conc * sc_biovolume_mm3) %>% 
+  # Remove size class with no particles
+  filter(trunc_biov > 0) %>% 
+  # normalized biovolume by bin width
+  mutate(normalized_biovolume = trunc_biov / sc_biovolume_mm3) 
+
+# Calculate the NBSS
+particle.nbss.trunc <- particle.biov_long %>% 
+  # Calculate the NBSS without > 5 mm particles (removing last 4 size bins wherein only <= 10 profiles have particle data)
+  filter(Size_class_midpoint_mm < 5) %>% 
+  mutate(log10_sizebin = log10(sc_biovolume_mm3),
+         log10_normbiov = log10(normalized_biovolume)) %>% 
+  group_by(station_year, Depth_bin, reg.inuk) %>% 
+  summarise(nsizebins = n(),
+            slope = coef(lm(log10_normbiov ~ log10_sizebin))[2],
+            intercept = coef(lm(log10_normbiov ~ log10_sizebin))[1],
+            r2 = summary(lm(log10_normbiov ~ log10_sizebin))$r.squared,
+            p.value = summary(lm(log10_normbiov ~ log10_sizebin))$coefficients[2, 4],
+            .groups = "drop")
+
+
+# Which depth bins has the most zeros?
+ggplot(particle.biov_long %>% 
+         filter(Depth_bin == 200) %>% 
+         filter(normalized_biovolume > 0) %>% 
+         filter(station_year %notin% to_exclude_200), 
+       aes(x = as.factor(Size_class_midpoint_mm))) +
+  geom_histogram(stat = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+
+
+ggplot(particle.nbss.trunc, aes(x = intercept, y = slope)) +
+  geom_smooth() +
+  geom_point() 
+
+
+```
+
+## POC flux vs NBSS slope
+Dugenne et al. (2024) uses R2 > 0.8 to QC the NBSS regressions but all values calculated have R2 > 0.85
+```{r}
+# 
+
+```
+
+
+## Plots
+```{r, fig.width=7}
+# Quick view of the NBSS at 200 m
+ggplot(particle.biov_long %>% 
+         filter(Depth_bin == 200),
+       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
+           group = station_year)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_smooth(aes(color = reg.inuk), method = "lm", se = F, alpha = 0.5) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~reg.inuk)
+
+# distribution of NBSS slopes
+ggplot(particle.nbss.trunc, 
+       aes(x = reg.inuk, y = slope, color = reg.inuk)) +
+  geom_violin() +
+   stat_summary(fun = mean,
+    geom = "point",
+    size = 2) +
+  stat_summary(fun.data = mean_sdl,
+    fun.args = list(mult = 1),
+    geom = "errorbar",
+    width = 0,
+    color = "black" ) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~Depth_bin) +
+  theme(legend.position = "none") +
+  ggtitle("NBSS slopes")
+
+
+# distribution of NBSS intercepts
+ggplot(particle.nbss.trunc, 
+       aes(x = reg.inuk, y = intercept, color = reg.inuk)) +
+  geom_violin() +
+   stat_summary(fun = mean,
+    geom = "point",
+    size = 2) +
+  stat_summary(fun.data = mean_sdl,
+    fun.args = list(mult = 1),
+    geom = "errorbar",
+    width = 0,
+    color = "black" ) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~Depth_bin) +
+  theme(legend.position = "none") +
+  ggtitle("NBSS intercepts")
+
+# relationship between slope, intercept
+ggplot(particle.nbss.trunc, aes(x = 10^(intercept), y = slope)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  scale_x_log10() +
+  facet_wrap(~Depth_bin, scales = "free") +
+  theme(legend.position = "none")
+
+# relationship between slope and nsizebins in the dataset
+ggplot(particle.nbss.trunc, aes(x = nsizebins, y = slope)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~Depth_bin, scales = "free") +
+  theme(legend.position = "none")
+
+# compare nbss slope at 100 m and 200 m: Slopes tend to be steeper at 200 m but not always
+ggplot(particle.nbss.trunc %>% 
+         select(station_year, reg.inuk, Depth_bin, slope) %>% 
+         mutate(Depth_bin = paste0(Depth_bin,"m")) %>% 
+         pivot_wider(names_from = "Depth_bin", values_from = "slope"),
+       aes(x = `100m`, y = `200m`)) +
+  geom_abline() +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~reg.inuk)
+
+
+ggplot(particle.biov_long,
+       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
+           group = station_year)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_smooth(aes(color = reg.inuk), method = "lm", se = F, alpha = 0.2) +
+  scale_color_manual(values = clrs) +
+  facet_grid(Depth_bin~reg.inuk, scales = "free") +
+  theme(legend.position = "none")
+```
+
+## TODO test significant differences in NBSS slopes and intercepts between regions
+```{r}
+
+```
+
+
+## Is there relationship between NBSS and POC flux?
+```{r}
+# TODO but can calculate these straight from the particle distribution too
+load("data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
+
+comp.200 <- flux.com.profiles.200 %>% 
+  left_join(particle.nbss.trunc %>% 
+              filter(Depth_bin == 200) %>% 
+              select(station_year, slope, intercept))
+
+ggplot(comp.200, aes(x = poc_mgC_m2_d, y = slope)) +
+  geom_smooth(method = "gam", 
+              formula = y ~ splines::bs(x, 5),
+              color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs)
+
+
+ggplot(comp.200, aes(x = poc_mgC_m2_d, y = intercept)) +
+  geom_smooth(method = "gam", 
+              formula = y ~ splines::bs(x, 5),
+              color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs)
+
+```
+```
+
 
 
 

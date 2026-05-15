@@ -345,6 +345,35 @@ subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
 # TODO test difference in relative contribution of flux components
 ```
 
+
+## Anova Stat tests: LPC between subregions
+```{r}
+# Global
+shapiro.test(df.profile$total_gC_flux_m2)
+shapiro.test(log10(df.profile$total_gC_flux_m2))
+
+# Per subregion
+df.shapiro <- df.profile %>% 
+  select(region = region.inuk, total_gC_flux_m2) %>% 
+  mutate(total_gC_flux_m2 = log10(total_gC_flux_m2))
+  group_by(region) %>%
+  summarise(n = n(),
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(total_gC_flux_m2)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            .groups = "drop") %>% 
+  mutate(normality_ok = shapiro_p > 0.05) # interpret normality
+
+df.shapiro
+
+ggplot(df.profile, aes(x = total_gC_flux_m2, color = reg.inuk)) +
+  geom_density() +
+  scale_x_log10() +
+  scale_color_manual(values = clrs)
+```
+
+
 # 6. Profile metadata
 ```{r}
 # Temporal frequency
@@ -631,13 +660,12 @@ ggplot() +
        aes(x = depth_bin, y = reg.ntra.mean, 
            group = region, color = region), 
        linewidth = 1, alpha = 0.8) +
-  scale_x_reverse(expand = c(0,0), limits = c(0,500)) +
+  scale_x_reverse(expand = c(0,0), limits = c(0,1000)) +
   coord_flip() +
   xlab("Depth (m)") +
   ylab("Nitrate") +
   theme(legend.position = "none", 
-        strip.background = element_blank(),
-        axis.title.x = element_blank()) +
+        strip.background = element_blank(),) +
   scale_color_manual(values = clrs, 
                      name = "Region") 
 
@@ -651,8 +679,7 @@ ggplot() +
   xlab("Depth (m)") +
   ylab("Temperature") +
   theme(legend.position = "none", 
-        strip.background = element_blank(),
-        axis.title.x = element_blank()) +
+        strip.background = element_blank(),) +
   scale_color_manual(values = clrs, 
                      name = "Region") 
 
@@ -664,10 +691,9 @@ ggplot() +
   scale_x_reverse(expand = c(0,0), limits = c(0,200)) +
   coord_flip() +
   xlab("Depth (m)") +
-  ylab("Salinity") +
+  ylab("Florescence") +
   theme(legend.position = "none", 
-        strip.background = element_blank(),
-        axis.title.x = element_blank()) +
+        strip.background = element_blank()) +
   scale_color_manual(values = clrs, 
                      name = "Region") 
 ```

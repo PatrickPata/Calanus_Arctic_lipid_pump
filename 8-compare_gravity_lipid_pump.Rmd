@@ -644,7 +644,7 @@ AA <- Amund_UVP6_meta %>%
 ```
 
 
-# Stat tests
+# Stat tests: LPC vs POC
 - Run paired t-test first, if normality violated, used wilcoxon signed rank test
 
 ## Paired t-test + wilxox signed
@@ -906,6 +906,7 @@ Table.S9.500 <- results.500 %>%
     is_sig_wilcox = is_sig_wilcox
   ) 
 ```
+
 
 
 # --- Extra scripts ---

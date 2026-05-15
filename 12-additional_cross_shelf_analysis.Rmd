@@ -41,6 +41,13 @@ theme_set(theme_bw() +
 # Relationship between bottom depth and POC and LPC fluxes
 ## Exploratory figures
 ```{r, eval = FALSE}
+# Bottom depth vs latitude
+ggplot(df.profile, aes(x = bottom_depth_m,
+                       y = latitude)) +
+  geom_smooth() +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs)
+
 cowplot::plot_grid(
 ggplot(flux.com.profiles.200, aes(y = poc_gC_m2_yr,
                                   x = bottom_depth_m)) +
@@ -163,7 +170,7 @@ df.profile.poc <- flux.com.profiles.200 %>%
 
 # GAM of POC flux at 200 m with bottom depth, latitude, and sampling day and year as predictors
 mod.poc <- gam(
-  poc_gC_m2_yr ~ s(bottom_depth_m, k = 3) + DOY + Year + s(latitude, k = 3),
+  poc_mgC_m2_d ~ s(bottom_depth_m, k = 3) + DOY + Year + s(latitude, k = 3),
   data = df.profile.poc,
   method = "REML"
 )
@@ -223,7 +230,7 @@ p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
   geom_point(aes(color = reg.inuk)) +
   scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
   xlab("Latitude") + 
-  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) +
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   scale_color_manual(values = clrs, name = "Subregion") +
   theme(legend.position = c(0.98, 0.98),
         legend.justification = c(1, 1),
@@ -242,7 +249,7 @@ p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
   geom_point(aes(color = abundance_m2)) +
   xlab("Bottom depth (m)") + 
-  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) +
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   scale_color_viridis_c(name = expression(atop(Abundance,("#"~m^{-2}))),
                          option = "plasma") +
   theme(legend.position = c(0.98, 0.98),
@@ -253,10 +260,10 @@ p3 <- ggplot(df.profile.lpc, aes(x = DOY, y = total_gC_flux_m2)) +
   geom_smooth(method = "lm", color = "black") +
   geom_point(color = "pink") +
   xlab("Day of year") +
-  ylab(expression(LPC~flux~(g~C~m^{-2}~y^{-1}))) 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) 
 
 
-p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
+p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_mgC_m2_d)) +
    geom_ribbon(data = newdat.poc2,
     aes(x = latitude, ymin = lwr, ymax = upr),
     inherit.aes = FALSE,
@@ -270,11 +277,11 @@ p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_gC_m2_yr)) +
   scale_color_manual(values = clrs, name = "Subregion") +
   geom_point(aes(color = reg.inuk)) +
   xlab("Latitude") + 
-  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
   theme(legend.position = "none")
 
 
-p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
+p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
   geom_ribbon(data = transform(newdat.poc, lwr = pmax(lwr, 0)), # truncate at zeo
     aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
     inherit.aes = FALSE,
@@ -289,21 +296,22 @@ p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_gC_m2_yr)) +
   scale_color_viridis_c(name = expression(atop(POC~flux[200*m],(mg~C~m^{-2}~d^{-1})))) +
   theme(legend.position = "right") +
   xlab("Bottom depth (m)") + 
-  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) +
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
   theme(legend.position = c(0.98, 0.98),
         legend.justification = c(1, 1),
         legend.background = element_rect(fill = "white", color = "gray50"))
 
-p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_gC_m2_yr)) +
+p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
   geom_smooth(method = "lm", color = "black") +
   geom_point(color = "skyblue") +
   xlab("Year") + 
-  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1})))
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
 
 cowplot::plot_grid(p1,p2,
                    p4,p5,
                    labels = "auto",
                    nrow = 2, align = "hv")
+
 
 ggsave("figures/Supp_LPC_POC_GAM_fits_2060514.png", width = 14, height = 10,
        units = "in", bg = "white")

@@ -103,37 +103,22 @@ calculateModelledPsd <- function(observedN, observedVol, binWidth, binMiddle) {
 }
 ```
 
-# **** UVP6 ****
-# Calculate POC flux with 45-size class detailed particle data
+
+# *** NEW UVP6 POC Calculation ***
+May 15, 2026: Filter profiles first then, average particle concentrations in 20 m bins. Use truncated power law function to model the particle concentrations.
+
+From the modelled particle concentrations, calculate the NBSS and the POC flux. From the POC flux, calculate the Martin's b curve.
+## POC Flux
 ```{r}
-load("data/UVP6_ECOPART_Data_20260320.RData")
-
-
-# # To visualize the frequency when a size class has >0 particles
-# aa <- uvp6_PAR %>% 
-#   select(sample_id, concentration_sc_18:concentration_sc_45) %>% 
-#   pivot_longer(cols = concentration_sc_18:concentration_sc_45,
-#                names_to = "sizeClass", values_to = "vals") %>% 
-#   filter(vals > 0) %>% 
-#   group_by(sizeClass) %>% 
-#   summarise(nbins = n(), .groups = "drop") %>% 
-#   left_join(uvp6_par_cnames %>% 
-#               select(sizeClass = AnnotatedColumnName,
-#                      Lower_limit_um:Size_class_midpoint_mm))
-# 
-# ggplot(aa, aes(x = Lower_limit_um, y = nbins)) +
-#   geom_point() +
-#   scale_x_log10()
+load("data/UVP6_ECOPART_Data_20260320.RData") 
 
 ## Establish the size class bins and bin width
 bins <- uvp6_par_cnames %>% 
   filter(grepl("concentration", AnnotatedColumnName)) %>% 
   filter(Lower_limit_um >= 128 & Lower_limit_um < 16400) %>% # to match the 0.14-16.88 mm size range in Kiko et al. (2017) and Bisson et al. (2022)
-  
-  # calculate the midpoint as the geometric mean instead
+    # calculate the midpoint as the geometric mean instead
   mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
   
-
 colStart <- which(uvp6_par_cnames$Lower_limit_um == 128)[1]-17
 colEnd <- which(uvp6_par_cnames$Lower_limit_um == 13000)[1]-17
 
@@ -145,16 +130,53 @@ UVP6_sizebins_width <- bins$Size_class_width_mm
 UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
 
 
+# For Station_year and region metadata
+load("data/uvp6_images_calculated_traits_20260321.RData")
+rm(indiv_traits, region_rename, volumes.df)
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 
-pocFlux_UVP6 <- uvp6_PAR %>% 
-  select(sample_id, project,
-         date, time, Depth_5m, Sampled_volume_L) %>% 
+# Outlier profiles to exclude
+to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
+                "RA38 2024", "RA06 2024", "RA07 2024", "RA08 2024", "RA31 2024",
+                "RA42 2024", "RA43 2024", "RA73 2024", 
+                "Kangalasiorvik Shelf 2024",
+                "TCA-QFA1 2024", "de500 2021",
+                "keb_S05 2024","RA72 2024","RA02 2024","RA52 2024")
+
+to_exclude_500 <- c("RA46 2024", "RA48 2024", "RA50 2024", "RA45 2024",
+                    "RA03 2024", "RA49 2024", "RA51 2024",
+                    "TCAT6-03(A3) 2024", "129 2023",
+                    "Sentinel 2024", "LSea-23 2023")
+
+# Particle concentrations
+particle.conc <- uvp6_PAR[, c(1,6,7,colStart:colEnd)] %>% 
+  # Curate profiles (only include profiles part of the LPC flux calculation)
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, station_year, reg.inuk, bottom_depth_m), 
+            by = join_by(sample_id)) %>% 
+  filter(!is.na(station_year)) %>% 
+  filter(Depth_5m > 10) %>% 
+  filter(station_year %notin% to_exclude_200) %>% 
+  # Exclude depth bins 50 m  above the bottom depth (Barth and Stone 2022)
+  filter(Depth_5m <= bottom_depth_m-50) %>% 
+  # Calculate the observed particle concentrations by size classes per 20m bins and for each station_year
+  mutate(Depth_bin = round(Depth_5m / 20) * 20) %>% 
+  group_by(station_year, reg.inuk, Depth_bin) %>% 
+  summarise(n5mbins = n(),
+            across(where(is.numeric),  
+                   ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") 
+
+
+# *** Calculating POC flux ***
+pocFlux_UVP6 <- particle.conc %>% 
+  select(station_year, reg.inuk, Depth_bin, Sampled_volume_L) %>% 
   mutate(ObsFlux = NA, ModelFlux = NA, 
          C1 = NA, alpha = NA, lambda = NA)
 
 # This loop copies the script in Section 3 of processPocFluxFromUvp.m (Rufas et al. 2025). 
 for (i in c(1:nrow(pocFlux_UVP6))) {
-  a_par <- uvp6_PAR[i, colStart:colEnd]
+  a_par <- particle.conc[i, 7:27]
   a_vol <- uvp6_PAR$Sampled_volume_L[i]
   
   # No truncated power law model
@@ -180,102 +202,248 @@ for (i in c(1:nrow(pocFlux_UVP6))) {
   } 
 }
 
-# For instances when the truncated power law model does not work, use the "observed"  value without the truncated power law model instead. This applies to about 32 instances (< 0.1%)) and does not include the 200 m and 500 m depth bins of interest.
+# For instances when the truncated power law model does not work, use the "observed"  value without the truncated power law model instead. This applies to  4 instances (< 0.1%)) and does not include the 200 m and 500 m depth bins of interest.
 pocFluxErr_UVP6 <- pocFlux_UVP6 %>%
   filter(is.na(ModelFlux))
 pocFlux_UVP6 <- pocFlux_UVP6 %>% 
   mutate(ModelFlux = if_else(is.na(ModelFlux),
                              ObsFlux, ModelFlux))
-
-# Export results
-save(pocFlux_UVP6, bins,
-file = "data/POC_flux_UVP6_confident_20260329.RData")
 ```
 
-# Particle size distributions
-Are there regional differences in the NBSS? Are there depth differences? What are the characteristics of the marine snow in regions where POC>LPC flux?
-```{r}
-# For Station_year and region metadata
-load("data/uvp6_images_calculated_traits_20260321.RData")
-rm(indiv_traits, region_rename, volumes.df)
-clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 
-# Outlier profiles to exclude
-to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
-                "RA38 2024", "RA06 2024", "RA07 2024", "RA08 2024", "RA31 2024",
-                "RA42 2024", "RA43 2024", "RA73 2024", 
-                "Kangalasiorvik Shelf 2024",
-                "TCA-QFA1 2024", "de500 2021",
-                "keb_S05 2024","RA72 2024","RA02 2024","RA52 2024")
-
-depths_2_extract <- data.frame(Depth_5m = c(92.5,97.5,102.5,107.5,
-                                            192.5,197.5,202.5,207.5,
-                                            492.5,497.5,502.5,507.5),
-                               Depth_bin = c(100,100,100,100,
-                                             200,200,200,200,
-                                             500,500,500,500))
-bins <- uvp6_par_cnames %>% 
-  filter(grepl("biovolume", AnnotatedColumnName)) %>% 
-  filter(Lower_limit_um >= 128 & Lower_limit_um < 16400) %>%
-  # calculate the midpoint as the geometric mean instead
-  mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
-  
-
-# Apply truncated power law model and calculate the NBSS from this (the same in the POC flux calculation but based on particle concentration)
-
-# Get width of size bins
-UVP6_sizebins_width <- bins$Size_class_width_mm
-# Get midpoints of size bins
-UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
-
-particle.biov <- uvp6_PAR[, c(1,6,7,12:32)] %>% 
-  # Extract the 100, 200, and 500 m +- 10m depth bins
-  left_join(depths_2_extract, by = join_by(Depth_5m)) %>% 
-  filter(!is.na(Depth_bin)) %>% 
-  left_join(Amund_UVP6_meta %>% 
-              select(sample_id, station_year, reg.inuk), 
-            by = join_by(sample_id)) %>% 
-  filter(!is.na(station_year)) %>% 
-  filter(station_year %notin% to_exclude_200) %>% 
-  # average by depth bin and station_year
-  group_by(station_year, Depth_bin,reg.inuk) %>% 
-  summarise(n5mbins = n(),
-            across(where(is.numeric),  
-                   ~ mean(.x, na.rm = TRUE)),
+## Plot profiles with depth
+```{r, eval = FALSE}
+df.meta.depths <- Amund_UVP6_meta %>% 
+  arrange(-maxSampleDepth) %>% 
+  distinct(station_year, .keep_all = T)  %>% 
+  group_by(reg.inuk) %>% 
+  summarise(nprofiles = n(), 
+            mean_bottom = mean(bottom_depth_m),
+            sd_bottom = sd(bottom_depth_m),
             .groups = "drop") 
 
-# Calculate the truncated power law model concentration on each row
-particle.biov_long <- particle.biov %>%
+region_pocFlux <- pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+  # limit the mean+sd bottom depth
+  left_join(df.meta.depths, by = join_by(reg.inuk)) %>% 
+  filter(Depth_bin <= (mean_bottom + sd_bottom)) %>% 
+  group_by(reg.inuk, Depth_bin) %>% 
+  summarise(daily_poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
+            daily_poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
+            n5mbins = n(),
+            .groups = "drop")
+  
+
+# Separate 2 rows of regions
+upperplot <- c("NarSt","Pikia","TalIm")
+
+g1 <- ggplot() +
+   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
+  geom_line(data = pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+         filter(reg.inuk %in% upperplot), 
+       aes(x = Depth_bin, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.2) +
+  geom_line(data = region_pocFlux %>% 
+         filter(reg.inuk %in% upperplot), 
+       aes(x = Depth_bin, y = daily_poc_mgC_m2_d, group = reg.inuk), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = clrs[1:3], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
+
+g2 <- ggplot() +
+   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
+   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
+  geom_line(data = pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+         filter(reg.inuk %notin% upperplot), 
+       aes(x = Depth_bin, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.2) +
+  geom_line(data = region_pocFlux %>% 
+         filter(reg.inuk %notin% upperplot), 
+       aes(x = Depth_bin, y = daily_poc_mgC_m2_d, group = reg.inuk), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("POC flux (mg C m⁻² d⁻¹)") +
+  theme(legend.position = "none", strip.background = element_blank()) +
+  scale_color_manual(values = clrs[4:7], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
+
+cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL, 
+                                      nrow = 1, rel_widths = c(0.5,3,0.5)),
+                   g2,ncol = 1)
+
+# ggsave("figures/Supp_region_POC_flux_20260515.png",
+#        width = 9, height = 8, units = "in", bg = "white")
+
+```
+
+## Annual POC flux per subregion
+```{r}
+pocFlux_UVP6 <- pocFlux_UVP6 %>% 
+  mutate(poc_mgC_m2_d = ModelFlux) %>% 
+  # Estimate the annual flux (winter:summer conversion factor of 0.25)
+  mutate(poc_gC_m2_yr = if_else(reg.inuk != "NarSt",
+                                (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000,
+                                (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000))
+  
+# Extract POC flux at 100m, 200m, and 500m reference depths
+pocFlux.ave.100 <- pocFlux_UVP6 %>% 
+  filter(Depth_bin == 100)
+
+pocFlux.ave.200 <- pocFlux_UVP6 %>% 
+  filter(Depth_bin == 200)
+
+pocFlux.ave.500 <- pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+  filter(Depth_bin == 500)
+
+
+ggplot() +
+  geom_boxplot(data = pocFlux.ave.200, 
+               aes(x = reg.inuk, y = poc_mgC_m2_d, color = reg.inuk),
+               position = position_nudge(x = -0.2)) +
+  geom_boxplot(data = pocFlux.ave.100,
+               aes(x = reg.inuk, y = poc_mgC_m2_d),
+               alpha = 0.2, 
+               position = position_nudge(x = 0.2)) +
+  scale_color_manual(values = clrs) +
+  ggtitle("Daily POC flux")
+
+# Regional averages
+pocFlux.region.100 <- pocFlux.ave.100 %>% 
+  group_by(reg.inuk) %>% 
+  summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
+            poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
+            poc_mgC_m2_d_mean = mean(poc_mgC_m2_d, na.rm = T),
+            poc_mgC_m2_d_sd = sd(poc_mgC_m2_d, na.rm = T),
+            n = n(), .groups = "drop")
+
+pocFlux.region.200 <- pocFlux.ave.200 %>% 
+  group_by(reg.inuk) %>% 
+  summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
+            poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
+            poc_mgC_m2_d_mean = mean(poc_mgC_m2_d, na.rm = T),
+            poc_mgC_m2_d_sd = sd(poc_mgC_m2_d, na.rm = T),
+            n = n(), .groups = "drop")
+
+pocFlux.region.500 <- pocFlux.ave.500 %>% 
+  group_by(reg.inuk) %>% 
+  summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
+            poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
+            poc_mgC_m2_d_mean = mean(poc_mgC_m2_d, na.rm = T),
+            poc_mgC_m2_d_sd = sd(poc_mgC_m2_d, na.rm = T),
+            n = n(), .groups = "drop")
+```
+
+## Calculate Martin's curve
+```{r}
+martin_params <- pocFlux_UVP6 %>%
+  filter(station_year %notin% to_exclude_500) %>% 
+  filter(ModelFlux > 0) %>%
+  # Cap it at 600 m so all regions comparable
+  filter(Depth_bin <= 600) %>% 
+  group_by(reg.inuk) %>%
+  group_modify(~ {
+    fit <- lm(log10(ModelFlux) ~ log10(Depth_bin / 100), data = .x)
+
+    tibble(
+      intercept_log10 = coef(fit)[1],
+      slope = coef(fit)[2],
+      F100 = 10^coef(fit)[1],
+      b = -coef(fit)[2]
+    )
+  })
+
+martin_pred <- pocFlux_UVP6 %>%
+  filter(ModelFlux > 0, Depth_bin > 0) %>%
+  group_by(reg.inuk) %>%
+  summarise(
+    Depth_bin = seq(
+      min(Depth_bin, na.rm = TRUE),
+      max(Depth_bin, na.rm = TRUE),
+      length.out = 100
+    ),
+    .groups = "drop"
+  ) %>%
+  left_join(martin_params, by = "reg.inuk") %>%
+  mutate(
+    ModelFlux_pred = F100 * (Depth_bin / 100)^(-b)
+  )
+
+# Plot POC flux profile
+ggplot(pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500), 
+  aes(x = Depth_bin, y = ModelFlux,
+                         group = reg.inuk)) +
+  geom_line(aes(group = station_year, color = reg.inuk), alpha = 0.3) +
+   geom_line(
+    data = martin_pred,
+    aes(x = Depth_bin, y = ModelFlux_pred), 
+    color = "black",
+    linewidth = 1.2
+  ) +
+
+  scale_y_continuous(limits = c(0, 100)) +
+  scale_x_reverse(limits = c(0, 600)) +
+  coord_flip() +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~reg.inuk, scales = "free") +
+  theme(legend.position = "none")
+
+```
+
+## NBSS
+```{r}
+# *** Calculate the NBSS for selected depth bins ***
+particle.biovolume <- particle.conc %>%
+  filter(Depth_bin %in% c(100,200)) %>%
   rowwise() %>%
   mutate(par_comp = list({
     a_par <- c_across(concentration_sc_22:concentration_sc_42)
     a_vol <- Sampled_volume_L
     observedN <- round(a_par * a_vol)
-    
+
     trunc <- calculateModelledPsd(observedN,a_vol,
                                   UVP6_sizebins_width,UVP6_sizebins_mid)
-    
+
     data.frame(Size_class_midpoint_mm = UVP6_sizebins_mid,
                sizebins_width = UVP6_sizebins_width,
                orig_conc = as.numeric(a_par),
                trunc_conc = trunc$estimNbl)})) %>%
   ungroup() %>%
-  select(station_year, reg.inuk, Depth_bin, n5mbins, 
+  select(station_year, reg.inuk, Depth_bin, n5mbins,
          Sampled_volume_L, par_comp) %>%
-  unnest(par_comp) %>% 
-  
-  mutate(sc_biovolume_mm3 = (4/3) * pi * (Size_class_midpoint_mm / 2)^3) %>% 
+  unnest(par_comp) %>%
+  mutate(sc_biovolume_mm3 = (4/3) * pi * (Size_class_midpoint_mm / 2)^3) %>%
   # Convert particle concentration to biovolume
-  mutate(trunc_biov = trunc_conc * sc_biovolume_mm3) %>% 
+  mutate(trunc_biov = trunc_conc * sc_biovolume_mm3) %>%
   # Remove size class with no particles
-  filter(trunc_biov > 0) %>% 
+  filter(trunc_biov > 0) %>%
   # normalized biovolume by bin width
-  mutate(normalized_biovolume = trunc_biov / sc_biovolume_mm3) 
+  mutate(normalized_biovolume = trunc_biov / sc_biovolume_mm3)
 
 # Calculate the NBSS
-particle.nbss.trunc <- particle.biov_long %>% 
+particle.nbss <- particle.biovolume %>% 
   # Calculate the NBSS without > 5 mm particles (removing last 4 size bins wherein only <= 10 profiles have particle data)
-  filter(Size_class_midpoint_mm < 5) %>% 
+  filter(Size_class_midpoint_mm < 4) %>% 
   mutate(log10_sizebin = log10(sc_biovolume_mm3),
          log10_normbiov = log10(normalized_biovolume)) %>% 
   group_by(station_year, Depth_bin, reg.inuk) %>% 
@@ -287,47 +455,15 @@ particle.nbss.trunc <- particle.biov_long %>%
             .groups = "drop")
 
 
-# Which depth bins has the most zeros?
-ggplot(particle.biov_long %>% 
-         filter(Depth_bin == 200) %>% 
-         filter(normalized_biovolume > 0) %>% 
-         filter(station_year %notin% to_exclude_200), 
-       aes(x = as.factor(Size_class_midpoint_mm))) +
-  geom_histogram(stat = "count") +
-  theme(axis.text.x = element_text(angle = 90))
 
-
-ggplot(particle.nbss.trunc, aes(x = intercept, y = slope)) +
+ggplot(particle.nbss, aes(x = nsizebins, y = slope)) +
   geom_smooth() +
-  geom_point() 
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs)
 
-
-```
-
-## POC flux vs NBSS slope
-Dugenne et al. (2024) uses R2 > 0.8 to QC the NBSS regressions but all values calculated have R2 > 0.85
-```{r}
-# 
-
-```
-
-
-## Plots
-```{r, fig.width=7}
-# Quick view of the NBSS at 200 m
-ggplot(particle.biov_long %>% 
-         filter(Depth_bin == 200),
-       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
-           group = station_year)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10() +
-  geom_smooth(aes(color = reg.inuk), method = "lm", se = F, alpha = 0.5) +
-  scale_color_manual(values = clrs) +
-  facet_wrap(~reg.inuk)
 
 # distribution of NBSS slopes
-ggplot(particle.nbss.trunc, 
+ggplot(particle.nbss, 
        aes(x = reg.inuk, y = slope, color = reg.inuk)) +
   geom_violin() +
    stat_summary(fun = mean,
@@ -345,7 +481,7 @@ ggplot(particle.nbss.trunc,
 
 
 # distribution of NBSS intercepts
-ggplot(particle.nbss.trunc, 
+ggplot(particle.nbss, 
        aes(x = reg.inuk, y = intercept, color = reg.inuk)) +
   geom_violin() +
    stat_summary(fun = mean,
@@ -360,82 +496,67 @@ ggplot(particle.nbss.trunc,
   facet_wrap(~Depth_bin) +
   theme(legend.position = "none") +
   ggtitle("NBSS intercepts")
-
-# relationship between slope, intercept
-ggplot(particle.nbss.trunc, aes(x = 10^(intercept), y = slope)) +
-  geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(color = reg.inuk)) +
-  scale_color_manual(values = clrs) +
-  scale_x_log10() +
-  facet_wrap(~Depth_bin, scales = "free") +
-  theme(legend.position = "none")
-
-# relationship between slope and nsizebins in the dataset
-ggplot(particle.nbss.trunc, aes(x = nsizebins, y = slope)) +
-  geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(color = reg.inuk)) +
-  scale_color_manual(values = clrs) +
-  facet_wrap(~Depth_bin, scales = "free") +
-  theme(legend.position = "none")
-
-# compare nbss slope at 100 m and 200 m: Slopes tend to be steeper at 200 m but not always
-ggplot(particle.nbss.trunc %>% 
-         select(station_year, reg.inuk, Depth_bin, slope) %>% 
-         mutate(Depth_bin = paste0(Depth_bin,"m")) %>% 
-         pivot_wider(names_from = "Depth_bin", values_from = "slope"),
-       aes(x = `100m`, y = `200m`)) +
-  geom_abline() +
-  geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(color = reg.inuk)) +
-  scale_color_manual(values = clrs) +
-  facet_wrap(~reg.inuk)
-
-
-ggplot(particle.biov_long,
-       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
-           group = station_year)) +
-  scale_x_log10() +
-  scale_y_log10() +
-  geom_smooth(aes(color = reg.inuk), method = "lm", se = F, alpha = 0.2) +
-  scale_color_manual(values = clrs) +
-  facet_grid(Depth_bin~reg.inuk, scales = "free") +
-  theme(legend.position = "none")
 ```
 
-## TODO test significant differences in NBSS slopes and intercepts between regions
+## test significant differences in NBSS slopes and intercepts between regions
+Run ANOVA since slope and intercept distributions are generally normally distributed?
+ANOVA and Krusk-wallis identify significant differences between subregions in slope but post hoc tests do not identify significant pairs.
+ANOVA and Tukey tests for intercept identify TalIm, SanIm, and QikIk as significantly lower intercepts (i.e., lower total particle biovolume)
 ```{r}
+df.for.stats <- particle.nbss %>% 
+  filter(Depth_bin == 200)
 
+# Parametric comparison
+# *** Total (LPC + POC) Carbon flux ***
+res.aov <- aov(slope ~ reg.inuk, data = df.for.stats) 
+summary(res.aov)
+res.tukey.slope <- as.data.frame(TukeyHSD(res.aov, "reg.inuk")$reg.inuk) %>% 
+  filter(`p adj` < 0.025)
+
+res.aov <- aov(intercept ~ reg.inuk, data = df.for.stats) 
+summary(res.aov)
+res.tukey.inter <- as.data.frame(TukeyHSD(res.aov, "reg.inuk")$reg.inuk)  %>% 
+  filter(`p adj` < 0.025)
 ```
-
 
 ## Is there relationship between NBSS and POC flux?
+- POC flux scales with intercept expectedly because intercept is a metric of total particle biomass.
+- No apparent relationship between NBSS slope and POC flux
 ```{r}
-# TODO but can calculate these straight from the particle distribution too
-load("data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
-
-comp.200 <- flux.com.profiles.200 %>% 
-  left_join(particle.nbss.trunc %>% 
+comp.200 <- pocFlux.ave.200 %>% 
+  left_join(particle.nbss %>% 
               filter(Depth_bin == 200) %>% 
-              select(station_year, slope, intercept))
+              select(station_year, slope, intercept)) %>% 
+  mutate(intercept_mm3 = 10^intercept)
 
 ggplot(comp.200, aes(x = poc_mgC_m2_d, y = slope)) +
   geom_smooth(method = "gam", 
-              formula = y ~ splines::bs(x, 5),
+              formula = y ~ splines::bs(x, 3),
               color = "black") +
+  scale_x_log10() +
   geom_point(aes(color = reg.inuk)) +
   scale_color_manual(values = clrs)
 
 
 ggplot(comp.200, aes(x = poc_mgC_m2_d, y = intercept)) +
-  geom_smooth(method = "gam", 
-              formula = y ~ splines::bs(x, 5),
+  geom_smooth(method = "lm",
               color = "black") +
+  scale_x_log10() +
   geom_point(aes(color = reg.inuk)) +
   scale_color_manual(values = clrs)
 
 ```
-```
 
+# Export results
+```{r}
+# Export results
+save(pocFlux.ave.100, pocFlux.ave.200, pocFlux.ave.500,
+     pocFlux.region.100, pocFlux.region.200, pocFlux.region.500,
+     particle.nbss, martin_params,
+file = "data/POC_flux_UVP6_20260515.RData")
+
+
+```
 
 
 
@@ -715,4 +836,309 @@ ggplot(pocFlux_region_annual %>%
                                                          y = poc_model_365)) +
   geom_bar(stat = "identity") 
 ```
+
+# **** Old UVP6 ****
+# Calculate POC flux with 45-size class detailed particle data
+```{r}
+load("data/UVP6_ECOPART_Data_20260320.RData")
+
+
+# # To visualize the frequency when a size class has >0 particles
+# aa <- uvp6_PAR %>% 
+#   select(sample_id, concentration_sc_18:concentration_sc_45) %>% 
+#   pivot_longer(cols = concentration_sc_18:concentration_sc_45,
+#                names_to = "sizeClass", values_to = "vals") %>% 
+#   filter(vals > 0) %>% 
+#   group_by(sizeClass) %>% 
+#   summarise(nbins = n(), .groups = "drop") %>% 
+#   left_join(uvp6_par_cnames %>% 
+#               select(sizeClass = AnnotatedColumnName,
+#                      Lower_limit_um:Size_class_midpoint_mm))
+# 
+# ggplot(aa, aes(x = Lower_limit_um, y = nbins)) +
+#   geom_point() +
+#   scale_x_log10()
+
+## Establish the size class bins and bin width
+bins <- uvp6_par_cnames %>% 
+  filter(grepl("concentration", AnnotatedColumnName)) %>% 
+  filter(Lower_limit_um >= 128 & Lower_limit_um < 16400) %>% # to match the 0.14-16.88 mm size range in Kiko et al. (2017) and Bisson et al. (2022)
+  
+  # calculate the midpoint as the geometric mean instead
+  mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
+  
+
+colStart <- which(uvp6_par_cnames$Lower_limit_um == 128)[1]-17
+colEnd <- which(uvp6_par_cnames$Lower_limit_um == 13000)[1]-17
+
+# number of bins
+UVP6_N_sizebins <- nrow(bins)
+# Get width of size bins
+UVP6_sizebins_width <- bins$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
+
+
+
+pocFlux_UVP6 <- uvp6_PAR %>% 
+  select(sample_id, project,
+         date, time, Depth_5m, Sampled_volume_L) %>% 
+  mutate(ObsFlux = NA, ModelFlux = NA, 
+         C1 = NA, alpha = NA, lambda = NA)
+
+# This loop copies the script in Section 3 of processPocFluxFromUvp.m (Rufas et al. 2025). 
+for (i in c(1:nrow(pocFlux_UVP6))) {
+  a_par <- uvp6_PAR[i, colStart:colEnd]
+  a_vol <- uvp6_PAR$Sampled_volume_L[i]
+  
+  # No truncated power law model
+  pocFlux_UVP6$ObsFlux[i] <- calculatePOCFlux(a_par, UVP6_sizebins_mid, 
+                                              UVP6_sizebins_width)
+  
+  # With truncated power law model
+  observedN <- round( a_par * a_vol )
+  if(sum(observedN) > 0){
+    tryCatch( {
+      trunc <- calculateModelledPsd(observedN, a_vol, 
+                                    UVP6_sizebins_width, UVP6_sizebins_mid )
+      
+      pocFlux_UVP6$ModelFlux[i] <- calculatePOCFlux(trunc$estimNbl,
+                                                    UVP6_sizebins_mid,
+                                                    UVP6_sizebins_width)
+      pocFlux_UVP6$C1[i] <- trunc$C1
+      pocFlux_UVP6$alpha[i] <- trunc$alpha
+      pocFlux_UVP6$lambda[i] <- trunc$lambda
+    },
+    error = function(e){cat("ERROR: at i =", i, " ", 
+                            conditionMessage(e), "\n")})
+  } 
+}
+
+# For instances when the truncated power law model does not work, use the "observed"  value without the truncated power law model instead. This applies to about 32 instances (< 0.1%)) and does not include the 200 m and 500 m depth bins of interest.
+pocFluxErr_UVP6 <- pocFlux_UVP6 %>%
+  filter(is.na(ModelFlux))
+pocFlux_UVP6 <- pocFlux_UVP6 %>% 
+  mutate(ModelFlux = if_else(is.na(ModelFlux),
+                             ObsFlux, ModelFlux))
+
+# Export results
+save(pocFlux_UVP6, bins,
+file = "data/POC_flux_UVP6_confident_20260329.RData")
+```
+
+# Particle size distributions
+Are there regional differences in the NBSS? Are there depth differences? What are the characteristics of the marine snow in regions where POC>LPC flux?
+```{r}
+# For Station_year and region metadata
+load("data/uvp6_images_calculated_traits_20260321.RData")
+rm(indiv_traits, region_rename, volumes.df)
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+
+# Outlier profiles to exclude
+to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
+                "RA38 2024", "RA06 2024", "RA07 2024", "RA08 2024", "RA31 2024",
+                "RA42 2024", "RA43 2024", "RA73 2024", 
+                "Kangalasiorvik Shelf 2024",
+                "TCA-QFA1 2024", "de500 2021",
+                "keb_S05 2024","RA72 2024","RA02 2024","RA52 2024")
+
+depths_2_extract <- data.frame(Depth_5m = c(92.5,97.5,102.5,107.5,
+                                            192.5,197.5,202.5,207.5,
+                                            492.5,497.5,502.5,507.5),
+                               Depth_bin = c(100,100,100,100,
+                                             200,200,200,200,
+                                             500,500,500,500))
+bins <- uvp6_par_cnames %>% 
+  filter(grepl("biovolume", AnnotatedColumnName)) %>% 
+  filter(Lower_limit_um >= 128 & Lower_limit_um < 16400) %>%
+  # calculate the midpoint as the geometric mean instead
+  mutate(Size_class_midpoint_mm = sqrt(Lower_limit_um * Upper_limit_um)/1000)
+  
+
+# Apply truncated power law model and calculate the NBSS from this (the same in the POC flux calculation but based on particle concentration)
+
+# Get width of size bins
+UVP6_sizebins_width <- bins$Size_class_width_mm
+# Get midpoints of size bins
+UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
+
+particle.biov <- uvp6_PAR[, c(1,6,7,12:32)] %>% 
+  # Extract the 100, 200, and 500 m +- 10m depth bins
+  left_join(depths_2_extract, by = join_by(Depth_5m)) %>% 
+  filter(!is.na(Depth_bin)) %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, station_year, reg.inuk), 
+            by = join_by(sample_id)) %>% 
+  filter(!is.na(station_year)) %>% 
+  filter(station_year %notin% to_exclude_200) %>% 
+  # average by depth bin and station_year
+  group_by(station_year, Depth_bin,reg.inuk) %>% 
+  summarise(n5mbins = n(),
+            across(where(is.numeric),  
+                   ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") 
+
+# Calculate the truncated power law model concentration on each row
+particle.biov_long <- particle.biov %>%
+  rowwise() %>%
+  mutate(par_comp = list({
+    a_par <- c_across(concentration_sc_22:concentration_sc_42)
+    a_vol <- Sampled_volume_L
+    observedN <- round(a_par * a_vol)
+    
+    trunc <- calculateModelledPsd(observedN,a_vol,
+                                  UVP6_sizebins_width,UVP6_sizebins_mid)
+    
+    data.frame(Size_class_midpoint_mm = UVP6_sizebins_mid,
+               sizebins_width = UVP6_sizebins_width,
+               orig_conc = as.numeric(a_par),
+               trunc_conc = trunc$estimNbl)})) %>%
+  ungroup() %>%
+  select(station_year, reg.inuk, Depth_bin, n5mbins, 
+         Sampled_volume_L, par_comp) %>%
+  unnest(par_comp) %>% 
+  
+  mutate(sc_biovolume_mm3 = (4/3) * pi * (Size_class_midpoint_mm / 2)^3) %>% 
+  # Convert particle concentration to biovolume
+  mutate(trunc_biov = trunc_conc * sc_biovolume_mm3) %>% 
+  # Remove size class with no particles
+  filter(trunc_biov > 0) %>% 
+  # normalized biovolume by bin width
+  mutate(normalized_biovolume = trunc_biov / sc_biovolume_mm3) 
+
+# Calculate the NBSS
+particle.nbss.trunc <- particle.biov_long %>% 
+  # Calculate the NBSS without > 5 mm particles (removing last 4 size bins wherein only <= 10 profiles have particle data)
+  filter(Size_class_midpoint_mm < 5) %>% 
+  mutate(log10_sizebin = log10(sc_biovolume_mm3),
+         log10_normbiov = log10(normalized_biovolume)) %>% 
+  group_by(station_year, Depth_bin, reg.inuk) %>% 
+  summarise(nsizebins = n(),
+            slope = coef(lm(log10_normbiov ~ log10_sizebin))[2],
+            intercept = coef(lm(log10_normbiov ~ log10_sizebin))[1],
+            r2 = summary(lm(log10_normbiov ~ log10_sizebin))$r.squared,
+            p.value = summary(lm(log10_normbiov ~ log10_sizebin))$coefficients[2, 4],
+            .groups = "drop")
+
+
+# Which depth bins has the most zeros?
+ggplot(particle.biov_long %>% 
+         filter(Depth_bin == 200) %>% 
+         filter(normalized_biovolume > 0) %>% 
+         filter(station_year %notin% to_exclude_200), 
+       aes(x = as.factor(Size_class_midpoint_mm))) +
+  geom_histogram(stat = "count") +
+  theme(axis.text.x = element_text(angle = 90))
+
+
+ggplot(particle.nbss.trunc, aes(x = intercept, y = slope)) +
+  geom_smooth() +
+  geom_point() 
+
+
+```
+
+## POC flux vs NBSS slope
+Dugenne et al. (2024) uses R2 > 0.8 to QC the NBSS regressions but all values calculated have R2 > 0.85
+```{r}
+# 
+
+```
+
+
+## Plots
+```{r, fig.width=7}
+# Quick view of the NBSS at 200 m
+ggplot(particle.biov_long %>% 
+         filter(Depth_bin == 200),
+       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
+           group = station_year)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_smooth(aes(color = station_year), method = "lm", se = F, alpha = 0.5) +
+  theme(legend.position = "none")+
+  facet_wrap(~reg.inuk)
+
+
+# relationship between slope and nsizebins in the dataset
+ggplot(particle.nbss, aes(x = nsizebins, y = slope)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~Depth_bin, scales = "free") +
+  theme(legend.position = "none")
+
+# compare nbss slope at 100 m and 200 m: Slopes tend to be steeper at 200 m but not always
+ggplot(particle.nbss %>% 
+         select(station_year, reg.inuk, Depth_bin, slope) %>% 
+         mutate(Depth_bin = paste0(Depth_bin,"m")) %>% 
+         pivot_wider(names_from = "Depth_bin", values_from = "slope"),
+       aes(x = `100m`, y = `200m`)) +
+  geom_abline() +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  facet_wrap(~reg.inuk)
+
+
+ggplot(particle.biov_long,
+       aes(x = Size_class_midpoint_mm, y = normalized_biovolume,
+           group = station_year)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_smooth(aes(color = reg.inuk), method = "lm", se = F, alpha = 0.2) +
+  scale_color_manual(values = clrs) +
+  facet_grid(Depth_bin~reg.inuk, scales = "free") +
+  theme(legend.position = "none")
+```
+
+
+## Calculate martin's b
+```{r}
+load("data/POC_flux_UVP6_confident_20260329.RData")
+
+martins.curve <- pocFlux_UVP6 %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, reg.inuk, station_year)) %>% 
+  filter(!is.na(station_year)) %>% 
+  filter(station_year %notin% to_exclude_200) %>% 
+  filter(Depth_5m > 100)
+
+martin_params <- martins.curve %>%
+  filter(ModelFlux > 0) %>%
+  group_by(station_year, reg.inuk) %>%
+  nest() %>%
+  mutate(
+    model = map(
+      data,
+      ~ lm(log(ModelFlux) ~ log(Depth_5m / 100), data = .x)
+    ),
+    
+    coefs = map(model, coef)
+  ) %>%
+  mutate(
+    intercept_log = map_dbl(coefs, 1),
+    slope = map_dbl(coefs, 2),
+    # Martin parameters
+    martin_b = -slope,
+    F100 = exp(intercept_log)
+  ) %>%
+  select(
+    station_year,
+    reg.inuk,
+    F100,
+    martin_b
+  )
+
+ggplot(martin_params, aes(x = martin_b)) +
+  geom_density()
+
+
+ggplot(martins.curve %>% 
+  filter(station_year == "D4 2023"), 
+  aes(x = ModelFlux, y = Depth_5m)) +
+  geom_point() +
+  scale_y_reverse()
+```
+
 

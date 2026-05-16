@@ -26,7 +26,7 @@ load("data/comparison_net_uvp_abundance_20260508.RData")
 
 # Comparison between POC flux and lipid pump C flux
 # load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
-load("data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
+load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
 
 
 `%notin%` <- Negate(`%in%`)
@@ -500,6 +500,9 @@ pp1 <- basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
         legend.box.background = element_rect(fill = "white", color = "black"))
 
 pp1
+
+ggsave("figures/LPC_flux_map_20260515.png", width = 7, height = 9,
+       units = "in", bg = "white")
 ```
 
 ## Prepare data frames
@@ -568,7 +571,7 @@ np1 <- ggplot(df.profile,
   scale_x_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
   coord_cartesian(xlim = c(0, 8.2)) +
   theme(legend.position = "none") +
-  xlab("LPC flux (g C m⁻² y⁻¹)") + ylab("Region")
+  xlab("LPC flux (g C m⁻² yr⁻¹)") + ylab("Subregion")
 
 np1
 ```
@@ -607,6 +610,154 @@ np2 <- ggplot(df.region.long,
          pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
 
 np2
+```
+
+## New B If adding the LPC and POC flux in the same figure
+```{r}
+# do this to the 148 stations with both LPC & POC fluxes
+df.region.200m <- df.profile %>% 
+  left_join(flux.com.profiles.200 %>% 
+              select(station_year, poc_gC_m2_yr), 
+            by = "station_year") %>% 
+  filter(!is.na(poc_gC_m2_yr)) %>% 
+  select(station_year,region.inuktitut, region.inuk, reg.inuk,
+         respired_C_gC_m2, structural_gC_m2_mort,
+         waxester_gC_m2_mort, poc_gC_m2_yr) %>% 
+  group_by(region.inuktitut, region.inuk, reg.inuk) %>% 
+  summarise(n = n(),
+            across(respired_C_gC_m2:poc_gC_m2_yr,
+                   list(mean = mean, sd = sd),
+                   na.rm = TRUE),
+            .groups = "drop") %>% 
+  select(region.inuktitut, reg.inuk, n,
+         `diapause respiration` = respired_C_gC_m2_mean, 
+         `mortality structural` = structural_gC_m2_mort_mean, 
+         `mortality storage` = waxester_gC_m2_mort_mean) %>%  
+  left_join(flux.comp.200 %>% 
+              select(reg.inuk, `POC flux` = poc_gC_m2_yr_mean)) %>% 
+  
+  pivot_longer(cols = c(`diapause respiration`, 
+                        `mortality structural`, `mortality storage`,
+                        `POC flux`),
+               names_to = "Component", values_to = "Cflux") %>% 
+  mutate(Component = if_else(Component == "diapause respiration",
+                             "Respiration", Component),
+         Component = if_else(Component == "mortality structural",
+                             "Structural C", Component),
+         Component = if_else(Component == "mortality storage",
+                             "Storage C", Component)) %>% 
+  mutate(Component = factor(Component,
+                            levels = c("POC flux",
+                                       "Storage C",
+                                       "Structural C",
+                                       "Respiration")))
+
+label_levels.200m <- df.region.200m %>%
+  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")")) %>% 
+  distinct(reg.inuk, region_label) %>%
+  arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
+  pull(region_label)
+
+np2 <- ggplot(df.region.200m,
+       aes(x = reg.inuk)) +
+  
+  ggpattern::geom_col_pattern(aes(y = Cflux, fill = reg.inuk, 
+                                  pattern = Component, 
+                                  alpha = Component),
+                              stat = "identity", color = "black",
+                              pattern_color = "white",
+                              pattern_spacing = 0.02,
+                              pattern_density = 0.1)+
+  
+  scale_fill_manual(values = clrs,
+                    guide = "none") +
+  scale_alpha_manual(values = c(0.2,0.7, 0.7, 1),
+                     guide = "none") +
+  ggpattern::scale_pattern_manual(values = c("none","circle",
+                                             "stripe","none")) +
+  
+  scale_y_continuous(expand = c(0,0), breaks = seq(0,10,2), 
+                     limits = c(0, 10.1)) +
+  scale_x_discrete(labels = label_levels.200m) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 12),
+        legend.box.just = "left",
+        legend.box = "horizontal",
+        legend.location = "plot" ) +
+  ylab(expression(LPC~flux~+~POC~flux[200*m]~(g~C~m^{-2}~yr^{-1}))) +
+  xlab("Subregion") +
+  guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
+         pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
+
+np2
+
+# Table form
+df.region.200m %>% 
+  group_by(region.inuktitut) %>% 
+  mutate(total_c_flux = sum(Cflux)) %>% 
+  ungroup() %>% 
+  filter(Component == "POC flux") %>% 
+  mutate(POC_perc = Cflux / total_c_flux * 100) %>% 
+  mutate(LPC_perc = 100 - POC_perc) %>% 
+  mutate(LPC_POC_ratio = (total_c_flux-Cflux)/Cflux) %>% 
+  select(reg.inuk, n, total_c_flux, LPC_perc, POC_perc, LPC_POC_ratio)
+```
+
+## Stat test to compare total C flux between subregions
+```{r}
+flux.com.profiles.200 <- flux.com.profiles.200 %>% 
+  mutate(totalCflux = lipid_gC_m2_yr + poc_gC_m2_yr)
+
+
+# Stat test (Pikia & QikSh not normally distributed)
+df.shapiro <- flux.com.profiles.200 %>% 
+  select(region = reg.inuk, totalCflux) %>% 
+  group_by(region) %>%
+  summarise(n = n(),
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(totalCflux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            .groups = "drop") %>% 
+  mutate(normality_ok = shapiro_p > 0.05)
+
+# Non parametric comparison
+# *** Total (LPC + POC) Carbon flux ***
+kruskal.test(totalCflux ~ reg.inuk, data = flux.com.profiles.200) 
+res.dunn <- dunn.test::dunn.test(x = flux.com.profiles.200$totalCflux,
+                     g = flux.com.profiles.200$reg.inuk,
+                     kw = F,
+                     method = "bh")
+
+sig.df <- data.frame(comp = res.dunn$comparisons, 
+                     p.adj = res.dunn$P.adjusted) %>%
+  filter(p.adj < 0.025) %>%
+  separate(comp, into = c("group1", "group2"), sep = " - ") %>%
+  mutate(y.position = 21 + (row_number() - 1) * 1.2,
+    label = paste0("p = ", signif(p.adj, 2)))
+
+# distribution per subregion (note truncated)
+ggplot(flux.com.profiles.200,
+       aes(x = totalCflux, fill = reg.inuk, y = reg.inuk)) +
+  geom_violin(scale = "width", color = "white", alpha = 0.6) +
+  
+  stat_summary(fun = mean,
+    geom = "point",
+    size = 2) +
+  stat_summary(fun.data = mean_sdl,
+    fun.args = list(mult = 1),
+    geom = "errorbar",
+    width = 0,
+    color = "black" ) +
+  scale_color_manual(values = unique(clrs)) +
+  scale_fill_manual(values = unique(clrs)) +
+  scale_y_discrete(limits = rev, labels = rev(label_levels.200m)) +
+  scale_x_continuous(breaks = seq(0,20,2), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 20)) +
+  theme(legend.position = "none") +
+  xlab(expression(LPC~flux~+~POC~flux[200*m]~(g~C~m^{-2}~yr^{-1}))) +
+  ylab("Subregion") 
+
 ```
 
 
@@ -674,10 +825,10 @@ np3 <- ggplot() +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   coord_cartesian(xlim = c(0, 8), ylim = c(0, 11.5)) +
   
-  theme(legend.position = "bottom",
+  theme(legend.position = "none",
         legend.box = "vertical") +
-  xlab(expression(LPC~flux~(g~C~m^{-2}~y^{-1})) )+
-  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~y^{-1}))) 
+  xlab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1})) )+
+  ylab(expression(POC~flux[200*m]~(g~C~m^{-2}~yr^{-1}))) 
 
 np3
 
@@ -690,15 +841,15 @@ flux.comp.500 <- flux.comp.500 %>%
 
 ## Combine subplots
 ```{r}
+# plot_grid(
+#   plot_grid(np1, np2,
+#             ncol = 1, align = "v", 
+#             labels = c("a","b")),
+#   np3, nrow = 1, labels = c("","c"))
 
-plot_grid(
-  plot_grid(np1, np2,
-            ncol = 1, align = "v", 
-            labels = c("a","b")),
-  np3, nrow = 1, labels = c("","c"))
+plot_grid(np2, np3, nrow = 1, labels = "auto") 
 
-# 
-ggsave("figures/Fig4_20260513.png", width = 12, height = 7.5,
+ggsave("figures/Fig5_20260515.png", width = 12, height = 6,
        units = "in", bg = "white")
 ```
 

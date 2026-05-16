@@ -89,89 +89,10 @@ theme_set(theme_bw())
 
 load("data/uvp6_images_calculated_traits_20260321.RData")
 load("data/profile_integrated_cflux_20260321.RData")
-load("data/POC_flux_UVP6_confident_20260329.RData")
+load("data/POC_flux_UVP6_20260515.RData")
+
 
 clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
-
-# Outlier profiles to exclude
-to_exclude_200 <- c("AC20 2023","NaresW23 2023","NaresE23 2023",
-                "RA38 2024", "RA06 2024", "RA07 2024", "RA08 2024", "RA31 2024",
-                "RA42 2024", "RA43 2024", "RA73 2024", "Kangalasiorvik Shelf 2024",
-                "TCA-QFA1 2024", "de500 2021",
-                "keb_S05 2024","RA72 2024","RA02 2024","RA52 2024")
-
-to_exclude_500 <- c("RA46 2024", "RA48 2024", "RA50 2024", "RA45 2024",
-                    "TCAT6-03(A3) 2024", "129 2023",
-                    "Sentinel 2024", "LSea-23 2023")
-
-# Calculate POC flux per station_year profile
-pocFlux_station_year <- pocFlux_UVP6 %>% 
-  # Only include the profiles used in the lipid pump analysis
-  filter(sample_id %in% Amund_UVP6_meta$sample_id) %>% 
-  # Merge replicated profiles at the same station
-  left_join(Amund_UVP6_meta %>% 
-              select(sample_id, station_year, 
-                     bottom_depth_m, Month, reg.inuk),
-            by = "sample_id") %>% 
-  select(-c(sample_id, project, date, time)) %>% 
-  group_by(station_year, Depth_5m, Month, reg.inuk) %>% 
-  # Average all variables per 5m bin
-  summarise(across(where(is.numeric),  
-                   ~ mean(.x, na.rm = TRUE)),
-            .groups = "drop") %>% 
-  # Exclude depth bins 50 m  above the bottom depth (Barth and Stone 2022)
-  filter(Depth_5m <= bottom_depth_m-50)
-
-# Calculate POC flux at 200 m (+- 10m)
-pocFlux.ave.200 <- pocFlux_station_year %>% 
-  filter(station_year %notin% to_exclude_200) %>% 
-  filter(Depth_5m >= 190 & Depth_5m < 210) %>% 
-  # calculate the total flux per profile
-  group_by(station_year, bottom_depth_m, reg.inuk) %>% 
-  summarise(n5mbins = n(),
-            poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
-            poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
-            .groups = "drop") %>% 
-  # Estimate the annual flux (winter:summer conversion factor of 0.25)
-  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000) %>% 
-  
-  # Nares strait has shorter productive period (June-September)
-  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
-
-
-# Calculate POC flux at 100 m (+- 10m)
-pocFlux.ave.100 <- pocFlux_station_year %>% 
-  filter(station_year %notin% to_exclude_200) %>% 
-  filter(Depth_5m >= 90 & Depth_5m < 110) %>% 
-  # calculate the total flux per profile
-  group_by(station_year, bottom_depth_m, reg.inuk) %>% 
-  summarise(n5mbins = n(),
-            poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
-            poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
-            .groups = "drop") %>% 
-  # Estimate the annual flux (winter:summer conversion factor of 0.25)
-  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000) %>% 
-  
-  # Nares strait has shorter productive period (June-September)
-  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
-
-
-# Calculate POC flux at 500 m (+- 10m)
-pocFlux.ave.500 <- pocFlux_station_year %>% 
-  filter(station_year %notin% to_exclude_500) %>% 
-  filter(Depth_5m >= 490 & Depth_5m < 510) %>% 
-  # calculate the total flux per profile
-  group_by(station_year, bottom_depth_m, reg.inuk) %>% 
-  summarise(n5mbins = n(),
-            poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
-            poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
-            .groups = "drop") %>% 
-  # Estimate the annual flux (winter:summer conversion factor of 0.25)
-  mutate(poc_gC_m2_yr = (poc_mgC_m2_d + 0.25*poc_mgC_m2_d)/2 *365 /1000)%>% 
-  
-  # Nares strait has shorter productive period (June-September)
-  mutate(poc_gC_m2_yr_nares = (poc_mgC_m2_d*122 + 0.25*poc_mgC_m2_d*243) /1000)
-
 
 ggplot() +
   geom_boxplot(data = pocFlux.ave.200, 
@@ -185,113 +106,10 @@ ggplot() +
   ggtitle("Daily POC flux")
 ```
 
-## Plot profiles with depth
-```{r, eval = FALSE}
-df.meta.depths <- Amund_UVP6_meta %>% 
-  arrange(-maxSampleDepth) %>% 
-  distinct(station_year, .keep_all = T)  %>% 
-  group_by(reg.inuk) %>% 
-  summarise(nprofiles = n(), 
-            mean_bottom = mean(bottom_depth_m),
-            sd_bottom = sd(bottom_depth_m),
-            .groups = "drop") 
-
-region_pocFlux <- pocFlux_station_year %>% 
-  filter(station_year %in% pocFlux.ave.200$station_year) %>%
-  # limit the mean+sd bottom depth
-  left_join(df.meta.depths, by = join_by(reg.inuk)) %>% 
-  filter(Depth_5m <= (mean_bottom + sd_bottom)) %>% 
-  group_by(reg.inuk, Depth_5m) %>% 
-  summarise(daily_poc_mgC_m2_d = mean(ModelFlux, na.rm = T),
-            daily_poc_mgC_m2_d_sd = sd(ModelFlux, na.rm = T),
-            n5mbins = n(),
-            .groups = "drop")
-  
-
-# Separate 2 rows of regions
-upperplot <- c("NarSt","Pikia","TalIm")
-
-g1 <- ggplot() +
-   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
-  geom_line(data = pocFlux_station_year %>% 
-  filter(station_year %in% pocFlux.ave.200$station_year) %>%
-         filter(reg.inuk %in% upperplot), 
-       aes(x = Depth_5m, y = ModelFlux, 
-           group = station_year, color = reg.inuk),
-       alpha = 0.2) +
-  geom_line(data = region_pocFlux %>% 
-         filter(reg.inuk %in% upperplot), 
-       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, group = reg.inuk), 
-       color = "black", linewidth = 1) +
-  scale_x_reverse(expand = c(0,0)) +
-  scale_y_log10() +
-  coord_flip() +
-  xlab("Depth (m)") +
-  theme(legend.position = "none", 
-        strip.background = element_blank(),
-        axis.title.x = element_blank()) +
-  scale_color_manual(values = clrs[1:3], 
-                     name = "Region") +
-  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
-
-g2 <- ggplot() +
-   geom_vline(xintercept = 100, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 200, color = "gray", linetype = "dotted") +
-   geom_vline(xintercept = 500, color = "gray", linetype = "dotted") +
-  geom_line(data = pocFlux_station_year %>% 
-  filter(station_year %in% pocFlux.ave.200$station_year) %>%
-         filter(reg.inuk %notin% upperplot), 
-       aes(x = Depth_5m, y = ModelFlux, 
-           group = station_year, color = reg.inuk),
-       alpha = 0.2) +
-  geom_line(data = region_pocFlux %>% 
-         filter(reg.inuk %notin% upperplot), 
-       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, group = reg.inuk), 
-       color = "black", linewidth = 1) +
-  scale_x_reverse(expand = c(0,0)) +
-  scale_y_log10() +
-  coord_flip() +
-  xlab("Depth (m)") +
-  ylab("POC flux (mg C m⁻² d⁻¹)") +
-  theme(legend.position = "none", strip.background = element_blank()) +
-  scale_color_manual(values = clrs[4:7], 
-                     name = "Region") +
-  facet_wrap(~reg.inuk, scales = "free_y", nrow = 1)
-
-cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL, 
-                                      nrow = 1, rel_widths = c(0.5,3,0.5)),
-                   g2,ncol = 1)
-
-ggsave("figures/Supp_region_POC_flux_20260513.png",
-       width = 9, height = 8, units = "in", bg = "white")
-
-# TODO only select profiles used in the LPC vs POC fluxc comparison?
-ggplot() +
-  geom_line(data = region_pocFlux, 
-       aes(x = Depth_5m, y = daily_poc_mgC_m2_d, 
-           group = reg.inuk, color = reg.inuk), 
-       linewidth = 1, alpha = 0.8) +
-  scale_x_reverse(expand = c(0,0), limits = c(0,500)) +
-  coord_flip() +
-  xlab("Depth (m)") +
-  ylab("Nitrate") +
-  theme(legend.position = "none", 
-        strip.background = element_blank(),
-        axis.title.x = element_blank()) +
-  scale_color_manual(values = clrs, 
-                     name = "Region") 
-
-
-```
-
 
 ## Prepare comparisons
 ```{r}
 pocFlux.region.200 <- pocFlux.ave.200 %>% 
-  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
-                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   group_by(reg.inuk) %>% 
   summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
             poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
@@ -300,8 +118,6 @@ pocFlux.region.200 <- pocFlux.ave.200 %>%
             n = n(), .groups = "drop")
 
 pocFlux.region.500 <- pocFlux.ave.500 %>% 
-  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
-                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   group_by(reg.inuk) %>% 
   summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
             poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
@@ -310,8 +126,6 @@ pocFlux.region.500 <- pocFlux.ave.500 %>%
             n = n(), .groups = "drop")
 
 pocFlux.region.100 <- pocFlux.ave.100 %>% 
-  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
-                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   group_by(reg.inuk) %>% 
   summarise(poc_gC_m2_yr_mean = mean(poc_gC_m2_yr, na.rm = T),
             poc_gC_m2_yr_sd = sd(poc_gC_m2_yr, na.rm = T),
@@ -550,8 +364,8 @@ p1 <- ggplot() +
   theme(legend.position = "bottom",
         legend.title.position = "top",
         legend.box = "vertical") +
-  xlab(expression(LPC~flux~(g~C~m^{-2}~y^{-1})) )+
-  ylab(expression(POC~flux[100*m]~(g~C~m^{-2}~y^{-1}))) 
+  xlab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1})) )+
+  ylab(expression(POC~flux[100*m]~(g~C~m^{-2}~yr^{-1}))) 
   
   # For 500 m points
 p2 <- ggplot() +
@@ -591,8 +405,8 @@ p2 <- ggplot() +
   theme(legend.position = "bottom",
         legend.title.position = "top",
         legend.box = "vertical") +
-  xlab(expression(LPC~flux~(g~C~m^{-2}~y^{-1})) )+
-  ylab(expression(POC~flux[500*m]~(g~C~m^{-2}~y^{-1}))) 
+  xlab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1})) )+
+  ylab(expression(POC~flux[500*m]~(g~C~m^{-2}~yr^{-1}))) 
 
 
 
@@ -607,7 +421,7 @@ p3 <- ggplot(data = sedTrap.Arctic,
   geom_point(aes(shape = AreaCode, fill = Depth_m), 
              size = 3, alpha = 0.8,
              position = position_jitter(width = 0.02, height = 0)) +
-  ylab(expression(POC~flux~(g~C~m^{-2}~y^{-1}))) +
+  ylab(expression(POC~flux~(g~C~m^{-2}~yr^{-1}))) +
   xlab("Sediment\ntrap") +
   scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
   scale_fill_viridis_c(end = 0.9, direction = -1, name = "Depth (m)") +
@@ -627,7 +441,7 @@ p3 <- ggplot(data = sedTrap.Arctic,
 cowplot::plot_grid(p3, p1, p2,labels = "auto",
                    rel_widths = c(3,6,4), nrow = 1, align = "h")
 
-ggsave("figures/figS7_POC_flux_diff_depths_20260513.png",
+ggsave("figures/figS7_POC_flux_diff_depths_20260515.png",
        width = 10, height = 6, units = "in", bg = "white")
 ```
 
@@ -635,7 +449,7 @@ ggsave("figures/figS7_POC_flux_diff_depths_20260513.png",
 ```{r}
 save(flux.comp.100, flux.comp.200, flux.comp.500, sed.trap.NOW,
      flux.com.profiles.100, flux.com.profiles.200, flux.com.profiles.500,
-     file = "data/UVP6_POC_lipidC_flux_comparisons_20260513.RData")
+     file = "data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
 
 # Note these are the profiles not included in the LPC vs POC flux comparison
 AA <- Amund_UVP6_meta %>% 
@@ -651,9 +465,6 @@ AA <- Amund_UVP6_meta %>%
 ```{r}
 # paired t-test + normality check of paired differences
 results.200 <- flux.com.profiles.200 %>%
-  
-  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
-                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   mutate(
     POC_Flux = poc_gC_m2_yr,
     LipidC_Flux = lipid_gC_m2_yr,
@@ -739,9 +550,6 @@ write.csv(Table.S9, file = "tables/Table9_POC_vs_LPC_flux.csv")
 ## similar test for 100 m and 500 m
 ```{r}
 results.100 <- flux.com.profiles.100 %>%
-  
-  mutate(poc_gC_m2_yr = if_else(reg.inuk == "NarSt",
-                                poc_gC_m2_yr_nares, poc_gC_m2_yr)) %>% 
   mutate(
     POC_Flux = poc_gC_m2_yr,
     LipidC_Flux = lipid_gC_m2_yr,
@@ -1027,7 +835,7 @@ pocFlux_UVP5_profiles <- pocFlux_UVP5 %>%
   left_join(UVP5_CA_Arctic_meta %>% 
               select(Profile, Deepest_Bin), by = "Profile") %>% 
   
-  # TODO try to remove benthic nephroid layer?
+  # TODO try to remove benthic nepheloid layer?
    # consider only stations with at least 300m depth?
   filter(Deepest_Bin >= 300) %>% 
   mutate(Month = month(Date_Time)) %>% 

@@ -38,7 +38,8 @@ lambda: the particle size (mm) where power law is truncated
 library(tidyverse)
 # library(stats)
 
-theme_set(theme_bw())
+theme_set(theme_bw() +
+            theme(text = element_text(size=16)))
 `%notin%` <- Negate(`%in%`)
 
 
@@ -353,22 +354,31 @@ pocFlux.region.500 <- pocFlux.ave.500 %>%
             n = n(), .groups = "drop")
 ```
 
-## Calculate Martin's curve
+## Martin's curve
 ```{r}
 martin_params <- pocFlux_UVP6 %>%
   filter(station_year %notin% to_exclude_500) %>% 
   filter(ModelFlux > 0) %>%
-  # Cap it at 600 m so all regions comparable
-  filter(Depth_bin <= 600) %>% 
+  # # remove bottom 100 or X m?
+  # left_join(Amund_UVP6_meta %>%
+  #             select(station_year, bottom_depth_m) %>%
+  #             distinct(station_year, .keep_all = T)) %>%
+  # filter(Depth_bin < (bottom_depth_m-200)) %>%
   group_by(reg.inuk) %>%
   group_modify(~ {
+
     fit <- lm(log10(ModelFlux) ~ log10(Depth_bin / 100), data = .x)
+
+    coefs <- summary(fit)$coefficients
 
     tibble(
       intercept_log10 = coef(fit)[1],
       slope = coef(fit)[2],
       F100 = 10^coef(fit)[1],
-      b = -coef(fit)[2]
+      b = -coef(fit)[2],
+      p.value = coefs[2, 4],
+      adj.r.squared = summary(fit)$adj.r.squared,
+      n = nobs(fit)
     )
   })
 
@@ -393,6 +403,7 @@ ggplot(pocFlux_UVP6 %>%
   filter(station_year %notin% to_exclude_500), 
   aes(x = Depth_bin, y = ModelFlux,
                          group = reg.inuk)) +
+  
   geom_line(aes(group = station_year, color = reg.inuk), alpha = 0.3) +
    geom_line(
     data = martin_pred,
@@ -401,12 +412,14 @@ ggplot(pocFlux_UVP6 %>%
     linewidth = 1.2
   ) +
 
-  scale_y_continuous(limits = c(0, 100)) +
+  # scale_y_continuous(limits = c(0, 100)) +
+  scale_y_log10() +
   scale_x_reverse(limits = c(0, 600)) +
   coord_flip() +
   scale_color_manual(values = clrs) +
   facet_wrap(~reg.inuk, scales = "free") +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        strip.background = element_blank())
 
 ```
 
@@ -558,7 +571,180 @@ file = "data/POC_flux_UVP6_20260515.RData")
 
 ```
 
+# Supp Fig POC flux char
+A. Daily POC flux at 200m
+B. NBSS slope at 200 m
+C. Martin's curv attenuation
+```{r}
+figA <- ggplot(data = pocFlux.ave.200, 
+               aes(x = reg.inuk, y = poc_mgC_m2_d)) +
+  geom_violin(aes(fill = reg.inuk),
+    scale = "width",  alpha = 0.6) +
+  stat_summary(fun = mean, geom = "point", size = 2) +
+  stat_summary(fun.data = mean_sdl,
+    fun.args = list(mult = 1), geom = "errorbar", width = 0) +
+  scale_color_manual(values = clrs) +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "none") +
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
+  xlab("Subregion") 
 
+# distribution of NBSS intercepts
+figB <- ggplot(particle.nbss %>% filter(Depth_bin == 200), 
+       aes(x = reg.inuk, y = slope, fill = reg.inuk)) +
+  geom_violin(aes(fill = reg.inuk),
+    scale = "width",  alpha = 0.6) +
+  stat_summary(fun = mean, geom = "point", size = 2) +
+  stat_summary(fun.data = mean_sdl,
+    fun.args = list(mult = 1), geom = "errorbar", width = 0) +
+  scale_fill_manual(values = clrs) +
+  theme(legend.position = "none") +
+  ylab(expression(NBSS[200*m]~slope)) +
+  xlab("Subregion") 
+
+plot_grid(figA, figB, labels = "auto", nrow = 1)
+```
+
+```{r}
+martin_params.labels <- martin_params %>% 
+  select(reg.inuk, b, pval = p.value, adj.r.squared) %>% 
+  transmute(reg.inuk,
+            label = paste0("b = ", round(b, 2),
+      "\n", expression(R^2), " = ", round(adj.r.squared, 2)))
+
+upperplot <- c("NarSt","Pikia","QikSh","NunSh")
+botplot <- c("TalIm", "SanIm","QikIk")
+
+g1 <- ggplot() +
+  geom_line(data = pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+         filter(reg.inuk %in% upperplot), 
+       aes(x = Depth_bin, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.3) +
+  
+   geom_line(
+    data = martin_pred %>% 
+         filter(reg.inuk %in% upperplot),
+    aes(x = Depth_bin, y = ModelFlux_pred), 
+    color = "black",
+    linewidth = 1.2
+  ) +
+  
+  geom_text(data = martin_params.labels %>% 
+      filter(reg.inuk %in% upperplot),
+    aes(x = 600, y = 0.25, label = label),
+    hjust = 0, vjust = 0, size = 4, inherit.aes = FALSE) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = clrs[c(1,2,6,7)], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk,  nrow = 1)
+
+g2 <- ggplot() +
+  geom_line(data = pocFlux_UVP6 %>% 
+  filter(station_year %notin% to_exclude_500) %>% 
+         filter(reg.inuk %in% botplot), 
+       aes(x = Depth_bin, y = ModelFlux, 
+           group = station_year, color = reg.inuk),
+       alpha = 0.3) +
+  
+   geom_line(
+    data = martin_pred %>% 
+         filter(reg.inuk %in% botplot),
+    aes(x = Depth_bin, y = ModelFlux_pred), 
+    color = "black",
+    linewidth = 1.2
+  ) +
+  geom_text(data = martin_params.labels %>% 
+      filter(reg.inuk %in% botplot),
+    aes(x = 2200, y = 0.25, label = label),
+    hjust = 0, vjust = 0, size = 4, inherit.aes = FALSE) +
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("POC flux (mg C m⁻² d⁻¹)") +
+  theme(legend.position = "none", strip.background = element_blank()) +
+  scale_color_manual(values = clrs[3:5], 
+                     name = "Region") +
+  facet_wrap(~reg.inuk, nrow = 1)
+
+g1
+g2
+
+cowplot::plot_grid(g1,
+  cowplot::plot_grid(NULL,g2,NULL, nrow = 1, rel_widths = c(0.5,3,0.5)),
+  ncol = 1, rel_heights = c(1,1.5))
+
+ggsave("figures/test_POC_profiles_martinsb.png",
+       width = 10, height = 6, units = "in", bg = "white")
+
+plot_grid(
+  plot_grid(figA, figB, labels = "auto", nrow = 1),
+  
+  plot_grid(g1,
+            plot_grid(NULL,g2,NULL, nrow = 1, rel_widths = c(0.5,3,0.5)),
+            ncol = 1, rel_heights = c(1,1.5)),
+  ncol = 1, labels = c("","c"), rel_heights = c(1,1.5))
+
+ggsave("figures/test_suppfig_POC200m.png",
+       width = 10, height = 12, units = "in", bg = "white")
+```
+
+```{r}
+ggplot() +
+  
+  geom_line(
+    data = pocFlux_UVP6 %>% 
+      filter(station_year %notin% to_exclude_500) %>% 
+      filter(reg.inuk %in% upperplot), 
+    aes(
+      x = Depth_bin,
+      y = ModelFlux,
+      group = station_year,
+      color = reg.inuk
+    ),
+    alpha = 0.2
+  ) +
+  
+  geom_line(
+    data = martin_pred %>% 
+      filter(reg.inuk %in% upperplot),
+    aes(x = Depth_bin, y = ModelFlux_pred), 
+    color = "black",
+    linewidth = 1.2
+  ) +
+  
+  # annotation
+  geom_text(data = martin_params.labels %>% 
+      filter(reg.inuk %in% upperplot),
+    aes(x = 120, y = 0.25, label = label),
+    hjust = 0, vjust = 0, size = 4, inherit.aes = FALSE) +
+  
+  scale_x_reverse(expand = c(0,0)) +
+  scale_y_log10() +
+  coord_flip() +
+  xlab("Depth (m)") +
+  
+  theme(
+    legend.position = "none", 
+    strip.background = element_blank(),
+    axis.title.x = element_blank()
+  ) +
+  
+  scale_color_manual(
+    values = clrs[1:3], 
+    name = "Region"
+  ) +
+  
+  facet_wrap(~reg.inuk, nrow = 1)
+```
 
 # **** UVP5 ****
 

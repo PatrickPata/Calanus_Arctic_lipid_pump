@@ -1,0 +1,149 @@
+---
+title: "Calculate Arctic NPP"
+author: "Patrick Pata"
+date: "2026-05-27"
+output: html_document
+---
+
+Calculate annual NPP of the Arctic from the Takuvik NPP model. Resolution: 4 km.
+Outputs: https://zenodo.org/records/20028548
+Code: https://doi.org/10.5281/zenodo.14715624
+
+Grid file: CCI-V6_NPP_1D_DAILY_4KM_SIN_TAKUVIK_ARCTIC_ALLPIXELS_COORDINATES.csv ... where is this file?
+
+Data is in daily csv files locally stored here: C:\Sync\Arctic NPP model results
+
+Daily NPP is summed to get annual NPP. What to do with NAs? Interpolate?
+
+NPP unit is (mgC.m-2.d-1)  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+
+
+fol <- "C:/Sync/Arctic NPP model results/CCI-V6_NPP_1D_DAILY_4KM_SIN_TAKUVIK_ARCTIC_2023_ppv2/"
+
+# # Test file
+# fil <- paste0(fol, "CCI-V6_NPP_1D_DAILY_4KM_SIN_TAKUVIK_ARCTIC_20230701_ppv2.csv")
+# npp <- read.csv(fil)
+
+# Loop through all files and sum to get NPP in gC m-2 yr-1
+
+# Get all CSV files
+csv_files <- list.files(fol, pattern = "\\.csv$", full.names = TRUE)
+
+# Read and combine all CSV files
+daily_npp <- lapply(seq_along(csv_files), function(i) {
+  read.csv(csv_files[i]) %>%
+    filter(longitude >= -85 & longitude <= -52) %>% 
+    mutate(filename = basename(csv_files[i]),
+           DOY = i,
+           date = as.Date(stringr::str_extract(filename, "\\d{8}"),
+                          format = "%Y%m%d"))}) %>%
+  bind_rows()
+```
+
+## Get area totals?
+- Use bathymetry and grid file to get area per grid cell
+- Sum all grid cells? Assign to region??..
+- OR match the grid points with data 
+
+```{r}
+# Get nearest neighbor grid cell relative to the Amundsen UVP data... add 
+library(geosphere)
+
+df_target <- annual_npp %>% 
+  select(binindex, lon = longitude, lat = latitude)
+
+df_source <- Amund_UVP6_meta %>% 
+  select(region.inuk, lon = object_lon, lat = object_lat) %>% 
+  distinct(lon, lat, .keep_all = T)
+
+# within # km from UVP6 point
+dist_matrix <- distm(
+  x = df_target[, c("lon", "lat")],
+  y = df_source[, c("lon", "lat")],
+  fun = distHaversine
+)
+
+nearest_within_20km <- lapply(seq_len(nrow(df_target)), function(i) {
+  idx <- which(dist_matrix[i, ] <= 20000)
+
+  if (length(idx) == 0) return(NULL)
+
+  df_source[idx, ] %>%
+    mutate(
+      target_id = i,
+      target_binindex = df_target$binindex[i],
+      target_lon = df_target$lon[i],
+      target_lat = df_target$lat[i],
+      distance_m = dist_matrix[i, idx]
+    )
+}) %>%
+  bind_rows()
+
+# check if there are any overlaps between regions
+check.overlap <- nearest_within_20km %>% 
+  distinct(region.inuk, target_binindex, target_lon, target_lat) %>% 
+  group_by(target_binindex) %>% 
+  mutate(nreg = n()) %>% 
+  filter(nreg > 1)
+```
+
+
+# Only analyze grid cells matching UVP6 profiles
+```{r}
+daily_npp_sub <- daily_npp %>% 
+  filter(binindex %in% nearest_within_20km$target_binindex)
+
+daily_npp_interp <- daily_npp_sub %>% 
+  group_by(binindex, latitude, longitude) %>%
+  mutate(ndays = n()) %>% 
+  ungroup() %>% 
+  # only grid cells with more than 3 data points
+  filter(ndays > 3) %>% 
+  group_by(binindex, latitude, longitude) %>%
+  complete(DOY = 1:365) %>%
+  arrange(DOY, .by_group = TRUE) %>%
+  mutate(NPP_interp = approx(
+      x = DOY[!is.na(NPP)],
+      y = NPP[!is.na(NPP)],
+      xout = DOY,
+      rule = 1 )$y) %>%
+  ungroup() %>% 
+  filter(!is.na(NPP_interp))
+
+
+annual_npp_interp <- daily_npp_interp %>% 
+  group_by(binindex, longitude, latitude) %>% 
+  summarise(ndays = n(),
+            NPP_mgCm2yr = sum(NPP_interp, na.rm = T),
+            .groups = "drop") %>% 
+  mutate(NPP_gCm2yr = NPP_mgCm2yr / 1000) %>% 
+  filter(NPP_gCm2yr > 0) 
+
+# get regional averages
+annual_npp_region <- annual_npp_interp %>% 
+  left_join(nearest_within_20km %>% 
+              rename(longitude = target_lon, latitude = target_lat) %>% 
+              distinct(region.inuk, longitude, latitude)) %>% 
+  group_by(region.inuk) %>% 
+  summarise(ncells = n(),
+            ndays_mean = mean(ndays),
+            ndays_sd = sd(ndays),
+            NPP_gCm2yr_mean = mean(NPP_gCm2yr),
+            NPP_gCm2yr_sd = sd(NPP_gCm2yr),
+            .groups = "drop")
+
+ggplot(annual_npp_interp %>% 
+         filter(binindex %in% nearest_within_10km$target_binindex), 
+       aes(x = longitude, y = latitude, 
+           color = NPP_gCm2yr)) +
+  geom_point() +
+  scale_color_viridis_c(limits = c(0,60))
+```
+

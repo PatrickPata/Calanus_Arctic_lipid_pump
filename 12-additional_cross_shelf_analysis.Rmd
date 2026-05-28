@@ -114,8 +114,12 @@ df.profile.lpc <- df.profile %>%
               distinct(station_year, .keep_all = T) )
 
 # GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
+# Running s(depth) + s(lat) VS te(depth, lat) yields similar models
+# ti(depth, lat) does not result in significant change so excluded
 mod.lpc <- gam(
-  total_gC_flux_m2 ~ s(bottom_depth_m, k = 3) + s(latitude, k = 3) +
+  total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + 
+    # ti(bottom_depth_m, latitude) +
+    # te(bottom_depth_m, latitude) +
    DOY + Year,
   data = df.profile.lpc,
   method = "REML"
@@ -157,7 +161,11 @@ newdat2$fit <- pred2$fit
 newdat2$lwr <- pred2$fit - 1.96 * pred2$se.fit
 newdat2$upr <- pred2$fit + 1.96 * pred2$se.fit
 
+
+plot(mod.lpc, scheme = 2)
+# gratia::draw(mod.lpc, select = "ti(bottom_depth_m,latitude)")
 ```
+
 
 
 ## GAM POC vs depth
@@ -171,7 +179,10 @@ df.profile.poc <- flux.com.profiles.200 %>%
 
 # GAM of POC flux at 200 m with bottom depth, latitude, and sampling day and year as predictors
 mod.poc <- gam(
-  poc_mgC_m2_d ~ s(bottom_depth_m, k = 3) + DOY + Year + s(latitude, k = 3),
+  poc_mgC_m2_d ~ s(bottom_depth_m) + s(latitude, k = 5) + 
+    # te(bottom_depth_m, latitude) +
+    # ti(bottom_depth_m, latitude) +
+   DOY + Year ,
   data = df.profile.poc,
   method = "REML"
 )
@@ -210,11 +221,9 @@ pred2 <- predict(mod.poc, newdata = newdat.poc2, se.fit = TRUE)
 newdat.poc2$fit <- pred2$fit
 newdat.poc2$lwr <- pred2$fit - 1.96 * pred2$se.fit
 newdat.poc2$upr <- pred2$fit + 1.96 * pred2$se.fit
+
+plot(mod.poc, scheme = 3)
 ```
-
-The LPC flux model explained 44.8% of deviance with Radj2 = 0.43 (n = 208) with a weak negative effect of day of year (β = −0.012, p = 0.023) and no significant effect of year. The GAM smooths (±95% CI) terms were significant between LPC flux and (a) latitude (edf = 2.82, F = 9.1, p < 0.001) and (b) bottom depth (edf = 2.85, F = 33.11, p < 0.001). 
-
-The POC flux model explained 27.6% of deviance with Radj2 = 0.25 (n = 151) with a positive year (β = 1.25, p = 0.001) and no significant effect of day of year. The GAM smooths (±95% CI) terms were significant between POC flux and (c) latitude (edf = 1.61, F = 6.65, p = 0.006) and (d) bottom depth (edf = 1.84, F = 5.88, p = 0.007). 
 
 # Global GAM results in 1 figure
 ```{r, fig.width=7, fig.height=5}
@@ -313,8 +322,10 @@ cowplot::plot_grid(p1,p2,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
+# cowplot::plot_grid(p1,p2)
+# cowplot::plot_grid(p4,p5,p6)
 
-ggsave("figures/Supp_LPC_POC_GAM_fits_2060515.png", width = 14, height = 10,
+ggsave("figures/Supp_LPC_POC_GAM_fits_2060528.png", width = 14, height = 10,
        units = "in", bg = "white")
 ```
 
@@ -328,8 +339,8 @@ mods.lpc.reg <- df.profile.lpc %>%
   set_names(levels(df.profile.lpc$reg.inuk)) %>%
   map(~ gam(
     total_gC_flux_m2 ~ 
-      s(bottom_depth_m, k = 3) +
-      s(latitude, k = 3) +
+      s(bottom_depth_m) +
+      s(latitude) +
       DOY + Year,
     data = .x,
     method = "REML"
@@ -370,7 +381,7 @@ gam_stats <- bind_rows(
   filter(p.value < 0.05)
 
 # Export GAM stats
-write.csv(gam_stats, file = "tables/GAM_subregions_20260516.csv",
+write.csv(gam_stats, file = "tables/GAM_subregions_20260528.csv",
           row.names = F)
 
 # New Fig 4b
@@ -391,7 +402,7 @@ fig4b <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   theme(legend.position = "none")
 
 # New Fig 4a
-label_levels <- df_to_plot %>%
+label_levels <- df.region %>%
   mutate(region_label = paste0(reg.inuk, "\n(n=", n,")")) %>% 
   distinct(reg.inuk, region_label) %>%
   arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
@@ -424,7 +435,7 @@ cowplot::plot_grid(fig4a, fig4b,
                    nrow = 1, labels = "auto",
                    rel_widths = c(1,1.3))
 
-ggsave(filename = "figures/new_fig4_only_LPC_20260516.png",
+ggsave(filename = "figures/new_fig4_only_LPC_20260528.png",
        width = 12, height = 6, units = "in", bg = "white")
 ```
 

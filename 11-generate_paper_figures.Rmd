@@ -612,6 +612,8 @@ np2 <- ggplot(df.region.long,
 np2
 ```
 
+
+
 ## New B If adding the LPC and POC flux in the same figure
 ```{r}
 # do this to the 148 stations with both LPC & POC fluxes
@@ -629,7 +631,7 @@ df.region.200m <- df.profile %>%
                    list(mean = mean, sd = sd),
                    na.rm = TRUE),
             .groups = "drop") %>% 
-  select(region.inuktitut, reg.inuk, n,
+  select(region.inuk, reg.inuk, n,
          `diapause respiration` = respired_C_gC_m2_mean, 
          `mortality structural` = structural_gC_m2_mort_mean, 
          `mortality storage` = waxester_gC_m2_mort_mean) %>%  
@@ -653,7 +655,7 @@ df.region.200m <- df.profile %>%
                                        "Respiration")))
 
 label_levels.200m <- df.region.200m %>%
-  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")")) %>% 
+  mutate(region_label = paste0(region.inuk, "\n(n=", n,")")) %>% 
   distinct(reg.inuk, region_label) %>%
   arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
   pull(region_label)
@@ -702,6 +704,90 @@ df.region.200m %>%
   mutate(LPC_POC_ratio = (total_c_flux-Cflux)/Cflux) %>% 
   select(reg.inuk, n, total_c_flux, LPC_perc, POC_perc, LPC_POC_ratio)
 ```
+
+
+
+### Add NPP to the C-flux figure
+```{r}
+region_clim_npp <- read.csv("tables/NPP_ratio_20260528.csv") %>% 
+  left_join(region_rename %>% select(reg.inuk, region.inuk))
+
+# To scale NPP to Cflux axis
+npp_scale <- 10 / max(region_clim_npp$NPP_mean + region_clim_npp$NPP_sd)
+
+
+np2 <- ggplot(df.region.200m,
+       aes(x = reg.inuk)) +
+  
+  ggpattern::geom_col_pattern(aes(y = Cflux, fill = reg.inuk, 
+                                  pattern = Component, 
+                                  alpha = Component),
+                              stat = "identity", color = "black",
+                              pattern_color = "white",
+                              pattern_spacing = 0.02,
+                              pattern_density = 0.1)+
+  
+  geom_errorbar(data = region_clim_npp,
+    aes(x = reg.inuk,
+      ymin = (NPP_mean - NPP_sd) * npp_scale,
+      ymax = (NPP_mean + NPP_sd) * npp_scale),
+    inherit.aes = FALSE,width = 0.2, color = "gray20") +
+
+  geom_point(data = region_clim_npp,
+    aes(x = reg.inuk, y = NPP_mean * npp_scale ),
+    inherit.aes = FALSE,
+    size = 4, shape = 23, color = "gray20", fill = "gray50") +
+
+  scale_fill_manual(values = clrs,
+                    guide = "none") +
+  scale_alpha_manual(values = c(0.2,0.7, 0.7, 1),
+                     guide = "none") +
+  ggpattern::scale_pattern_manual(values = c("none","circle",
+                                             "stripe","none")) +
+  
+  scale_y_continuous(
+    expand = c(0, 0),
+    breaks = seq(0, 10, 2),
+    limits = c(0, 10.1),
+    name = expression(LPC~flux~+~POC~flux[200*m]~(g~C~m^{-2}~yr^{-1})),
+    sec.axis = sec_axis(~ . / npp_scale,
+                        name = expression(NPP~(g~C~m^{-2}~yr^{-1}))) ) +
+  
+  scale_x_discrete(labels = label_levels.200m) +
+theme(axis.title.y.right = element_text(color = "gray50"),
+      axis.text.y.right = element_text(color = "gray50"),
+      axis.text.x = element_blank(),
+      legend.position = "bottom",
+      legend.text = element_text(size = 12),
+      legend.box.just = "left",
+      legend.box = "horizontal",
+      legend.location = "plot") +
+  xlab("Subregion") +
+  guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
+         pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
+
+np2
+
+
+# Add region legends below
+fig_legend <- ggplot(df.profile, aes(x = reg.inuk)) +
+  geom_violin(aes(y = total_gC_flux_m2, fill = reg.inuk), color = NA) +
+  scale_fill_manual(values = clrs, labels = label_levels.200m,
+                    name = "Subregions") +
+    guides(fill = guide_legend(row = 2, byrow = TRUE))+
+  theme(legend.position = "bottom")
+legend <- ggpubr::get_legend(fig_legend)
+
+cowplot::plot_grid(
+  plot_grid(np2, np3, 
+          rel_widths = c(1.4,1), nrow = 1, labels = "auto") ,
+  legend, ncol = 1, rel_heights = c(1,0.2))
+
+
+ggsave("figures/Fig5_20260529.png", width = 12, height = 7,
+       units = "in", bg = "white")
+```
+
 
 ## Stat test to compare total C flux between subregions
 ```{r}
@@ -847,10 +933,9 @@ flux.comp.500 <- flux.comp.500 %>%
 #             labels = c("a","b")),
 #   np3, nrow = 1, labels = c("","c"))
 
-plot_grid(np2, np3, nrow = 1, labels = "auto") 
+plot_grid(np2, np3, 
+          rel_widths = c(1.4,1), nrow = 1, labels = "auto") 
 
-ggsave("figures/Fig5_20260515.png", width = 12, height = 6,
+ggsave("figures/Fig5_20260529.png", width = 12, height = 6,
        units = "in", bg = "white")
 ```
-
-

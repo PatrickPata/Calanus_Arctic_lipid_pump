@@ -302,8 +302,8 @@ p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
     color = "black",
     linewidth = 1) +
   scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
-  geom_point(aes(color = poc_mgC_m2_d)) +
-  scale_color_viridis_c(name = expression(atop(POC~flux[200*m],(mg~C~m^{-2}~d^{-1})))) +
+  geom_point(aes(color = poc_gC_m2_yr)) +
+  scale_color_viridis_c(name = expression(atop(POC~flux[200*m],(g~C~m^{-2}~yr^{-1})))) +
   theme(legend.position = "right") +
   xlab("Bottom depth (m)") + 
   ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
@@ -317,8 +317,8 @@ p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
   xlab("Year") + 
   ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
 
-cowplot::plot_grid(p1,p2,
-                   p4,p5,
+cowplot::plot_grid(p2,p1,
+                   p5,p4,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
@@ -403,7 +403,7 @@ fig4b <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
 
 # New Fig 4a
 label_levels <- df.region %>%
-  mutate(region_label = paste0(reg.inuk, "\n(n=", n,")")) %>% 
+  mutate(region_label = paste0(region.inuk, "\n(n=", n,")")) %>% 
   distinct(reg.inuk, region_label) %>%
   arrange(match(reg.inuk, levels(region_rename$reg.inuk))) %>%
   pull(region_label)
@@ -427,17 +427,29 @@ fig4a <- ggplot(df.profile,
   scale_x_discrete(labels = label_levels) +
   scale_y_continuous(breaks = seq(0,13,1), expand = c(0,0)) +
   coord_cartesian(ylim = c(0, 8.2)) +
-  theme(legend.position = "none") +
+  theme(legend.position = "none",
+        axis.text.x = element_blank()) +
   ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   xlab("Subregion")
 
-cowplot::plot_grid(fig4a, fig4b, 
-                   nrow = 1, labels = "auto",
-                   rel_widths = c(1,1.3))
+fig_legend <- ggplot(df.profile, aes(x = reg.inuk)) +
+  geom_violin(aes(y = total_gC_flux_m2, fill = reg.inuk), color = NA) +
+  scale_fill_manual(values = clrs, labels = label_levels,
+                    name = "Subregions") +
+    guides(fill = guide_legend(row = 2, byrow = TRUE))+
+  theme(legend.position = "bottom")
+legend <- ggpubr::get_legend(fig_legend)
+
+cowplot::plot_grid(
+  cowplot::plot_grid(fig4a, fig4b, 
+                     nrow = 1, labels = "auto",
+                     rel_widths = c(1,1.3)),
+  legend, ncol = 1, rel_heights = c(1,0.3))
 
 ggsave(filename = "figures/new_fig4_only_LPC_20260528.png",
-       width = 12, height = 6, units = "in", bg = "white")
+       width = 10, height = 7, units = "in", bg = "white")
 ```
+
 
 
 # Size gradient with depth

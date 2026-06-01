@@ -120,7 +120,7 @@ mod.lpc <- gam(
   total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + 
     # ti(bottom_depth_m, latitude) +
     # te(bottom_depth_m, latitude) +
-   DOY + Year,
+   DOY + Year, 
   data = df.profile.lpc,
   method = "REML"
 )
@@ -140,6 +140,7 @@ newdat <- data.frame(
 
 pred <- predict(mod.lpc, newdata = newdat, se.fit = TRUE)
 
+# get fit and 95% confidence interval
 newdat$fit <- pred$fit
 newdat$lwr <- pred$fit - 1.96 * pred$se.fit
 newdat$upr <- pred$fit + 1.96 * pred$se.fit
@@ -163,6 +164,7 @@ newdat2$upr <- pred2$fit + 1.96 * pred2$se.fit
 
 
 plot(mod.lpc, scheme = 2)
+gam.check(mod.lpc) # note that pvalue here is for the residuals, so better if not sigdif
 # gratia::draw(mod.lpc, select = "ti(bottom_depth_m,latitude)")
 ```
 
@@ -223,6 +225,7 @@ newdat.poc2$lwr <- pred2$fit - 1.96 * pred2$se.fit
 newdat.poc2$upr <- pred2$fit + 1.96 * pred2$se.fit
 
 plot(mod.poc, scheme = 3)
+gam.check(mod.poc)
 ```
 
 # Global GAM results in 1 figure
@@ -322,26 +325,22 @@ cowplot::plot_grid(p2,p1,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
-# cowplot::plot_grid(p1,p2)
-# cowplot::plot_grid(p4,p5,p6)
 
-ggsave("figures/Supp_LPC_POC_GAM_fits_2060528.png", width = 14, height = 10,
-       units = "in", bg = "white")
+# ggsave("figures/Supp_LPC_POC_GAM_fits_2060528.png", width = 14, height = 10,
+#        units = "in", bg = "white")
 ```
 
 # LPC flux vs bottom depth by region
-## Fig 4 Plot all points and global GAM but add regional GAM fits
+## Regional GAM fits
 ```{r}
-# fit one GAM per reg.inuk group
+# fit one GAM ~ bottom depth per reg.inuk group, used to determine how much depth explains variability of LPC flux. 
 mods.lpc.reg <- df.profile.lpc %>%
   group_by(reg.inuk) %>%
   group_split() %>%
   set_names(levels(df.profile.lpc$reg.inuk)) %>%
   map(~ gam(
     total_gC_flux_m2 ~ 
-      s(bottom_depth_m) +
-      s(latitude) +
-      DOY + Year,
+      s(bottom_depth_m),
     data = .x,
     method = "REML"
   ))
@@ -377,24 +376,26 @@ gam_stats <- bind_rows(
   left_join(model_metrics, by = "reg.inuk") %>% 
   relocate(reg.inuk,  n, r.sq.adj, dev.expl) %>% 
   arrange(reg.inuk) %>% 
-  mutate(is.sig = if_else(p.value < 0.05, "true", "false")) %>% 
-  filter(p.value < 0.05)
+  mutate(is.sig = if_else(p.value < 0.05, "true", "false")) 
 
 # Export GAM stats
 write.csv(gam_stats, file = "tables/GAM_subregions_20260528.csv",
           row.names = F)
 
+```
+
+## Plot the results
+```{r}
 # New Fig 4b
 fig4b <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
-  geom_point(aes(color = reg.inuk), alpha = 0.3, shape = 4) +
+  # geom_point(aes(color = reg.inuk), alpha = 0.3, shape = 4) +
   geom_smooth(dat = df.profile.lpc, 
               aes(x = bottom_depth_m, y = total_gC_flux_m2, 
                   group = reg.inuk, color = reg.inuk, fill = reg.inuk),
               method = "gam", se = T, alpha = 0.1,
-              formula = y ~ s(x, k = 3)) +
-  
+              formula = y ~ s(x)) +
   scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
-  scale_y_continuous(limits = c(-0.3, 12.7), expand = c(0,0)) +
+  scale_y_continuous( breaks = seq(0,10,2), expand = c(0,0)) +
   xlab("Bottom depth (m)") + 
   ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   scale_color_manual(values = clrs) +
@@ -414,9 +415,9 @@ fig4a <- ggplot(df.profile,
   geom_violin(aes(y = total_gC_flux_m2, fill = reg.inuk),
               scale = "width", color = "white", alpha = 0.6) +
   
-  geom_point(data = df_to_plot, aes(y = total_gC_flux_m2_mean),
+  geom_point(data = df.region, aes(y = total_gC_flux_m2_mean),
               color = "black", alpha = 1, size = 3) +
-  geom_linerange(data = df_to_plot,
+  geom_linerange(data = df.region,
                  aes(ymin = total_gC_flux_m2_mean - total_gC_flux_m2_sd, 
                      ymax = total_gC_flux_m2_mean + total_gC_flux_m2_sd),
                  color = "black", linewidth = 0.7) +
@@ -446,10 +447,10 @@ cowplot::plot_grid(
                      rel_widths = c(1,1.3)),
   legend, ncol = 1, rel_heights = c(1,0.3))
 
+
 ggsave(filename = "figures/new_fig4_only_LPC_20260528.png",
        width = 10, height = 7, units = "in", bg = "white")
 ```
-
 
 
 # Size gradient with depth

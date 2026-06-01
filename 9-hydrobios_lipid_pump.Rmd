@@ -257,7 +257,7 @@ net_lipid_pump_region <- net_lipid_pump %>%
 
 
 # Format csv for Table 3: Regional averages
-tableS8 <- net_lipid_pump_region %>% 
+tableS5 <- net_lipid_pump_region %>% 
   # select(region.inuktitut, n, total_gC_flux_m2_mean, total_gC_flux_m2_sd) %>% 
   mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
          biomass_gC_m2 = sprintf("%.2f ± %.2f",biomass_gC_m2_mean, biomass_gC_m2_sd),
@@ -277,9 +277,11 @@ tableS8 <- net_lipid_pump_region %>%
          total_gC_flux_m2, total_gC_flux_m2_median, perc_C_flux, perc_respired,
          perc_structural, perc_waxester, perc_biomass_200m)
 
-# write.csv(tableS8, file = "tables/TableS4_net_regional_averages.csv")  
+# write.csv(tableS5, file = "tables/TableS5_net_regional_averages.csv")  
   
 ```
+
+
 
 # Net VS UVP LPC flux
 ```{r}

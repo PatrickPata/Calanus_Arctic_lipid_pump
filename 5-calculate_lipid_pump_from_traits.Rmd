@@ -762,14 +762,14 @@ cwm.profiles.long <- cwm.profiles %>%
                names_to = "trait", values_to = "value") %>% 
   mutate(trait = factor(trait, 
                         levels = c("prosome_length_mm", "waxester_mass_mgC",
-                                   "respirationRate_ugCday", "lipid_fullness", 
+                                    "lipid_fullness", "respirationRate_ugCday",
                                    "diapauseDuration_day", "temperature_C")))
   
 
 flabels <- c("prosome_length_mm" = "a. Prosome length\n(mm)", 
              "waxester_mass_mgC" = "b. Wax ester carbon\n(mg C)",
-             "respirationRate_ugCday" = "c. Diapause respiration rate\n(\u03bcg C day⁻¹)",
-             "lipid_fullness" = "d. Lipid fullness\n(%)", 
+             "lipid_fullness" = "c. Lipid fullness\n(%)", 
+             "respirationRate_ugCday" = "d. Diapause respiration rate\n(\u03bcg C day⁻¹)",
              "diapauseDuration_day" = "e. Potential diapause duration\n(day)", 
              "temperature_C" = "f. Ambient temperature\n(°C)")
 
@@ -785,7 +785,7 @@ ggplot(cwm.profiles.long, aes(x = reg.inuk, y = value,
   facet_wrap(~trait, scales = "free_x",
               labeller = as_labeller(flabels))
   
-# ggsave("figures/CWM_Traits.png", width = 8, height = 5, units = "in", bg = "white")
+ggsave("figures/FigS4_CWM_Traits_20260529.png", width = 8, height = 5, units = "in", bg = "white")
 
 # Ambient temp vs respiration rate and diapause duration
 plot_grid(

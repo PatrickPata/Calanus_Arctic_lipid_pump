@@ -843,6 +843,36 @@ subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
 
 ```
 
+## GAM CWM variation with depth and latitude
+```{r}
+library(mgcv)
+
+df.profile.cwm <- cwm.profiles %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(station_year, 
+                     bottom_depth_m, latitude = object_lat, 
+                     Year, DOY) %>% 
+              distinct(station_year, .keep_all = T) )
+
+# Check traits
+mod.cwm <- gam(
+  respirationRate_ugCday ~ s(bottom_depth_m) + s(latitude) + 
+   s(DOY) + Year, #+ s(temperature_C), 
+  data = df.profile.cwm,
+  method = "REML"
+)
+
+# GAM results
+summary(mod.cwm)
+
+plot(mod.cwm, scheme = 2)
+gam.check(mod.cwm) 
+
+# save(df.profile.cwm, 
+#      file = "data/CWM_traits_208profiles_20260601.RData")
+```
+
+
 
 # ---- Figure 3 different file ----
 

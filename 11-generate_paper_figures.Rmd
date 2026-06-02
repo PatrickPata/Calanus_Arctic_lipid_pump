@@ -391,7 +391,9 @@ biomass_vert_region <- df.station.100m %>%
               na.rm = TRUE), 
             .groups = "drop")  %>% 
   select(reg.inuk, Depth_100m, nprofiles,
-         abundance_m3 = abundance_m3_mean, biomass_m3 = biomass_mgC_m3_mean,
+         abundance_m3 = abundance_m3_mean, 
+         biomass_m3 = biomass_mgC_m3_mean,
+         abundance_m3_sd,
          biomass_mgC_m3_sd,
          lipid_m3 = waxester_mgC_m3_mean) %>% 
   # calculate total across all taxa
@@ -447,6 +449,72 @@ p4
 # ggsave("figures/Vertical_biomass_se_v2.png",
 #        width = 12, height = 6, units = "in", bg = "white")
 ```
+
+### Abundance vertical profile
+```{r, eval=FALSE}
+ggplot(biomass_vert_region_to_plot,
+             aes(x = Depth_100m, y = abundance_m3,
+                 color = reg.inuk)) +
+
+  geom_ribbon(aes( ymin = abundance_m3 - abundance_m3_sd,
+                    ymax = abundance_m3 + abundance_m3_sd,
+                   fill = reg.inuk),
+               alpha = 0.15, color = NA) +
+  geom_line(alpha = 1) +
+  geom_point(shape = 16, size = 2) +
+  coord_flip() +
+  scale_x_reverse(breaks = seq(0,2500,200), expand = c(0.01,0.01)) +
+  # scale_y_continuous(expand = c(0.01,0.01),
+  #             labels = scales::label_number(accuracy = 1)) +
+  scale_color_manual(values = unique(clrs),
+                     name = "Region") +
+  scale_fill_manual(values = unique(clrs),
+                     name = "Region") +
+  theme(legend.position = "none",
+        strip.background = element_blank(),
+        strip.text = element_text(size = 16)
+        ) +
+  xlab("Depth (m)") + ylab("Abundance (indiv m⁻³)") +
+  facet_wrap(~reg.inuk, scales = "free_x", space = "free_x", nrow = 1)
+
+
+abundance.check <- df.station.100m %>% 
+  select(station_year,
+         Depth_100m, depth_height_m, Sampled_volume_m3,
+         abundance_m3, abundance_m2, nprofiles) %>% 
+  group_by(station_year) %>% 
+  # Calculate the difference in abundance relative to the expected abundance if there were no vertical differences in distributions
+  mutate(mean_100bin_abundance = mean(abundance_m3)) %>% 
+  mutate(abundance_diff = abundance_m3 - mean_100bin_abundance) %>% 
+  ungroup() %>% 
+  left_join(Amund_UVP6_meta %>% 
+              distinct(station_year, .keep_all = T) %>% 
+              select(station_year, region.inuk, bottom_depth_m),
+            by = "station_year")
+
+ggplot(abundance.check, aes(x = abundance_diff)) +
+  geom_vline(xintercept = 0) +
+  geom_density(aes(color = region.inuk)) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none") +
+  facet_wrap(~region.inuk)
+
+abundance.check.region <- abundance.check %>% 
+  group_by(region.inuk, station_year) %>% 
+  summarise(diff_mean = mean(abundance_diff),
+            diff_sd = sd(abundance_diff),
+            diff_median = median(abundance_diff),
+            nbins = n(), .groups = "drop")
+
+# Check the standard deviations because the mean difference would always tend toward zero. Higher SD of abundance_diff mean that profiles are less evenly distributed vertically.
+ggplot(abundance.check.region, aes(x = diff_sd)) +
+  geom_vline(xintercept = 0) +
+  geom_density(aes(color = region.inuk)) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "bottom") 
+```
+
+
 
 ## Combine all to Fig3
 ```{r}
@@ -939,3 +1007,55 @@ plot_grid(np2, np3,
 ggsave("figures/Fig5_20260529.png", width = 12, height = 6,
        units = "in", bg = "white")
 ```
+
+# Extra: Estimating grazing pressure and fecal pellet production by individuals at the upper 200 m
+```{r}
+surface.assemblage <- df.station.100m %>% 
+  mutate(Depth_100m = as.numeric(as.character(Depth_100m))) %>% 
+  filter(Depth_100m < 200) %>% 
+  droplevels() %>% 
+  select(station_year, Depth_100m, depth_height_m, Sampled_volume_m3,
+         abundance_m2, biomass_gC_m2) %>% 
+  # sum upper 200 m biomass
+  group_by(station_year) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            total_biomass_gC_m2 = sum(biomass_gC_m2),
+            total_sampled_vol_m3 = sum(Sampled_volume_m3),
+            total_depth_sampled_m = sum(depth_height_m),
+            .groups = "drop") %>% 
+  left_join(Amund_UVP6_meta %>% 
+              distinct(station_year, .keep_all = T) %>% 
+              select(station_year, region.inuk, bottom_depth_m),
+            by = "station_year")
+
+ggplot(surface.assemblage, 
+       aes(x = bottom_depth_m, y = total_biomass_gC_m2)) +
+  geom_smooth() +
+  geom_point(aes(color = region.inuk)) +
+  scale_color_manual(values = clrs)
+
+# average surface abundance and biomass per region
+surface.assemblage.region <- surface.assemblage %>% 
+  group_by(region.inuk) %>% 
+  summarise(mean_surface_abundance_m2 = mean(total_abundance_m2),
+            sd_surface_abundance_m2 = sd(total_abundance_m2),
+            mean_surface_biomass_m2 = mean(total_biomass_gC_m2),
+            sd_surface_biomass_m2 = sd(total_biomass_gC_m2),
+            nprofiles = n(), .groups = "drop")
+
+# rough C budgets
+region.C.budgets <- df.region %>% 
+  select(region.inuktitut, n,
+         biomass_gC_m2_mean, biomass_gC_m2_sd) %>% 
+  mutate(ingestion_gC_d = biomass_gC_m2_mean * 0.01, # conservative 1% of carbon weight ingested per day
+         egestion_gC_d = ingestion_gC_d * 0.57) %>% 
+  mutate(grazing_pressure_90 = ingestion_gC_d * 90,
+         egestion_gC_90d = egestion_gC_d * 90) %>% 
+  # How much of the fecal pellets will reach 200m export?
+  # 10% of egestion exits epipelagic
+  mutate(egestion_gC_90d_export200m = egestion_gC_90d * 0.1) %>% 
+  # % relative to NPP of 40 g C m-2 yr-1
+  mutate(grazed_NPP = grazing_pressure_90/40*100,
+         egested_NPP = egestion_gC_90d_export200m/40*100)
+```
+

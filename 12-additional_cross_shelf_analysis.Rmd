@@ -120,7 +120,7 @@ mod.lpc <- gam(
   total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + 
     # ti(bottom_depth_m, latitude) +
     # te(bottom_depth_m, latitude) +
-   DOY + Year, 
+   s(DOY) + Year, 
   data = df.profile.lpc,
   method = "REML"
 )
@@ -168,6 +168,33 @@ gam.check(mod.lpc) # note that pvalue here is for the residuals, so better if no
 # gratia::draw(mod.lpc, select = "ti(bottom_depth_m,latitude)")
 ```
 
+
+### How about include trait data
+Note that this is only exploratory since LPC flux was derived from the trait data, so not independent values
+```{r, eval=FALSE}
+load("data/CWM_traits_208profiles_20260601.RData")
+df.profile.lpc.cwm <- df.profile.lpc %>% 
+  left_join(df.profile.cwm %>% 
+              select(station_year, 
+                     respirationRate_ugCday, prosome_total_mgC,
+                     temperature_C, lipid_fullness) %>% 
+              distinct(station_year, .keep_all = T) )
+
+# GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
+# Running s(depth) + s(lat) VS te(depth, lat) yields similar models
+# ti(depth, lat) does not result in significant change so excluded
+mod.lpc.cwm <- gam(
+  total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + 
+    s(temperature_C) +
+    s(DOY) + Year, 
+  data = df.profile.lpc.cwm,
+  method = "REML"
+)
+
+# GAM results (Note that without trais, dev explained is 46.8%)
+summary(mod.lpc.cwm)
+plot(mod.lpc.cwm, scheme = 2)
+```
 
 
 ## GAM POC vs depth
@@ -227,6 +254,100 @@ newdat.poc2$upr <- pred2$fit + 1.96 * pred2$se.fit
 plot(mod.poc, scheme = 3)
 gam.check(mod.poc)
 ```
+
+# TODO LPC:POC flux vs depth and latitude
+```{r}
+df.profile.ratio <- flux.com.profiles.200 %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(station_year, DOY, Year, bottom_depth_m,
+                     latitude = object_lat) %>% 
+              distinct(station_year, .keep_all = T)
+  ) %>% 
+  mutate(LPC_POC_ratio = lipid_gC_m2_yr/poc_gC_m2_yr)
+
+# GAM of POC flux at 200 m with bottom depth, latitude, and sampling day and year as predictors
+mod.ratio <- gam(
+  LPC_POC_ratio ~ s(bottom_depth_m) + s(latitude) + 
+   s(DOY) + Year,
+  data = df.profile.ratio,
+  method = "REML"
+)
+
+summary(mod.ratio)
+
+plot(mod.ratio, scheme = 3)
+gam.check(mod.ratio)
+
+# TODO Clean up these figures if adding to the manuscript
+# To plot bottom depth vs LPC:POC with the points
+newdat <- data.frame(
+  bottom_depth_m = seq(
+    min(df.profile.ratio$bottom_depth_m, na.rm = TRUE),
+    max(df.profile.ratio$bottom_depth_m, na.rm = TRUE),
+    length.out = 200
+  ),
+  latitude = median(df.profile.ratio$latitude, na.rm = TRUE),
+  DOY = median(df.profile.ratio$DOY, na.rm = TRUE),
+  Year = median(df.profile.ratio$Year, na.rm = TRUE)
+)
+
+pred <- predict(mod.ratio, newdata = newdat, se.fit = TRUE)
+
+newdat$fit <- pred$fit
+newdat$lwr <- pred$fit - 1.96 * pred$se.fit
+newdat$upr <- pred$fit + 1.96 * pred$se.fit
+
+ggplot() +
+  geom_point(
+    data = df.profile.ratio,
+    aes(bottom_depth_m, LPC_POC_ratio,
+        color = reg.inuk),
+    alpha = 0.8
+  ) +
+  geom_ribbon(
+    data = newdat,
+    aes(bottom_depth_m, ymin = lwr, ymax = upr),
+    alpha = 0.2
+  ) +
+  geom_line(
+    data = newdat,
+    aes(bottom_depth_m, fit),
+    linewidth = 1
+  ) +
+  labs(
+    x = "Bottom depth (m)",
+    y = "LPC:POC ratio"
+  ) +
+  # scale_y_log10() +
+  scale_color_manual(values = clrs) +
+  theme_bw()
+
+# To plot DOY vs LPC:POC with the points
+newdat <- data.frame(
+  DOY = seq(min(df.profile.ratio$DOY, na.rm = TRUE),
+            max(df.profile.ratio$DOY, na.rm = TRUE),
+            length.out = 200),
+  bottom_depth_m = median(df.profile.ratio$bottom_depth_m, na.rm = TRUE),
+  latitude = median(df.profile.ratio$latitude, na.rm = TRUE),
+  Year = median(df.profile.ratio$Year, na.rm = TRUE)
+)
+
+pred <- predict(mod.ratio, newdata = newdat, se.fit = TRUE)
+
+newdat$fit <- pred$fit
+newdat$lwr <- pred$fit - 1.96 * pred$se.fit
+newdat$upr <- pred$fit + 1.96 * pred$se.fit
+
+ggplot(newdat, aes(DOY, fit)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2) +
+  geom_line() +
+  geom_point(data = df.profile.ratio, 
+             aes(x = DOY, y = LPC_POC_ratio, 
+                 color = reg.inuk)) +
+  scale_color_manual(values = clrs) +
+  labs(x = "Day of year", y = "Predicted LPC:POC ratio")
+```
+
 
 # Global GAM results in 1 figure
 ```{r, fig.width=7, fig.height=5}

@@ -596,6 +596,9 @@ cwm.profiles <- indiv_traits %>%
          prosome_length_mm, lipid_fullness, waxester_mass_mgC, temperature_C,
          respirationRate_ugCday, diapauseDuration_day, 
          structural_carbon_mgC, prosome_total_mgC) %>% 
+  # # Cap diapause duration?
+  # mutate(diapauseDuration_day = if_else(diapauseDuration_day > 240,
+  #                                       240, diapauseDuration_day)) %>% 
   group_by(station_year, region.inuk, reg.inuk) %>% 
   summarise(across(where(is.numeric),  
                    ~ weighted.mean(.x, rel_abundance, na.rm = TRUE)),

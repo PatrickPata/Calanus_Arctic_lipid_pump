@@ -177,7 +177,9 @@ df.profile.lpc.cwm <- df.profile.lpc %>%
   left_join(df.profile.cwm %>% 
               select(station_year, 
                      respirationRate_ugCday, prosome_total_mgC,
-                     temperature_C, lipid_fullness) %>% 
+                     waxester_mass_mgC, lipid_fullness,
+                     temperature_C, respirationRate_ugCday,
+                     diapauseDuration_day) %>% 
               distinct(station_year, .keep_all = T) )
 
 # GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
@@ -185,6 +187,7 @@ df.profile.lpc.cwm <- df.profile.lpc %>%
 # ti(depth, lat) does not result in significant change so excluded
 mod.lpc.cwm <- gam(
   total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + 
+     s(prosome_total_mgC) + s(respirationRate_ugCday)  +
     s(temperature_C) +
     s(DOY) + Year, 
   data = df.profile.lpc.cwm,

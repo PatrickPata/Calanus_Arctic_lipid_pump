@@ -54,7 +54,7 @@ all_years_npp <- lapply(years, function(year) {
 save(all_years_npp, 
      file = "data/subset_TakuvikNPP_2014_2023.RData")
 
-# load("data/subset_TakuvikNPP_2019_2023.RData")
+# load("data/subset_TakuvikNPP_2014_2023.RData")
 ```
 
 ## Match grid data with UVP6 profile locations and regions
@@ -107,6 +107,10 @@ check.overlap <- nearest_within_20km %>%
 2. Interpolate daily blanks in a region
 3. Sum NPP in each region
 ```{r}
+
+clrs <- c("firebrick2","sienna1","goldenrod2","forestgreen",
+          "blue1","purple2","deeppink1")
+
 region_daily_npp <- all_years_npp %>% 
   filter(binindex %in% nearest_within_20km$target_binindex) %>% 
   # QA/QC
@@ -225,6 +229,54 @@ NPP.table <- region_clim_npp %>%
 
 # write.csv(NPP.table, file = "tables/NPP_ratio_20260528.csv")
 ```
+
+## Example figure: Map + NPP estimates
+```{r}
+library(ggOceanMaps)
+library(ggspatial)
+
+g1 <- basemap("ArcticStereographic", bathymetry = FALSE, glaciers = FALSE,
+        limits = c(-85,-52,54,83), rotate = T,
+        legends = TRUE, land.col = "ivory",  bathy.style = "contour_grays",
+        land.border.col = "black", gla.border.col = NA) +
+  ggspatial::geom_spatial_point(data = nearest_within_20km,
+                                aes(x = target_lon, y = target_lat, 
+                                    color = region.inuk), #color = "black",
+                                size = 1, alpha = 0.9) +
+    ggspatial::geom_spatial_point(data = nearest_within_20km,
+                                aes(x = lon, lat), color = "black",
+                                size = 0.5, alpha = 0.5) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(axis.title = element_blank(),
+        legend.position = c(0.05, 0.05), 
+        legend.justification = c("left", "bottom"),
+        legend.margin = ggplot2::margin(6,6,6,6),
+        legend.box.background = element_rect(fill = "white", color = "black")) +
+  ggtitle("Takuvik NPP model grid cells, 20-km from UVP6 stations")
+
+
+g2 <- ggplot(region_annual_npp_interp) +
+  geom_violin(aes(x = region.inuk, y = NPP_gCm2yr, fill = region.inuk),
+       scale = "width", color = "white", alpha = 0.7) +
+  scale_fill_manual(values = clrs, guide = F) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 10)) +
+  geom_errorbar(data = region_clim_npp,
+                aes(x = region.inuk,
+                    ymin = NPP_mean - NPP_sd,
+                    ymax = NPP_mean + NPP_sd), width = 0.4) +
+  geom_point(data = region_clim_npp, 
+             aes(x = region.inuk, y = NPP_mean), size = 3) +
+  xlab("Subregion") +
+  ylab(expression(NPP~(g~C~m^{-2}~yr^{-1}))) +
+  ggtitle("10-year average NPP (2014-2023)")
+
+cowplot::plot_grid(g1,g2, nrow = 1) 
+
+ggsave("figures/NPP_prelim_calculations_20260608.png", 
+       width = 12, height = 7, units = "in", bg = "white")
+```
+
 
 ## Compare NPP vs C-flux
 ```{r}

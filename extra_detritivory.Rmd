@@ -57,6 +57,7 @@ det.total.abundance <- det.hydrobios %>%
   mutate(mid_sample_depth = (MIN_SAMPLE_DEPTH + MAX_SAMPLE_DEPTH)/2) %>% 
   mutate(year = year(DEPLOYMENT_DATE_START)) %>% 
   mutate(station_year = paste(STATION_NAME, year)) %>% 
+  mutate(YEAR_STATION = paste(year, STATION_NAME)) %>% 
   filter(station_year %in% uvp_net_match$station_year) %>% 
   left_join(uvp_net_match %>% 
               select(station_year, region.inuktitut, reg.inuk,
@@ -74,5 +75,32 @@ ggplot(det.total.abundance,
   facet_wrap(~reg.inuk, scale = "free_y")
 ```
 
+## % of detritivores in abundance
+```{r}
+det.net.integ <- det.total.abundance  %>% 
+  # Calculate depth  range and midpoint
+  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
+  # Calculate /m2 abundane
+  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
+  group_by(station_year, YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
+  summarise(total_abundance_m2 = sum(abundance_m2),
+            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
+            maxDepth = max(MAX_SAMPLE_DEPTH),
+            nbins = n(),
+            .groups = "drop") %>% 
+  filter(total_abundance_m2 > 0) %>% 
+  # Calculate % abundance
+  left_join(all.zoop %>% 
+              select(YEAR_STATION, comm_abundance_m2) %>% 
+              distinct()) %>% 
+  mutate(perc_abund = total_abundance_m2 / comm_abundance_m2 * 100)
+
+
+# save(uvp_net_match, hydrobios.meta, hydrobios.meta2, hydrobios, all.zoop, taxa.list,
+#      file = "data/hydrobios_net_alltaxa_20260610.RData")
+
+
+
+```
 
 

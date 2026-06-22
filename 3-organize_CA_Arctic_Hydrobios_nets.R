@@ -114,6 +114,7 @@ net.integ <- calanus %>%
 save(uvp_net_match, hydrobios.meta, calanus, net.integ, 
      file = "data/hydrobios_net_calanus_20260321.RData")
 
+
 # ---- Check correlation between Calanus and total zooplankton abundance ---
 # Note polychaeta, chaetognatha, cnidaria, and ctenophora are not herbivorous
 taxa.list <- hydrobios %>% 
@@ -154,6 +155,11 @@ all.zoop <- hydrobios  %>%
   group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
   mutate(comm_abundance_m2 = sum(total_abundance_m2)) %>% 
   ungroup()
+
+
+# save(uvp_net_match, hydrobios.meta, hydrobios.meta2, hydrobios, all.zoop, taxa.list,
+#      file = "data/hydrobios_net_alltaxa_20260610.RData")
+
 
 # Correlate calanus with all zoop abundance
 ggplot(all.zoop, aes(x = log10(total_abundance_m2), color = PHYLUM)) +

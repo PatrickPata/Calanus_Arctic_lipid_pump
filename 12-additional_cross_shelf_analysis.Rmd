@@ -214,7 +214,7 @@ mod.poc <- gam(
   poc_mgC_m2_d ~ s(bottom_depth_m) + s(latitude, k = 5) + 
     # te(bottom_depth_m, latitude) +
     # ti(bottom_depth_m, latitude) +
-   DOY + Year ,
+   s(DOY) + Year ,
   data = df.profile.poc,
   method = "REML"
 )
@@ -259,7 +259,7 @@ gam.check(mod.poc)
 ```
 
 # TODO LPC:POC flux vs depth and latitude
-```{r}
+```{r, eval = FALSE}
 df.profile.ratio <- flux.com.profiles.200 %>% 
   left_join(Amund_UVP6_meta %>% 
               select(station_year, DOY, Year, bottom_depth_m,
@@ -395,9 +395,11 @@ p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
 
 p3 <- ggplot(df.profile.lpc, aes(x = DOY, y = total_gC_flux_m2)) +
   geom_smooth(method = "lm", color = "black") +
-  geom_point(color = "pink") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
   xlab("Day of year") +
-  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  theme(legend.position = "none")
 
 
 p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_mgC_m2_d)) +
@@ -429,9 +431,9 @@ p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
     color = "black",
     linewidth = 1) +
   scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
-  geom_point(aes(color = poc_gC_m2_yr)) +
-  scale_color_viridis_c(name = expression(atop(POC~flux[200*m],(g~C~m^{-2}~yr^{-1})))) +
-  theme(legend.position = "right") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
   xlab("Bottom depth (m)") + 
   ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
   theme(legend.position = c(0.98, 0.98),
@@ -440,20 +442,21 @@ p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
 
 p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
   geom_smooth(method = "lm", color = "black") +
-  geom_point(color = "skyblue") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
   xlab("Year") + 
   ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
 
-cowplot::plot_grid(p2,p1,
-                   p5,p4,
+cowplot::plot_grid(p1,p3,
+                   p5,p6,
                    labels = "auto",
                    nrow = 2, align = "hv")
 
 
-# ggsave("figures/Supp_LPC_POC_GAM_fits_2060528.png", width = 14, height = 10,
-#        units = "in", bg = "white")
+ggsave("figures/Supp_LPC_POC_GAM_fits_2060622_v3.png", width = 14, height = 10,
+       units = "in", bg = "white")
 ```
-
 
 
 # LPC flux vs bottom depth by region

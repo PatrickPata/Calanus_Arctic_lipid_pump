@@ -1008,6 +1008,7 @@ ggsave("figures/Fig5_20260529.png", width = 12, height = 6,
        units = "in", bg = "white")
 ```
 
+
 # Extra: Estimating grazing pressure and fecal pellet production by individuals at the upper 200 m
 ```{r}
 surface.assemblage <- df.station.100m %>% 
@@ -1058,4 +1059,3 @@ region.C.budgets <- df.region %>%
   mutate(grazed_NPP = grazing_pressure_90/40*100,
          egested_NPP = egestion_gC_90d_export200m/40*100)
 ```
-

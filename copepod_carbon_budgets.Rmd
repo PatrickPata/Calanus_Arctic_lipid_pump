@@ -16,6 +16,9 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 
+# LPC flux results
+load("data/comparison_net_uvp_abundance_20260508.RData")
+rm(df.100m.conc, df.profile, df.station.100m)
 
 # Individual level traits
 load("data/uvp6_images_calculated_traits_20260321.RData")
@@ -245,6 +248,36 @@ ggplot(calanus.traits, aes(x = temperature_kelvin-273.15,
   geom_smooth() 
 
 
+
+
+```
+
+
+# Calculating average fluxes weighted by surface area
+```{r}
+surf_area_100Iso <- df.region %>% 
+  select(region.inuktitut, region.inuk, n,
+         abundance_m2_mean, biomass_gC_m2_mean, waxester_gC_m2_mean,
+         LPC_flux = total_gC_flux_m2_mean) %>% 
+  mutate(area_km2 = c(12363, 46597, 23906, 85830, 88089, 10768, 68205)) %>% 
+  left_join(region_total_C_budget %>% 
+              select(region.inuk,
+                     NPP_mean, POC_flux,
+                     active_respirationRate_gCday_m2,
+                     ingestionRate_gCday_m2_v1,
+                     egestionRate_gCday_m2_v1,
+                     perc_ingested_v1),
+            by = "region.inuk") %>% 
+  relocate(area_km2, .after = "n")
+
+# Calculate weighted averages according to surface area
+ave.C.budget <- surf_area_100Iso %>% 
+  pivot_longer(cols = -c(region.inuktitut, region.inuk, area_km2),
+               names_to = "variable", values_to = "value") %>% 
+  group_by(variable) %>% 
+  summarise(value_wmean = weighted.mean(value, area_km2),
+            .groups = "drop") %>% 
+  mutate(value_wmean = format(value_wmean, scientific = FALSE))
 
 
 ```

@@ -37,6 +37,55 @@ theme_set(theme_bw() +
             theme(text = element_text(size=16)))
 ```
 
+# Check distribution in fjords
+```{r, eval=FALSE}
+fjord.stations <- Amund_UVP6_meta %>% 
+  filter(sample_stationid_ed %in% 
+           c("RA06","RA07","RA08","RA13","RA14","AC2", # Maybe "AC1", "AF-23"
+             "RA02","RA03","RA04","RA21","de410","de420","AC16", #Maybe "de440","430",
+             "TCA-QFA1","TCA-QFA2","TCA-QFC2","TCA-QFB1","TCA-QFB2", #Maybe D1_2022
+             "TCA-QF3","TCA-QF4","SV_2")) %>% 
+  distinct(station_year, .keep_all = T)
+
+# General distribution
+ggplot(df.profile %>% 
+         filter(station_year %notin% fjord.stations$station_year), 
+       aes(x = bottom_depth_m,
+                       y = total_gC_flux_m2)) +
+  geom_smooth() +
+  geom_point(aes(color = reg.inuk), alpha = 0.2) +
+  geom_point(data = df.profile %>% 
+         filter(station_year %in% fjord.stations$station_year),
+         shape = 18, size = 4, aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs)
+
+
+# Difference in average fluxes
+df.fjord <- df.profile %>% 
+  mutate(isFjord = if_else(station_year %in% fjord.stations$station_year,
+                           "fjord","not fjord")) %>% 
+  group_by(region.inuk, isFjord) %>% 
+  summarise(lpc_mean = mean(total_gC_flux_m2),
+            lpc_sd = sd(total_gC_flux_m2),
+            n = n(),
+            .groups = "drop") %>% 
+  bind_rows(df.region %>% 
+              select(region.inuk, lpc_mean = total_gC_flux_m2_mean,
+                     lpc_sd = total_gC_flux_m2_sd, n) %>% 
+              mutate(isFjord = "overall")) %>% 
+  mutate(fjord_region = paste(region.inuk, isFjord)) %>% 
+  filter(region.inuk %in% c("Nares Strait","Pikialasorsuaq","Qikiqtaaluk Shelf")) 
+
+ggplot(df.fjord, aes(x = fjord_region, y = lpc_mean, color = region.inuk)) +
+  geom_point(alpha = 1, size = 3) +
+  geom_linerange(aes(ymin = lpc_mean - lpc_sd, 
+                     ymax = lpc_mean + lpc_sd),
+                 linewidth = 0.7) +
+  
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 
 # Relationship between bottom depth and POC and LPC fluxes
 ## Exploratory figures

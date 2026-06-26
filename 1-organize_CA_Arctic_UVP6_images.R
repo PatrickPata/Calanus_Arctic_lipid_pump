@@ -5,8 +5,6 @@
 # Organization of the imaging data. Additional information such as sampled volume, in situ temperature, and regional assignments are established.
 #
 # Whenever the CNN segmentation pipeline is updated, this file needs to be updated as well.
-#
-#
 
 library(tidyverse)
 `%notin%` <- Negate(`%in%`)
@@ -42,7 +40,6 @@ res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content
 
 res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv")
 
-# Note that there are 2 images manually segmented that are not in the segmented images folder, because the taxa categorization changed 
 df.manual <- inner_join(res.prosome, res.lipid.crop,
                        by = join_by(filename)) %>% 
   mutate(object_id = str_remove(filename, ".png")) %>% 
@@ -106,7 +103,7 @@ sum.manual.seg <- manual.segmented.images %>%
 
 
 # 5. Prepare data frame of all the copepods and their morphotraits 
-# Note: currently includes unverified taxonomy
+# Note: currently includes unverified taxonomy but these are not used in the analysis
 all.copepods.uvp6 <- Amund_UVP6 %>% 
   filter(taxagroup %in% c("Copepoda", "Copepoda-lipidsac")) %>% 
   # remove images predicted as dead/appendages/body parts, cyclopoids, harpacticoids, and other definitely not Calanus spp calanoids
@@ -127,9 +124,8 @@ all.copepods.uvp6 <- Amund_UVP6 %>%
     SkewGrey = object_skew, Fractal = object_fractal, 
     PerimFeret = object_perimferet, PerimMajor = object_perimmajor
   ) %>% 
-  # Retain Major axis length to > 3mm (most likely to be Calanus spp) given that the 5% quantile is 2.81 mm and the mean-sd is 3.12 mm. Note that this is not the prosome length.
+  # Retain Major axis length to > 3mm (most likely to be Calanus spp) given that the 5% quantile is 2.81 mm and the mean-sd is 3.12 mm.
   mutate(major_length_mm = Major * 0.073) %>% 
-  # Of the images not segmented, only retain major lengths > 3 mm
   filter(major_length_mm >= 3 | object_id %in% segmented.images$object_id)
 
 # Also adjust the metadata columns
@@ -151,7 +147,6 @@ to_exclude_by_size <- segmented.images %>%
                                    column == "prosome.pixels")$min |
            prosome_pixels > filter(sum.manual.seg, 
                                    column == "prosome.pixels")$max |
-           
            lipid_pixels < filter(sum.manual.seg, 
                                  column == "lipid.pixels")$min |
            lipid_pixels > filter(sum.manual.seg, 
@@ -408,4 +403,3 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
        segmented.images, all.copepods.uvp6,
        volumes.df, region_rename, excluded_profiles,
        file = "data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
-

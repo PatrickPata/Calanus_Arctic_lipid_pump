@@ -13,9 +13,7 @@ library(tidyverse)
 # Open file of column names
 uvp6_par_cnames <- read.csv('data/Ecopart_UVP6_detailed_PAR_file_column_names.csv')
 
-# # Note the the column headers need to be formatted properly
-
-
+# Note that the column headers need to be formatted properly
 read_par_tsv <- function(filename, fol = "C:/Sync/UVP6_Data/Ecopart/") {
    df_ed <- read.table(paste0(fol, filename, ".tsv"),  
                        header = FALSE, skip = 1)
@@ -42,71 +40,3 @@ uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
 # Export combined particle data
 save(file = "data/UVP6_ECOPART_Data_20260320.RData",
      uvp6_par_cnames, uvp6_PAR, uvp6_profiles)
-
-
-
-# ## Organize the reduced ECOPART results instead
-# read_par_tsv_reduced <- function(filename, fol = "C:/Sync/UVP6_Data/Ecopart/") {
-#   cnames <- read.csv('data/Ecopart_PAR_file_column_names_reduced.csv')
-#   
-#   df_ed <- read.table(paste0(fol, filename, ".tsv"),  
-#                       header = FALSE, skip = 1)
-#   colnames(df_ed) <- cnames$AnnotatedColumnName
-#   
-#   df_ed <- df_ed %>%
-#     select(c(sample_id:Sampled_volume_L,
-#              concentration_128_256_um:concentration_16_mm,
-#              biovolume_128_256_um_mm3L:biovolume_164_mm_mm3L))
-# }
-# 
-# df1 <- read_par_tsv_reduced("2021_Leg5/reduced/export_reduced_20250311_16_52_PAR_Aggregated")
-# df2 <- read_par_tsv_reduced("2023_Leg2/reduced/export_reduced_20250311_16_40_PAR_Aggregated")
-# df3 <- read_par_tsv_reduced("2024_Leg4/reduced/export_reduced_20251210_21_15_PAR_Aggregated") 
-# df4 <- read_par_tsv_reduced("2024_Leg235/reduced/export_detailed_20251103_19_57_PAR_Aggregated") 
-# 
-# uvp6_PAR_reduced <- bind_rows(df1, df2, df3, df4)
-# rm(df1, df2, df3, df4)
-# 
-# save(file = "data/UVP6_ECOPART_Data_reduced_20251210.RData",
-#      uvp6_PAR_reduced, uvp6_profiles)
-
-
-
-
-# ------------ Some data exploration
-
-# Calculate max bin depth and total volume filtered per profile and add to metadata
-maxbin <- uvp6_PAR %>% 
-  group_by(sample_id) %>% 
-  summarise(max_5mbin_depth = max(Depth_5m),
-            total_volume_L = sum(Sampled_volume_L),
-            .groups = "drop")
-uvp6_profiles <- uvp6_profiles %>% 
-  rename(sample_id = Profile) %>% 
-  left_join(maxbin,
-            join_by(sample_id))
-
-p <- ggplot(maxbin, aes(x = max_5mbin_depth, y = total_volume_L)) +
-  geom_point() +
-  ggtitle("A. Total volume filtered")
-ggExtra::ggMarginal(p, type = "histogram")
-
-ggplot(uvp6_PAR, aes(x = Sampled_volume_L)) +
-  geom_density() +
-  scale_x_log10() 
-summary(uvp6_PAR$Sampled_volume_L)
-sd(uvp6_PAR$Sampled_volume_L)
-# Average sampled volume of a 5m bin is 54 +- 34L
-
-# Some 5m bins have very high sampled volume 
-tail(sort(uvp6_PAR$Sampled_volume_L), 20)
-
-
-
-# # No differences in exported particle concentrations for living and all!
-# df1a <- read_par_tsv("2021_Leg5/all_particles/export_detailed_20251120_16_43_PAR_Aggregated")
-# df1b <- read_par_tsv("2021_Leg5/living_particles/export_detailed_20251104_23_01_PAR_Aggregated")
-# all.equal(df1a,df1b)
-
-
-

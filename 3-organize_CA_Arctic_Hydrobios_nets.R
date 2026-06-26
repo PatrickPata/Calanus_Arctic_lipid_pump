@@ -3,7 +3,7 @@
 # P. Pata
 #
 # The data file is an .xlsx spreadsheet with tabs named "zooplankton abundances" and "sampling details". The stratified nets typically have 0-20, 20-60, 60-100, 100-150, 150-250, then the rest depends on bottom depth.
-# 
+
 
 library(tidyverse)
 `%notin%` <- Negate(`%in%`)
@@ -26,7 +26,7 @@ hydrobios.meta <- readxl::read_xlsx(fname,
 
 
 # --- Match the Hydrobios and net data ----
-# TODO use the station_year instead of sample_id
+# use the station_year instead of sample_id
 load("data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
 rm(all.copepods.uvp6, region_rename, segmented.images, volumes.df)
 uvp6_profiles <- Amund_UVP6_meta %>% 
@@ -113,64 +113,3 @@ net.integ <- calanus %>%
 # ---- Export ----
 save(uvp_net_match, hydrobios.meta, calanus, net.integ, 
      file = "data/hydrobios_net_calanus_20260321.RData")
-
-
-# ---- Check correlation between Calanus and total zooplankton abundance ---
-# Note polychaeta, chaetognatha, cnidaria, and ctenophora are not herbivorous
-taxa.list <- hydrobios %>% 
-  filter(KINGDOM == "Animalia") %>% 
-  filter(CLASS != "Teleostei") %>% 
-  distinct(PHYLUM, CLASS, ORDER,FAMILY,TAXON_ID)
-
-all.zoop <- hydrobios  %>% 
-  # Select only stations in the UVP match dataset
-  filter(STATION_NAME %in% uvp_net_match$STATION_NAME) %>% 
-  mutate(YEAR = substr(DEPLOYMENT_DATE_START,1,4)) %>% 
-  mutate(YEAR_STATION = paste(YEAR, STATION_NAME)) %>% 
-  # Curate the data
-  # For RA62: retain only 6+7+8+9 to get 2-100m abundance, exclude 6 & 7
-  filter(!(YEAR_STATION == "2024 RA62" & SAMPLING_NET_ID %in% c("6","7"))) %>% 
-  # Calculate depth  range and midpoint
-  mutate(Depth_range = MAX_SAMPLE_DEPTH - MIN_SAMPLE_DEPTH) %>% 
-  mutate(Depth_mid = (MAX_SAMPLE_DEPTH + MIN_SAMPLE_DEPTH) / 2) %>% 
-  # Calculate /m2 abundane
-  mutate(abundance_m2 = abundance_m3 * Depth_range) %>% 
-  # Back calculate the number of individuals
-  mutate(indiv_count = abundance_m3 * volume_filtered_m3) %>% 
-  # Filter only mesozoop phyla
-  filter(KINGDOM == "Animalia") %>% 
-  # Exclude fishes
-  filter(CLASS != "Teleostei") %>% 
-  # Exclude echinodermata and ctenophora
-  filter(PHYLUM %notin% c("Echinodermata","Ctenophora")) %>% 
-  group_by(PHYLUM, YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
-  summarise(total_abundance_m2 = sum(abundance_m2),
-            mean_abundance_m3 = weighted.mean(abundance_m3, w = Depth_range),
-            total_indiv_count = sum(indiv_count),
-            maxDepth = max(MAX_SAMPLE_DEPTH),
-            nbins = n(),
-            .groups = "drop") %>% 
-  filter(total_abundance_m2 > 0) %>% 
-  # Calculate overall abundance
-  group_by(YEAR_STATION, STATION_NAME, DEPLOYMENT_DATE_START) %>% 
-  mutate(comm_abundance_m2 = sum(total_abundance_m2)) %>% 
-  ungroup()
-
-
-# save(uvp_net_match, hydrobios.meta, hydrobios.meta2, hydrobios, all.zoop, taxa.list,
-#      file = "data/hydrobios_net_alltaxa_20260610.RData")
-
-
-# Correlate calanus with all zoop abundance
-ggplot(all.zoop, aes(x = log10(total_abundance_m2), color = PHYLUM)) +
-  geom_density()
-
-all.zoop.wide <- all.zoop %>% 
-  select(YEAR_STATION, PHYLUM, total_abundance_m2, comm_abundance_m2) %>% 
-  pivot_wider(names_from = PHYLUM, values_from = total_abundance_m2) %>% 
-  left_join(calanus %>% 
-  group_by(YEAR_STATION) %>% 
-  summarise(calanus_abundance = sum(abundance_m2)) ) %>% 
-  column_to_rownames("YEAR_STATION") 
-
-all.zoop.cor <- cor(all.zoop.wide, use = "pairwise.complete.obs")

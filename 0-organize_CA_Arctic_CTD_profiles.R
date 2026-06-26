@@ -4,9 +4,6 @@
 #
 # Data downloaded from: https://catalogue.amundsenscience.com/en/dataset/ca-cioos_ccin-12713
 # Forest, A., Guillot, P., Desmarais, A., Lévesque, K., Linkowski, T., Morisset, S., Wilhelmy, C., & Zier, J. (2025). CTD data collected by the CCGS Amundsen in the Canadian Arctic [Data set]. https://doi.org/10.5884/12713
-#
-# Data is stored in 3 .csv files for the respective 2021, 2023, and 2024 periods
-# Additional data for 2024 Leg 5a
 
 library(tidyverse)
 `%notin%` <- Negate(`%in%`)
@@ -26,13 +23,12 @@ ctd <- read.csv(file) %>%
 cnames <- read.csv(paste0(fol, "ctd_column_names.csv"))
 colnames(ctd) <- cnames$annotated_name
 
-# add the 2024 leg 5a data
+# Add additional info to 2024 leg5a data. 
 ctd.5a <- read.csv(file_2024_leg5a) %>% 
   select(-X) 
 cnames <- read.csv(paste0(fol, "ctd_column_names_2024_leg5a.csv"))
 colnames(ctd.5a) <- cnames$annotated_name
 
-# Add additional info to 2024 leg5a data. 
 # Note that the UVP 2024-leg 5 metadata does not have the CTD filenames or cast number so matching these by date and station name instead
 ctd.5a <- ctd.5a %>% 
   mutate(cruise_name = "2024_05_AS",
@@ -65,9 +61,7 @@ uvp6_profiles <- readxl::read_xlsx("C:/Sync/UVP6_Data/UVP6_Data_Overview.xlsx",
   # The UVP6 stations named MAK-2024-M1-Far and MAK-2024-M1-Near are called, MAK-2024-M1 only. Adjust the station names
   mutate(station = if_else(Profile == "am_leg2_makM1far_1", "MAK-2024-M1", station),
          station = if_else(Profile == "am_leg2_makM1near_1", "MAK-2024-M1", station)) %>% 
-  # To fix the darkedge ctd matching 
-  # The cast numbers for de440_004_yo# are all 34 & filenames 2105034, which do not exist. Assuming the sequence is correct because the times are close by, adjust to 36-38.
-  # Similarly for de430_004_yo#, cast number 39 does not exist. The casts were made on 2021-10-23 3-4 hour and this only matches with the CTD cast 34 at 2021-10-23T03:25:34Z.
+  # Fixing the darkedge ctd matching. The cast numbers for de440_004_yo# are all 34 & filenames 2105034, which do not exist. The cast timing are close by and these were adjusted to 36-38. Similarly for de430_004_yo#, the casts were made on 2021-10-23 3-4 hour and this only matches with the CTD cast 34 at 2021-10-23T03:25:34Z.
   mutate(cast_number = if_else(Profile == "de440_004_yo01", 36, cast_number),
          cast_number = if_else(Profile == "de440_004_yo02", 37, cast_number),
          cast_number = if_else(Profile == "de440_004_yo03", 38, cast_number),
@@ -132,37 +126,3 @@ temp_profiles_100 <- ctd %>%
 
 save(file = "data/uvp6_associated_ctd_20260330.RData",
      ctd, ctd_profiles, temp_profiles, temp_profiles_100, uvp6_ctd_match)
-
-
-
-# # Inspect CTD profiles
-# AA <- ctd %>% filter(cruise_number == "2024_05")
-# ggplot(AA %>%
-#          filter(!is.na(te90)),
-#        aes(x = pressure, y = te90, color = psal) ) +
-#   geom_point() +
-#   coord_flip() +
-#   scale_x_reverse() +
-#   scale_color_viridis_c() +
-#   facet_wrap(~cruise_name, scales = "free")
-# 
-# ggplot(AA %>%
-#          filter(!is.na(psal)),
-#        aes(x = pressure, y = psal, color = te90) ) +
-#   geom_point() +
-#   coord_flip() +
-#   scale_x_reverse() +
-#   scale_color_viridis_c() +
-#   facet_wrap(~cruise_name, scales = "free")
-# 
-# AA.ctd <- oce::as.ctd(salinity = AA$psal,
-#                       temperature = AA$te90,
-#                       pressure = AA$pressure,
-#                       time = AA$datetime,
-#                       ship = AA$platform_name,
-#                       cruise = AA$cruise_name,
-#                       station = AA$station,
-#                       longitude = AA$longitude,
-#                       latitude = AA$latitude)
-# 
-# oce::plotTS(AA.ctd)

@@ -5,12 +5,9 @@ date: "2026-02-19"
 output: html_document
 ---
 
-This is the calculation of the lipid pump following the Tarling et al. (2022) methodology for stratified net tows.
+This file provides Table S5. This is the calculation of the lipid pump following the Tarling et al. (2022) methodology for stratified net tows.
 
-The mean carbon content and lipid fullness of the copepods will be based on species and stage specific values from the LOKI analysis. Only C. glacialis and C. hyperboreus are considered here.
-
-
-
+The mean carbon content and lipid fullness of the copepods will be based on species and stage specific values from the LOKI analysis. Only C. glacialis and C. hyperboreus are considered here which matches the size range of the UVP6 image Calanus.
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -26,11 +23,9 @@ library(here)
 # Net data
 load("data/hydrobios_net_calanus_20260321.RData")
 
-
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 ```
-
 
 # Get CTD data and average per depth bin
 ```{r}
@@ -80,7 +75,6 @@ temperature_hydrobios <- temperature_hydrobios %>%
                                -1.69618182, temperature)) 
 ```
 
-
 # Establish traits from LOKI images and literature
 ```{r}
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
@@ -89,8 +83,6 @@ loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ec
   mutate(total_carbon = prosome_carbon_volume + total_lipids_ugC/1000,
          lf_carbon = total_lipids_ugC/1000 / total_carbon * 100,
          waxester_carbon = total_lipids_ugC / 1000) %>% 
-  #  # Recalculated version (lipid carbon not based on the variable total_lipids_carbon_volume)
-  # mutate(lf_carbon = waxester_carbon / (waxester_carbon + prosome_carbon_volume) * 100) %>% 
   select(object_id, object_annotation_category,
          prosome_length_mm = prosome_major_axis_mm,
          prosome_biovolume_mm3 = prosome_volume_mm3,
@@ -136,12 +128,9 @@ Calanus.traits <- bind_rows(loki.averages, Cfin)
 rm(loki.segmentations, loki.averages, Cfin)
 ```
 
-
 # Calculate traits
 ```{r}
 # Use the stage specific values from LOKI for C. hyperboreus and C. glacialis
-# Use the literature values for C. finmarchicus
-
 bb <- 2.27# Metabolic constant (x 10-7)
 eV <- 0.6 # Activation energy
 
@@ -177,7 +166,6 @@ net_traits <- calanus %>%
   mutate(diapause_resp_by_indiv_ugC = 
            respirationRate_ugCday * diapauseDuration_day_cap)
 ```
-
 
 # Calculate lipid pump
 ```{r}
@@ -254,9 +242,10 @@ net_lipid_pump_region <- net_lipid_pump %>%
               list(mean = mean, sd = sd, median = median),
               na.rm = TRUE),
             .groups = "drop")
+```
 
-
-# Format csv for Table 3: Regional averages
+# Table S5. Depth integrated Calanus spp. concentration and annual lipid pump carbon (LPC) flux based on net observations per subregion. 
+```{r}
 tableS5 <- net_lipid_pump_region %>% 
   # select(region.inuktitut, n, total_gC_flux_m2_mean, total_gC_flux_m2_sd) %>% 
   mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
@@ -278,156 +267,4 @@ tableS5 <- net_lipid_pump_region %>%
          perc_structural, perc_waxester, perc_biomass_200m)
 
 # write.csv(tableS5, file = "tables/TableS5_net_regional_averages.csv")  
-  
 ```
-
-
-
-# Net VS UVP LPC flux
-```{r}
-# Load the UVP6-based results
-load("data/profile_integrated_cflux_20260505.RData")
-
-comp_uvp_net <- df.profile %>% 
-  filter(station_year %in% uvp_net_match$station_year) %>% 
-  select(station_year, region.inuk,
-         uvp_abundance_m2 = abundance_m2,
-         uvp_biomass_gC_m2 = biomass_gC_m2,
-         uvp_LPC_flux_gC_m2 = total_gC_flux_m2) %>% 
-  # join net biomass and LPC
-  left_join(net_lipid_pump %>% 
-              select(station_year,
-                     net_abundance_m2 = abundance_m2,
-                     net_biomass_gC_m2 = biomass_gC_m2,
-                     net_LPC_flux_gC_m2 = total_gC_flux_m2),
-            by = join_by(station_year)) 
-
-comp_uvp_net_region <- comp_uvp_net %>% 
-  group_by(region.inuk) %>% 
-  summarise(n = n(),
-            across(c(uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2),
-              list(mean = mean, sd = sd, median = median),
-              na.rm = TRUE),
-            .groups = "drop") %>% 
-  # Because sd goes beyond zero and plot is in log scale, limit to nonzero 1e-6
-  mutate(uvp_min_sd = uvp_LPC_flux_gC_m2_mean-uvp_LPC_flux_gC_m2_sd,
-         uvp_max_sd = uvp_LPC_flux_gC_m2_mean+uvp_LPC_flux_gC_m2_sd,
-         net_min_sd = net_LPC_flux_gC_m2_mean-net_LPC_flux_gC_m2_sd,
-         net_max_sd = net_LPC_flux_gC_m2_mean+net_LPC_flux_gC_m2_sd) %>% 
-  mutate(uvp_min_sd = if_else(uvp_min_sd <=0, 0, uvp_min_sd),
-         net_min_sd = if_else(net_min_sd <=0, 0, net_min_sd))
-
-
-# major axis regression to check biases
-# slope >1, accelerating (overestimation by UVP at high values), underestimation at low
-
-# *** LPC flux ***
-(reg.model <- lmodel2::lmodel2(log10(net_LPC_flux_gC_m2) ~ log10(uvp_LPC_flux_gC_m2), 
-           data = comp_uvp_net))
-sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]
-10^(sma$Intercept)*100 # average multiplicative bias factor
-
-# *** For the CI area in the figure **
-# SMA slope CI from lmodel2 output
-sma_ci <- reg.model$confidence.intervals[ reg.model$confidence.intervals$Method == "SMA",]
-# Means on the fitted (log10) scale
-xbar <- mean(log10(comp_uvp_net$uvp_LPC_flux_gC_m2), na.rm = TRUE)
-ybar <- mean(log10(comp_uvp_net$net_LPC_flux_gC_m2), na.rm = TRUE)
-# Fitted slope/intercept
-b1 <- sma$Slope
-b0 <- ybar - b1 * xbar
-# CI slopes
-b1_lo <- sma_ci$`2.5%-Slope`
-b1_hi <- sma_ci$`97.5%-Slope`
-# Corresponding intercepts so each CI line passes through the centroid
-b0_lo <- ybar - b1_lo * xbar
-b0_hi <- ybar - b1_hi * xbar
-# x grid on original scale
-x_seq <- 10^seq(log10(min(comp_uvp_net$uvp_LPC_flux_gC_m2, na.rm = TRUE)),
-                log10(max(comp_uvp_net$uvp_LPC_flux_gC_m2, na.rm = TRUE)),
-                length.out = 200)
-# Build fitted and CI lines back on original scale
-line_df <- data.frame(uvp_LPC_flux_gC_m2 = x_seq,
-                      fit = 10^(b0 + b1 * log10(x_seq)),
-                      lo  = 10^(b0_lo + b1_lo * log10(x_seq)),
-                      hi  = 10^(b0_hi + b1_hi * log10(x_seq)))
-
-
-
-ggplot() +
-  geom_abline() +
-  geom_ribbon(data = line_df,
-              aes(x = uvp_LPC_flux_gC_m2, ymin = lo, ymax = hi),
-              inherit.aes = FALSE,
-              alpha = 0.15) +
-  geom_line(data = line_df,
-            aes(x = uvp_LPC_flux_gC_m2, y = fit),
-            linetype = "dashed") +
-  
-  # Individual stations
-  geom_point(data = comp_uvp_net, 
-             aes(x = uvp_LPC_flux_gC_m2, 
-                 y = net_LPC_flux_gC_m2, color = region.inuk),
-             size = 1, alpha = 0.6) +
-  
-  # Region averages
-  geom_errorbar(data = comp_uvp_net_region, 
-                aes(xmin = uvp_min_sd,
-                    xmax = uvp_max_sd,
-                    y = net_LPC_flux_gC_m2_mean,
-                    color = region.inuk),
-                width = 0, alpha = 0.5) +
-  geom_errorbar(data = comp_uvp_net_region, 
-                aes(ymin = net_min_sd,
-                    ymax = net_max_sd,
-                    x = uvp_LPC_flux_gC_m2_mean,
-                    color = region.inuk),
-                width = 0, alpha = 0.5) +
-  geom_point(data = comp_uvp_net_region,
-             aes(x = uvp_LPC_flux_gC_m2_mean, 
-                 y = net_LPC_flux_gC_m2_mean,
-                 color = region.inuk),
-             shape = 5, size = 4) +
-  
-  scale_x_log10() + 
-  scale_y_log10() + 
-  scale_color_manual(values = c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2"),
-                     name = "Subregion") +
-  coord_fixed(ratio = 1) +
-  xlab("UVP6 LPC flux (g C m⁻² y⁻¹)") + 
-  ylab("Net LPC flux (g C m⁻² y⁻¹)") +
-  theme(legend.position = "right") 
-
-ggsave("figures/SuppFig3_LPC_flux_net_uvp_comparison_20260508.png",
-       width = 6, height = 6, units = "in", bg = "white")
-
-```
-
-# Per subregion: are LPC fluxes based on UVP6 and nets significantly different?
-```{r}
-AA <- comp_uvp_net %>% 
-  select(region.inuk, uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2) %>% 
-  group_by(region.inuk) %>%
-  summarise(
-    n_pairs = n(),
-    median_FluxA = median(uvp_LPC_flux_gC_m2, na.rm = TRUE),
-    median_FluxB = median(net_LPC_flux_gC_m2, na.rm = TRUE),
-    median_diff = median(net_LPC_flux_gC_m2 - uvp_LPC_flux_gC_m2, na.rm = TRUE),
-    
-    wilcox_obj = list(wilcox.test(uvp_LPC_flux_gC_m2, net_LPC_flux_gC_m2, 
-                                  paired = TRUE)),
-    
-    V = wilcox_obj[[1]]$statistic,
-    p_value = wilcox_obj[[1]]$p.value,
-    
-    .groups = "drop"
-  ) %>% 
-  select(-wilcox_obj) %>% 
-  mutate(p_adj = p.adjust(p_value, method = "BH")) %>% 
-  mutate(is_sig = if_else(p_adj < 0.05, T, F))
-
-
-
-```
-
-

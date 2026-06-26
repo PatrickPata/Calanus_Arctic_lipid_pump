@@ -5,17 +5,15 @@ date: "2025-11-26"
 output: html_document
 ---
 
-This script is for calculating trait values from the segmented copepod images.
+This script is for calculating trait values from the copepod images.
 
-This file replaces parts of a few deprecated files including UPV6_lipidscape_analysis.Rmd and lipid and biomass concentrations UVP.Rmd.
-
+General procedure:
 1. Calculate carbon content from segmented images
-2. Apply random forest model to estimate carbon content from non-segmented images
+2. Apply random forest model to estimate carbon content for non-segmented images
 3. Organize the trait values
 4. Calculate the diapause respiration rate and duration relative to the in situ temperature of where the image was captured
 5. Export data
-6. Plot the results with the LOKI sizes and literature values
-
+6. Plot the results with the LOKI sizes and literature values (Figure S2)
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -43,12 +41,9 @@ source("functions/lipid_pump_toolkit.R")
 uvpRes <- 0.073
 # Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 based on the most common 36-carbon and 38-carbon chain lengths of NOW waxesters for C. glacialis and C. hyperboreus in (Kattner & Graeve 1991) 
 lambda <- 0.81
-# Conversion factor to get prosome biomass (mg C) from biovolume (mm3)
-vol2massC <- mean(c(0.14373,0.1177,0.1902)) # average of 3 Calanus species in (McConville et al. (2016)
 
-# Conversion factor from mm3 -> WW -> C
-# If density asssumed as 1, the value below is the Carbon % Wet weight
-# 0.09 is the average for all calanoid copepod species
+# Conversion factor from volume (mm3) -> wet weight -> carbon weight
+# For density assumed as 1, the value below is the Carbon % Wet weight for all calanoid copepod species
 prosomeWW2C <- 0.09
 
 # *** For the CNN segmented images ***
@@ -64,11 +59,11 @@ segmented.images <- segmented.images %>%
   mutate(prosome_biovolume_mm3 = 4/3 * pi * 
            (prosome_major/2 * uvpRes) * ((minor_derived/2 * uvpRes)^2)) %>% 
   
-  # Calculate lipid sac volume based on Tarling et al. (2022) eq1 derived from Miller et al. (1998) note that this is  based on cyclindrical volume approximation. According to Miller et al. (1998) the oblate spheroid volume approximation is less accurate
+  # Calculate lipid sac volume based on Tarling et al. (2022) eq1 derived from Miller et al. (1998) note that this is  based on cyclindrical volume approximation. According to Miller et al. (1998) the oblate spheroid volume approximation is less accurate.
   mutate(lipid_volume_mm3 = 
            (pi * lipid_area_mm2 ^ 2)/(4 * lipid_major * uvpRes)) %>% 
   
-# (Calculate lipid carbon based on area following Vogedes et al. 2010 with coefficients for 3 Arctic Calanus species
+  # (Calculate lipid carbon based on area following Vogedes et al. 2010 with coefficients for 3 Arctic Calanus species
   mutate(totallipid_mass_mg = 0.197 * (lipid_area_mm2 ^ 1.38)) %>%  
   mutate(waxester_mass_mg = 0.167 * (lipid_area_mm2 ^ 1.42)) %>%  
   
@@ -90,7 +85,7 @@ segmented.images <- segmented.images %>%
 ```
 
 # 2. Alternative predictions for unsegmented images
-## Train RF model
+## Train the Random Forest model
 ```{r, eval = FALSE}
 df_for_rf <- segmented.images %>% 
   filter(source == "manual_segmentation") %>%
@@ -126,7 +121,7 @@ rf.model.structural.mgC
 rf.model.prosome.mm
 rf.model.lipid.mgC 
 
-
+# # Export the RF models
 # save(rf.model.structural.mgC, rf.model.prosome.mm, rf.model.lipid.mgC,
 #      file = "functions/random_forest_carbon_trait_models_20260321.RData")
 ```
@@ -141,7 +136,7 @@ other.calanoid.images <- all.copepods.uvp6 %>%
   filter(object_annotation_status == "validated") %>% 
   filter(traits_from_RF == T)
 
-# Apply the Random forest models which already predict for structural and lipidWE carbon in mgC
+# Apply the Random forest models which directly predict for structural and lipidWE carbon in mgC
 structural_predicted <-  predict(rf.model.structural.mgC,
                newdata = other.calanoid.images %>% 
                  select(Major:PerimMajor), predict.all = T)
@@ -157,12 +152,6 @@ prosome_length_predicted <- predict(rf.model.prosome.mm,
 other.calanoid.images$structural_carbon_mgC <- structural_predicted$aggregate
 other.calanoid.images$waxester_mass_mgC <- lipid_predicted$aggregate
 other.calanoid.images$prosome_length_mm <- prosome_length_predicted$aggregate
-
-# # # Row-wise error (SD across trees)
-# other.calanoid.images$structural_carbon_mgC_sd <- apply(structural_predicted$individual, 1, sd)
-# other.calanoid.images$waxester_mass_mgC_sd <- apply(lipid_predicted$individual, 1, sd)
-# other.calanoid.images$prosome_length_mm_sd <- apply(prosome_length_predicted$individual, 1, sd)
-
 
 # Calculate total carbon and lipid fullness
 other.calanoid.images <- other.calanoid.images %>% 
@@ -180,7 +169,7 @@ other.calanoid.images <- other.calanoid.images %>%
 
 
 # 3. Organize data indiv_traits dataframe
-This includes all images of Calanus and large copepods. Images from profiles not included in the analysis are also included.
+This includes all images of Calanus and large copepods. Images from profiles not included in the analysis are also included but will be excluded later in the analysis.
 ```{r}
 indiv_traits <- segmented.images %>% 
   select(object_id, object_annotation_category, source,
@@ -200,7 +189,7 @@ indiv_traits <- segmented.images %>%
                      temperature_kelvin)) %>% 
   
   # Clarify sources
-  # Assign source details, for non-"Calanus" category, identify categ and size class
+  # Assign source details, for non-"Calanus" category, identify taxa category
   mutate(source = if_else(source == "CNN_segmentation", 
                           "CNN segmentation", source),
          source = if_else(source == "manual_segmentation",
@@ -211,7 +200,8 @@ indiv_traits <- segmented.images %>%
                                      "RF Calanoida", "RF Copepoda"))) %>%
   
   # Assign taxa names based on validated categorization
-  mutate(taxa = if_else(object_annotation_category %notin% c("Calanoida", "Copepoda<Maxillopoda"),
+  mutate(taxa = if_else(object_annotation_category %notin% 
+                          c("Calanoida", "Copepoda<Maxillopoda"),
                         "Calanus","Copepoda")) %>% 
   mutate(taxa = if_else(object_annotation_category == "Calanoida",
                         "Calanoida", taxa)) %>% 
@@ -234,7 +224,6 @@ eV_se <- 0.092 # Standard error of the activation energy
 # Adjust respiration rate based on temperature
 
 indiv_traits <- indiv_traits %>% 
-  
   # Calculate diapause respiration rate and duration
   mutate(mass_ugC = structural_carbon_mgC * 1000,
          WE_ugC = waxester_mass_mgC * 1000) %>% 
@@ -251,9 +240,7 @@ indiv_traits <- indiv_traits %>%
   # The total C respired for the entire duration of diapause by the individual (ug C)
   mutate(diapause_resp_by_indiv_ugC = 
            respirationRate_ugCday * diapauseDuration_day_cap) %>%  
-  # mutate(percent_WE_respired = diapause_resp_by_indiv_ugC/WE_ugC * 100) %>% 
   select(-c(mass_ugC, WE_ugC, diapauseDuration_day_cap)) 
-
 
 # Add the minimum and maximum respiration based on standard error
 indiv_traits <- indiv_traits %>% 
@@ -294,67 +281,4 @@ The indiv_traits dataframe includes images of individuals classified as "Calanus
 save(indiv_traits, 
      volumes.df, region_rename, Amund_UVP6_meta,
      file = "data/uvp6_images_calculated_traits_20260321.RData")
-```
-
-
-# 6. Evaluate the segmentation model performance
-
-## *** Figure S2 ***
-```{r, eval=FALSE}
-# The output files of the model training
-res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1_v2/prediction_prosome_uvp6_20251204.csv")
-
-res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv") 
-
-# The metadata of the images used for model training
-meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
-  distinct(filename, .keep_all = TRUE)
-meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
-  distinct(filename, .keep_all = TRUE)
-
-# Clean  the data frames
-res.prosome <- res.prosome %>% 
-  select(-c(directory)) %>%
-  left_join(meta.prosome %>%
-              select(filename, split, num_vertices),
-            by = join_by(filename)) %>% 
-  filter(!is.na(num_vertices)) %>% 
-  mutate(object_id = str_remove(filename, ".png")) %>% 
-  mutate(IoU = IoU/100)
-
-res.lipid.crop <- res.lipid.crop %>% 
-  select(-c(directory, 
-            lipid_mass_annotated, lipid_mass_predicted)) %>%
-  left_join(meta.lipid %>%
-              select(filename, split, num_vertices),
-            by = join_by(filename)) %>% 
-  filter(!is.na(num_vertices)) %>% 
-  mutate(object_id = str_remove(filename, ".png"))  %>% 
-  mutate(IoU = IoU/100)
-
-
-cowplot::plot_grid(
-  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
-                          y = prosome_pixels_predicted,
-                          color = IoU)) +
-    geom_point(alpha = 0.5) +
-    scale_color_viridis_c(limits = c(0, 1)) +
-    geom_abline() +
-    geom_smooth(method = "lm", color = "red") +
-    xlab("Manual segmentation") + ylab("CNN segmentation") + 
-    ggtitle("Prosome area in pixels"),
-  
-  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
-                             y = lipid_pixels_predicted,
-                             color = IoU)) +
-    geom_point(alpha = 0.2) +
-    scale_color_viridis_c(limits = c(0, 1)) +
-    geom_abline() +
-    geom_smooth(method = "lm", color = "red") +
-    xlab("Manual segmentation") + ylab("CNN segmentation") + 
-    ggtitle("Lipid sac area in pixels"),
-  nrow = 1, labels = "auto")
-
-ggsave("figures/FigS2_segmentation_performance.png", width = 10, height = 5,
-       units = "in", bg = "white")
 ```

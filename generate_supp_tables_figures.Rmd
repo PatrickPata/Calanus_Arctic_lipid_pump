@@ -1,0 +1,996 @@
+---
+title: "Supplementary tables and figures"
+author: "Patrick Pata"
+date: "2026-06-26"
+output: html_document
+---
+
+This file contains the scripts to generate the supplementary tables and figures.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(cowplot)
+
+theme_set(theme_bw() +
+            theme(text = element_text(size=14)))
+`%notin%` <- Negate(`%in%`)
+```
+
+# Fig S1. Temperature depth profiles
+```{r, echo=FALSE}
+# The calculated trait values
+load("data/uvp6_images_calculated_traits_20260321.RData")
+# The CTD data
+load("data/uvp6_associated_ctd_20260330.RData")
+
+# Temporal frequency
+df.meta <- Amund_UVP6_meta %>% 
+  arrange(-maxSampleDepth) %>% 
+  distinct(station_year, .keep_all = T) 
+
+df.meta %>% 
+  distinct(region.inuktitut, Year) %>% 
+  arrange(region.inuktitut)
+
+df.meta.months <- df.meta %>% 
+  group_by(region.inuktitut, Month_Name) %>% 
+  summarise(nprofiles = n(), .groups = "drop") %>% 
+  pivot_wider(names_from = Month_Name, values_from = nprofiles) %>% 
+  relocate(region.inuktitut, July, August, September, October)
+
+df.meta.depths <- df.meta %>% 
+  mutate(region = region.inuktitut) %>% 
+  group_by(region) %>% 
+  summarise(nprofiles = n(), 
+            mean_bottom = mean(bottom_depth_m),
+            sd_bottom = sd(bottom_depth_m),
+            .groups = "drop") 
+
+## organize CTD metadata
+
+# Subset the CTD data to the 208 profiles analyzed
+ctd_meta_208 <- uvp6_ctd_match %>% 
+  filter(sample_id %in% df.meta$sample_id)
+
+ctd_208 <- ctd %>% 
+  filter(filename %in% ctd_meta_208$ctd_filename) %>% 
+  left_join(df.meta %>% 
+              select(filename = ctd_filename, region = region.inuktitut),
+            by = "filename") 
+
+# Calculate mixed layer depth (MLD) based on sigma = 0.003 threshold
+mld.df <- ctd_208 %>% 
+  select(filename, cast_number, station, pressure, sigt) %>% 
+  group_by(filename, cast_number, station) %>% 
+  # Get MLD as 0.003 threshold
+  arrange(pressure) %>% 
+  mutate(
+    sigt_ref = mean(sigt[pressure <= 5], na.rm = TRUE),
+    delta_sigt = sigt - sigt_ref
+  ) %>% 
+  summarise(
+    mld = if (any(delta_sigt >= 0.003, na.rm = TRUE)) {
+      pressure[which(delta_sigt >= 0.003)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+
+temp_thresh <- 0.2 
+
+mldT.df <- ctd_208 %>% 
+  select(filename, cast_number, station, pressure, te90) %>% 
+  group_by(filename, cast_number, station) %>% 
+  arrange(pressure) %>% 
+  mutate(
+    temp_ref = mean(te90[pressure <= 5], na.rm = TRUE),
+    delta_temp = abs(te90 - temp_ref)
+  ) %>% 
+  summarise(
+    mld_temp = if (any(delta_temp >= temp_thresh, na.rm = TRUE)) {
+      pressure[which(delta_temp >= temp_thresh)[1]]
+    } else {
+      NA_real_
+    },
+    .groups = "drop"
+  )
+
+
+# Average temperature above and below the mixed layer
+df.ctd.mld <- ctd_208 %>% 
+  left_join(mld.df %>% 
+              select(filename, mld), by = "filename") %>% 
+    mutate( layer = case_when(
+      is.na(mld) ~ NA_character_,
+      pressure <= mld ~ "above_mld",
+      pressure >  mld ~ "below_mld") ) %>% 
+  # assign below mld for NA values
+  mutate(layer = if_else(is.na(layer), "below_mld", layer)) %>% 
+  group_by(filename, region, layer) %>% 
+  summarise(
+    mean_te90 = mean(te90, na.rm = TRUE),
+    mean_psal = mean(psal, na.rm = TRUE),
+    mean_sigt = mean(sigt, na.rm = TRUE),
+    mean_mld = mean(mld, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  group_by(region, layer) %>% 
+  summarise(
+    n_ctd = n(),
+    mld_mean = mean(mean_mld, na.rm = TRUE),
+    mld_sd = sd(mean_mld, na.rm = TRUE),
+    temp_mean = mean(mean_te90, na.rm = TRUE),
+    temp_sd = sd(mean_te90, na.rm = TRUE),
+    sali_mean = mean(mean_psal, na.rm = TRUE),
+    sali_sd = sd(mean_psal, na.rm = TRUE),
+    dens_mean = mean(mean_sigt, na.rm = TRUE),
+    dens_sd = sd(mean_sigt, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  filter(layer == "below_mld")
+
+# Calculate temperature below 200 m and 500 m and upper 50 m Fluorescence... FLOR (ug/L) and CDOM
+
+ctd.meta.50m <- ctd_208 %>% 
+  filter(pressure <= 50) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_50m = mean, sd_50m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+ctd.meta.200m <- ctd_208 %>% 
+  filter(pressure > 200) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_200m = mean, sd_200m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+ctd.meta.500m <- ctd_208 %>% 
+  filter(pressure > 500) %>% 
+  select(filename, region,te90,psal,flor,cdom,sigt) %>% 
+  group_by(filename, region) %>% 
+  summarise(across(te90:sigt, ~ mean(.x, na.rm = TRUE)),
+            .groups = "drop") %>% 
+  group_by(region) %>% 
+  summarise(across(te90:sigt,
+              list(mean_500m = mean, sd_500m = sd), na.rm = TRUE), 
+            .groups = "drop")
+
+
+# Combine everything to a table with columns:MLD, Temp below MLD, 200m and 500m
+df.meta.clean <- df.ctd.mld %>% 
+  select(region, n_ctd, mld_mean, mld_sd,
+         temp_mean_mld = temp_mean, temp_sd_mld = temp_sd) %>% 
+  left_join(ctd.meta.200m %>% 
+              select(region, te90_mean_200m, te90_sd_200m)) %>% 
+  left_join(ctd.meta.500m %>% 
+              select(region, te90_mean_500m, te90_sd_500m)) %>% 
+  
+  mutate(
+    mld = paste0(round(mld_mean, 1), " \u00B1 ", round(mld_sd, 1)),
+    temp_mld = paste0(round(temp_mean_mld, 1), " \u00B1 ", round(temp_sd_mld, 1)),
+    temp_200m = paste0(round(te90_mean_200m, 1), " \u00B1 ", round(te90_sd_200m, 1)),
+    temp_500m = paste0(round(te90_mean_500m, 1), " \u00B1 ", round(te90_sd_500m, 1))) %>% 
+  select(-c(mld_mean:te90_sd_500m))
+
+
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+
+region_temp_profiles_5m <- ctd_208 %>% 
+  # limit the mean+sd bottom depth
+  left_join(df.meta.depths, by = join_by(region)) %>% 
+  filter(pressure <= (mean_bottom + sd_bottom)) %>% 
+  mutate(depth_bin = floor(pressure/5)*5)  %>% 
+  group_by(filename, cruise_name, station, datetime, latitude, longitude,
+           region, depth_bin) %>% 
+  summarise(temp.mean = mean(te90, na.rm = T),
+            temp.sd = sd(te90, na.rm = T),
+            ntra.mean = mean(ntra, na.rm = T),
+            psal.mean = mean(psal, na.rm = T),
+            flor.mean = mean(flor, na.rm = T),
+            oxym.mean = mean(oxym, na.rm = T),
+            ndepths = n(), .groups = "drop") %>% 
+  filter(!is.na(temp.mean)) %>% 
+  group_by(region, depth_bin) %>% 
+  summarise(reg.temp.mean = mean(temp.mean, na.rm = T),
+            reg.temp.sd = sd(temp.mean, na.rm = T),
+            reg.ntra.mean = mean(ntra.mean, na.rm = T),
+            reg.psal.mean = mean(psal.mean, na.rm = T),
+            reg.flor.mean = mean(flor.mean, na.rm = T),
+            reg.oxym.mean = mean(oxym.mean, na.rm = T),
+            reg.nprofiles = n(), .groups = "drop") 
+
+# *** Plot individual profiles and overlay the mean temperature ***
+
+# Separate 2 rows of regions
+upperplot <- c("Nares Strait",
+               "Pikialasorsuaq\n(North Water Polynya)",
+               "Tallurutiup Imanga\n(Lancaster Sound)")
+
+g1 <- ggplot() +
+  
+  # Mean bottom depth marker
+  geom_rect(data = df.meta.depths %>%
+               filter(region %in% upperplot),
+             aes(xmin = mean_bottom - sd_bottom,
+                 xmax = mean_bottom + sd_bottom,
+                 ymin = -Inf, ymax = Inf,
+                 group = region),
+             fill = "gray80", alpha = 0.4) +
+  geom_vline(data = df.meta.depths %>% 
+               filter(region %in% upperplot), 
+             aes(xintercept = mean_bottom, group = region),
+             linetype = "dashed", color = "gray30") +
+  
+  geom_line(data = ctd_208 %>% 
+         filter(region %in% upperplot), 
+       aes(x = pressure, y = te90, group = filename, color = region),
+       alpha = 0.4) +
+  geom_line(data = region_temp_profiles_5m %>% 
+         filter(region %in% upperplot), 
+       aes(x = depth_bin, y = reg.temp.mean, group = region), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  coord_flip() +
+  xlab("Depth (m)") +
+  # ylab("Temperature (°C)") +
+  theme(legend.position = "none", 
+        strip.background = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_color_manual(values = clrs[1:3], 
+                     name = "Region") +
+  facet_wrap(~region, scales = "free", nrow = 1)
+
+g2 <- ggplot() +
+  
+    geom_rect(data = df.meta.depths %>%
+               filter(region %notin% upperplot),
+             aes(xmin = mean_bottom - sd_bottom,
+                 xmax = mean_bottom + sd_bottom,
+                 ymin = -Inf, ymax = Inf,
+                 group = region),
+             fill = "gray80", alpha = 0.4) +
+  geom_vline(data = df.meta.depths %>% 
+               filter(region %notin% upperplot), 
+             aes(xintercept = mean_bottom, group = region),
+             linetype = "dashed", color = "gray30") +
+  
+  geom_line(data = ctd_208 %>% 
+         filter(region %notin% upperplot), 
+       aes(x = pressure, y = te90, group = filename, color = region),
+       alpha = 0.4) +
+  geom_line(data = region_temp_profiles_5m %>% 
+         filter(region %notin% upperplot), 
+       aes(x = depth_bin, y = reg.temp.mean, group = region), 
+       color = "black", linewidth = 1) +
+  scale_x_reverse(expand = c(0,0)) +
+  coord_flip() +
+  xlab("Depth (m)") +
+  ylab("Temperature (°C)") +
+  theme(legend.position = "none", strip.background = element_blank()) +
+  scale_color_manual(values = clrs[4:7], 
+                     name = "Region") +
+  facet_wrap(~region, scales = "free", nrow = 1)
+
+cowplot::plot_grid(cowplot::plot_grid(NULL,g1,NULL, 
+                                      nrow = 1, rel_widths = c(0.5,3,0.5)),
+                   g2,ncol = 1)
+
+# ggsave("figures/Supp_region_ave_temp_20m_20260511.png",
+#        width = 9, height = 8, units = "in", bg = "white")
+```
+
+
+## Calculate average temperature per profile
+```{r, echo=FALSE, eval=FALSE}
+ctd_208_200m <- ctd_208 %>% 
+  left_join(uvp6_ctd_match %>% 
+               select(Site, filename = ctd_filename), by = "filename") %>% 
+  filter(depth > 200) %>% 
+  # Rename station_year to match how these are coded for the UVP6 data
+  mutate(year = year(datetime)) %>% 
+  mutate(station_year = if_else(year == 2021,
+                                paste(tolower(station), year),
+                                paste(Site,year))) %>% 
+  mutate(station_year = if_else(station_year == "de500/gliders 2021",
+                                "de500 2021", station_year),
+         station_year = if_else(station_year == "bb2 2021",
+                                "de_bb2_float 2021", station_year)) %>% 
+  
+  group_by(region, station_year) %>% 
+  summarise(temp_200m = mean(te90, na.rm = T),
+            .groups = "drop") %>% 
+  filter(!is.na(temp_200m))
+
+# save(ctd_208_200m,
+#      file = "data/ctd_profile_mean_temp_200m_20260511.RData")
+```
+
+
+# Fig S2. Convolutional neural network (CNN) segmentation performance
+Only includes subplots a & b. Subplots c & d are the images of copepods.
+```{r, echo=FALSE}
+# The output files of the model training
+res.prosome <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_prosomeUVP6_deamundp1_v2/prediction_prosome_uvp6_20251204.csv")
+
+res.lipid.crop <-  read.csv("C:/Users/patri/python_workspace/copepods-lipid-content/prediction_outputs/model_resnet34_lipidcropUVP6_deamundp1_v2/prediction_lipids_uvp6_20251204.csv") 
+
+# The metadata of the images used for model training
+meta.lipid <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_lipid/metadata_lipid.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+meta.prosome <- read.csv("C:/Users/patri/python_workspace/uvp6_de_amund23p1_prosome/metadata_prosome.csv") %>% 
+  distinct(filename, .keep_all = TRUE)
+
+# Clean  the data frames
+res.prosome <- res.prosome %>% 
+  select(-c(directory)) %>%
+  left_join(meta.prosome %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png")) %>% 
+  mutate(IoU = IoU/100)
+
+res.lipid.crop <- res.lipid.crop %>% 
+  select(-c(directory, 
+            lipid_mass_annotated, lipid_mass_predicted)) %>%
+  left_join(meta.lipid %>%
+              select(filename, split, num_vertices),
+            by = join_by(filename)) %>% 
+  filter(!is.na(num_vertices)) %>% 
+  mutate(object_id = str_remove(filename, ".png"))  %>% 
+  mutate(IoU = IoU/100)
+
+
+cowplot::plot_grid(
+  ggplot(res.prosome, aes(x = prosome_pixels_annotated,
+                          y = prosome_pixels_predicted,
+                          color = IoU)) +
+    geom_point(alpha = 0.5) +
+    scale_color_viridis_c(limits = c(0, 1)) +
+    geom_abline() +
+    geom_smooth(method = "lm", color = "red") +
+    xlab("Manual segmentation") + ylab("CNN segmentation") + 
+    ggtitle("Prosome area in pixels"),
+  
+  ggplot(res.lipid.crop, aes(x = lipid_pixels_annotated,
+                             y = lipid_pixels_predicted,
+                             color = IoU)) +
+    geom_point(alpha = 0.2) +
+    scale_color_viridis_c(limits = c(0, 1)) +
+    geom_abline() +
+    geom_smooth(method = "lm", color = "red") +
+    xlab("Manual segmentation") + ylab("CNN segmentation") + 
+    ggtitle("Lipid sac area in pixels"),
+  nrow = 1, labels = "auto")
+
+# ggsave("figures/FigS2_segmentation_performance.png", width = 10, height = 5,
+#        units = "in", bg = "white")
+```
+
+# Fig S3. Interindividual size variability
+
+# Fig S4. Distribution of community weighted mean trait values and experienced temperatures 
+```{r, echo=FALSE}
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+
+# Calculate community weighted mean of mean traits (weighted by abundance)
+cwm.profiles <- indiv_traits %>% 
+  # only include Calanus spp
+  filter(taxa == "Calanus") %>% 
+  # add volume filtered
+  mutate(Depth_5m = floor(object_depth_max / 5) * 5 + 2.5) %>% 
+  left_join(volumes.df) %>% 
+  # add regions
+  left_join(Amund_UVP6_meta %>% 
+              select(sample_id, region.inuk, reg.inuk, station_year)) %>% 
+  # filter samples for analysis
+  filter(!is.na(region.inuk)) %>% 
+  # calculate portion of the volume to get relative abundance
+  mutate(rel_abundance = Sampled_volume_m3) %>% 
+  mutate(temperature_C = temperature_kelvin - 273.15) %>% 
+  select(station_year, region.inuk, reg.inuk, rel_abundance,
+         prosome_length_mm, lipid_fullness, waxester_mass_mgC, temperature_C,
+         respirationRate_ugCday, diapauseDuration_day, 
+         structural_carbon_mgC, prosome_total_mgC) %>% 
+  group_by(station_year, region.inuk, reg.inuk) %>% 
+  summarise(across(where(is.numeric),  
+                   ~ weighted.mean(.x, rel_abundance, na.rm = TRUE)),
+            nindivs = n(),
+            .groups = "drop")
+
+cwm.profiles.long <- cwm.profiles %>% 
+  select(-c(prosome_total_mgC, structural_carbon_mgC)) %>% 
+  pivot_longer(cols = c(prosome_length_mm, lipid_fullness, waxester_mass_mgC,
+                        respirationRate_ugCday, diapauseDuration_day,
+                        temperature_C),
+               names_to = "trait", values_to = "value") %>% 
+  mutate(trait = factor(trait, 
+                        levels = c("prosome_length_mm", "waxester_mass_mgC",
+                                    "lipid_fullness", "respirationRate_ugCday",
+                                   "diapauseDuration_day", "temperature_C")))
+  
+
+flabels <- c("prosome_length_mm" = "a. Prosome length\n(mm)", 
+             "waxester_mass_mgC" = "b. Wax ester carbon\n(mg C)",
+             "lipid_fullness" = "c. Lipid fullness\n(%)", 
+             "respirationRate_ugCday" = "d. Diapause respiration rate\n(\u03bcg C day⁻¹)",
+             "diapauseDuration_day" = "e. Potential diapause duration\n(day)", 
+             "temperature_C" = "f. Ambient temperature\n(°C)")
+
+ggplot(cwm.profiles.long, aes(x = reg.inuk, y = value,
+                         color = reg.inuk)) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_x_discrete(limits = rev, labels = flabels) +
+  scale_color_manual(values = clrs) +
+  theme(legend.position = "none",
+        axis.title = element_blank(),
+        strip.background = element_blank()) +
+  facet_wrap(~trait, scales = "free_x",
+              labeller = as_labeller(flabels))
+  
+# ggsave("figures/FigS4_CWM_Traits_20260529.png", width = 8, height = 5, units = "in", bg = "white")
+
+# # Significance tests of CWM traits
+# kruskal.test(prosome_length_mm ~ region.inuk, data = cwm.profiles) 
+# kruskal.test(waxester_mass_mgC ~ region.inuk, data = cwm.profiles) 
+# kruskal.test(respirationRate_ugCday ~ region.inuk, data = cwm.profiles) 
+# kruskal.test(lipid_fullness ~ region.inuk, data = cwm.profiles) 
+# kruskal.test(diapauseDuration_day ~ region.inuk, data = cwm.profiles) 
+# kruskal.test(temperature_C ~ region.inuk, data = cwm.profiles) 
+# 
+# 
+# res.dunn <- dunn.test::dunn.test(x = cwm.profiles$prosome_length_mm,
+#                      g = cwm.profiles$region.inuk,
+#                      kw = F,
+#                      method = "bh")
+# subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+#   p >= 0.025 )
+# 
+# res.dunn <- dunn.test::dunn.test(x = cwm.profiles$respirationRate_ugCday,
+#                      g = cwm.profiles$region.inuk,
+#                      kw = F,
+#                      method = "bh")
+# subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+#   p >= 0.025 )
+```
+
+# TODO Fig S5. Cross-shelf and latitudinal variation of the LPC and POC flux. 
+
+
+# Fig S8. Particulate organic carbon (POC) flux calculated at various reference depths and compared to the lipid pump carbon (LPC) flux.
+
+## Load literature data and the calculated POC fluxes
+```{r}
+load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
+
+# Annual Arctic data
+sedTrap.Arctic <- sedTrap %>%
+  filter(!is.na(Annual_Flux)) %>% 
+  mutate(AreaCode = case_match(AreaCode,
+                               "NOW" ~ "Pikia",
+                               "Amundsen" ~ "Amun",
+                               "Laptev" ~ "Lapt",
+                               "Mackenzie" ~ "Mack",
+                               .default = "") ) %>% 
+  mutate(AreaCode = factor(AreaCode,
+                           levels = c("Pikia","Amun",
+                                      "Lapt","Mack")))
+
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+```
+
+## Plot the figure
+```{r}
+# For 100 m points
+p1 <- ggplot() +
+  geom_abline() +
+  geom_errorbar(data = flux.comp.100,
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_errorbar(data = flux.comp.100,
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.9) +
+  geom_point(data = flux.comp.100,
+             aes(x = lipid_gC_m2_yr_mean,
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 23, alpha = 0.9, size = 4, color ="black") +
+  scale_color_manual(values = clrs,
+                     guide = "none")  +
+  scale_fill_manual(values = clrs,
+                    name = "Subregion",
+                    guide = guide_legend(nrow = 3, byrow = TRUE))  +  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 7), ylim = c(0, 15)) +
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.box = "vertical") +
+  xlab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1})) )+
+  ylab(expression(POC~flux[100*m]~(g~C~m^{-2}~yr^{-1}))) 
+  
+  # For 500 m points
+p2 <- ggplot() +
+  geom_abline() +
+  ggnewscale::new_scale_color() +
+  geom_errorbar(data = flux.comp.500,
+                aes(xmin = lipid_gC_m2_yr_mean-lipid_gC_m2_yr_sd,
+                    xmax = lipid_gC_m2_yr_mean+lipid_gC_m2_yr_sd,
+                    y = poc_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  geom_errorbar(data = flux.comp.500,
+                aes(ymin = poc_gC_m2_yr_mean-poc_gC_m2_yr_sd,
+                    ymax = poc_gC_m2_yr_mean+poc_gC_m2_yr_sd,
+                    x = lipid_gC_m2_yr_mean,
+                    color = region_label),
+                width = 0, alpha = 0.7) +
+  scale_color_manual(values = clrs[2:5],
+                     guide = "none")  +
+
+  ggnewscale::new_scale_fill() +
+  geom_point(data = flux.comp.500,
+             aes(x = lipid_gC_m2_yr_mean,
+                 y = poc_gC_m2_yr_mean,
+                 fill = region_label),
+             shape = 23, alpha = 0.7, size = 4, color ="black",
+             name = "C flux at 500 m") +
+
+  scale_fill_manual(values = clrs[2:5],
+                    name = "Subregion",
+                    guide = guide_legend(nrow = 2, byrow = TRUE))  +
+  
+  scale_x_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  coord_cartesian(xlim = c(0, 5), ylim = c(0, 15)) +
+  
+  theme(legend.position = "bottom",
+        legend.title.position = "top",
+        legend.box = "vertical") +
+  xlab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1})) )+
+  ylab(expression(POC~flux[500*m]~(g~C~m^{-2}~yr^{-1}))) 
+
+
+
+p3 <- ggplot(data = sedTrap.Arctic,
+             aes(x = 0, y = Annual_Flux)) +
+  geom_violin(data = sedTrap %>%
+               filter(!is.na(Annual_Flux)),
+               aes(x = 0, y = Annual_Flux),
+               inherit.aes = FALSE,
+               color = "gray50",  width = 0.5) +
+
+  geom_point(aes(shape = AreaCode, fill = Depth_m), 
+             size = 3, alpha = 0.8,
+             position = position_jitter(width = 0.02, height = 0)) +
+  ylab(expression(POC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  xlab("Sediment\ntrap") +
+  scale_y_continuous(breaks = seq(0,20,1), expand = c(0,0)) +
+  scale_fill_viridis_c(end = 0.9, direction = -1, name = "Depth (m)") +
+  scale_shape_manual(values = c(23,21,22,24), name = "Region",
+                    guide = guide_legend(nrow = 2, byrow = TRUE)) +
+  coord_cartesian(ylim = c(0, 15)) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.title.position = "top",
+        legend.position = "bottom",
+        legend.box = "vertical",
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.title.x = element_text(margin = margin(t = -10)) )
+
+
+cowplot::plot_grid(p3, p1, p2,labels = "auto",
+                   rel_widths = c(3,6,4), nrow = 1, align = "h")
+
+# ggsave("figures/figS7_POC_flux_diff_depths_20260515.png",
+#        width = 10, height = 6, units = "in", bg = "white")
+```
+
+
+# Table S4. Depth integrated Calanus spp. concentration and annual lipid pump carbon (LPC) flux based on the Underwater Vision Profiler 6 (UVP6) observations per subregion. 
+
+## Summary stats of integrated values
+```{r, echo=FALSE}
+load("data/profile_integrated_cflux_20260511.RData")
+# Average contributions ***
+# 1. fraction of the biomass contributed to C flux
+# 2. fraction of the total flux due to respiration, mortality
+df <- df.profile %>% 
+  select(fraction_C_flux, frac_resp_total,
+         frac_strut_total, frac_waxe_total,
+         region.inuktitut)
+
+summary(df %>% select(-region.inuktitut))
+sd(df$fraction_C_flux)
+sd(df$frac_resp_total)
+sd(df$frac_strut_total)
+sd(df$frac_waxe_total)
+
+# Are there regional differences in the fraction
+df %>% group_by(region.inuktitut) %>% 
+  summarise(n = n(),
+            frac_resp_mean = mean(frac_resp_total),
+            frac_resp_sd = sd(frac_resp_total),
+            .groups = "drop")
+
+
+# Format csv for Table 3: Regional averages
+table3 <- df.region %>% 
+  mutate(abundance_m2 = sprintf("%.0f ± %.0f",abundance_m2_mean, abundance_m2_sd),
+         biomass_gC_m2 = sprintf("%.2f ± %.2f",biomass_gC_m2_mean, biomass_gC_m2_sd),
+         waxester_gC_m2 = sprintf("%.2f ± %.2f",waxester_gC_m2_mean, waxester_gC_m2_sd),
+         total_gC_flux_m2 = sprintf("%.2f ± %.2f",total_gC_flux_m2_mean, total_gC_flux_m2_sd),
+         perc_C_flux = sprintf("%.0f ± %.0f",fraction_C_flux_mean*100, fraction_C_flux_sd*100),
+         perc_respired = sprintf("%.0f ± %.0f",frac_resp_total_mean*100, 
+                                 frac_resp_total_sd*100),
+         perc_structural = sprintf("%.0f ± %.0f",frac_strut_total_mean*100, 
+                                 frac_strut_total_sd*100),
+         perc_waxester = sprintf("%.0f ± %.0f",frac_waxe_total_mean*100, 
+                                 frac_waxe_total_sd*100),
+         perc_biomass_200m = sprintf("%.0f ± %.0f", perc_biomass_200m_mean,
+                                     perc_biomass_200m_sd)) %>%
+  select(region.inuktitut, n,
+         abundance_m2, biomass_gC_m2, waxester_gC_m2, 
+         total_gC_flux_m2, perc_C_flux, perc_respired,
+         perc_structural, perc_waxester, perc_biomass_200m)
+
+# write.csv(table3, file = "tables/TableS4_regional_averages.csv")
+```
+
+## Compare lipid pump distributions between regions
+```{r, echo=FALSE}
+# KW and Dunns test for significant differences in medians
+df <- df.profile %>% 
+  mutate(region = region.inuk)
+
+# *** Carbon flux ***
+kruskal.test(total_gC_flux_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$total_gC_flux_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+
+
+# *** Abundance ***
+kruskal.test(abundance_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$abundance_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# *** Biomass ***
+kruskal.test(biomass_gC_m2 ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$biomass_gC_m2,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p >= 0.025 )
+
+# % WE in biom
+kruskal.test(we_perc_biom ~ region, data = df) # not sig diff
+
+# % Cflux to total carbon biomass (amount of biomass contributed to C flux)
+kruskal.test(fraction_C_flux ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p < 0.025 )
+
+
+# % respired to total C flux
+kruskal.test(frac_resp_total ~ region, data = df) 
+res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
+                     g = df$region,
+                     kw = F,
+                     method = "bh")
+subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
+  p < 0.025 )
+
+
+# TODO test difference in relative contribution of flux components
+```
+
+
+
+# TODO Table S6. Details of the generalized additive model (GAM) on vertical carbon flux. 
+
+# Table S10. Within-subregion paired comparisons between the LPC and POC200m fluxes. 
+- Run paired t-test first, if normality violated, used wilcoxon signed rank test
+
+## Paired t-test + wilxox signed
+```{r}
+load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
+# paired t-test + normality check of paired differences
+results.200 <- flux.com.profiles.200 %>%
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
+  ) %>% 
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
+
+
+Table.S10 <- results.200 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
+
+# write.csv(Table.S10, file = "tables/TableS10_POC_vs_LPC_flux.csv")
+```
+
+## similar test for 100 m and 500 m
+```{r, eval=FALSE}
+results.100 <- flux.com.profiles.100 %>%
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
+  ) %>% 
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
+
+
+Table.S9.100 <- results.100 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
+
+results.500 <- flux.com.profiles.500 %>%
+  
+  # Exclude regions with low sample sizes
+  filter(reg.inuk %notin% c("NarSt","QikSh","NunSh")) %>% 
+  
+  mutate(
+    POC_Flux = poc_gC_m2_yr,
+    LipidC_Flux = lipid_gC_m2_yr,
+    diff_flux = LipidC_Flux - POC_Flux
+  ) %>% 
+  
+  group_by(reg.inuk) %>%
+  summarise(n_pairs = sum(!is.na(POC_Flux) & !is.na(LipidC_Flux)),
+            mean_LPC_Flux = mean(LipidC_Flux, na.rm = TRUE),
+            sd_LPC_Flux = sd(LipidC_Flux, na.rm = TRUE),
+            mean_POC_Flux = mean(POC_Flux, na.rm = TRUE),
+            sd_POC_Flux = sd(POC_Flux, na.rm = TRUE),
+            mean_diff = mean(diff_flux, na.rm = TRUE),
+            sd_diff = sd(diff_flux, na.rm = TRUE),
+            
+            # Cohen's d for paired samples
+            cohens_d = mean_diff / sd_diff,
+            
+            # Shapiro-Wilk normality test on paired differences
+            shapiro_obj = list(shapiro.test(diff_flux)),
+            shapiro_W = shapiro_obj[[1]]$statistic,
+            shapiro_p = shapiro_obj[[1]]$p.value,
+            
+            
+            # paired t-test
+            ttest_obj = list(t.test(POC_Flux,
+                                    LipidC_Flux,
+                                    paired = TRUE,
+                                    alternative = "two.sided")),
+            
+            t_stat = ttest_obj[[1]]$statistic,
+            df = ttest_obj[[1]]$parameter,
+            p_value = ttest_obj[[1]]$p.value,
+            conf_low = ttest_obj[[1]]$conf.int[1],
+            conf_high = ttest_obj[[1]]$conf.int[2],
+            
+            # non parametric wilcox test
+            wilcox_obj = list(wilcox.test(POC_Flux, LipidC_Flux, 
+                                          paired = TRUE)),
+            median_diff = median(LipidC_Flux - POC_Flux, na.rm = TRUE),
+            V_wilcox = wilcox_obj[[1]]$statistic,
+            p_value_wilcox = wilcox_obj[[1]]$p.value,
+            
+            
+            .groups = "drop") %>% 
+  select(-shapiro_obj, -ttest_obj, -wilcox_obj) %>% 
+  mutate(p_adj_ttest = p.adjust(p_value, method = "BH"),
+         p_adj_wilcox = p.adjust(p_value_wilcox, method = "BH"),
+         is_sig_ttest = p_adj_ttest < 0.05,
+         normality_ok = shapiro_p > 0.05, # interpret normality
+         is_sig_wilcox = p_adj_wilcox < 0.05) 
+
+
+Table.S9.500 <- results.500 %>%
+  transmute(
+    Region = reg.inuk,
+    n = n_pairs,
+
+    Mean_LPC = sprintf("%.2f ± %.2f",mean_LPC_Flux, sd_LPC_Flux),
+    Mean_POC = sprintf("%.2f ± %.2f",mean_POC_Flux, sd_POC_Flux),
+    Mean_Diff = sprintf("%.2f ± %.2f",mean_diff, sd_diff),
+
+    t = round(t_stat, 2),
+    df = round(df, 1),
+
+    p_adj_ttest = signif(p_adj_ttest, 2),
+    is_sig_ttest = is_sig_ttest,
+
+    Cohens_d = round(cohens_d, 2),
+
+    Shapiro_p = signif(shapiro_p, 2),
+    
+    Normality_OK = normality_ok,
+    
+    V_wilcox = round(V_wilcox, 2),
+    p_adj_wilcox = signif(p_adj_wilcox, 2),
+    median_diff = round(median_diff, 2),
+    is_sig_wilcox = is_sig_wilcox
+  ) 
+```
+
+
+
+
+# Table S11. Ratios of LPC and POC200m fluxes relative to the average net primary productivity (NPP; g C m-2 yr-1).  
+
+
+# List of sensitivity analysis supplementary tables and figures in the separate senstivity analysis file.
+- Table S5 is in file 9-hydrobios_lipid_pump.Rmd
+- Table S7. Sensitivity analysis on the level of taxonomic curation of the image dataset per subregion. 
+- Table S8. Sensitivity analysis on the respiration rate model parameters per subregion.
+- Table S9. Sensitivity analysis on the temperature value used in calculating the respiration rate per subregion. 
+- Fig. S6. Sensitivity analysis on the natural mortality rate (β) during diapause. 
+- Fig. S7. Sensitivity analysis on the fraction of the Calanus spp. population that will not undergo diapause and remain at the epipelagic (0 – 200 m) during winter. 

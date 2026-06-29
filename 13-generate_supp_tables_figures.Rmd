@@ -714,9 +714,6 @@ res.dunn <- dunn.test::dunn.test(x = df$fraction_C_flux,
                      method = "bh")
 subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
   p < 0.025 )
-
-
-# TODO test difference in relative contribution of flux components
 ```
 
 

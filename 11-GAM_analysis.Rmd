@@ -1,0 +1,328 @@
+---
+title: "Cross-shelf analysis"
+author: "Patrick Pata"
+date: "2026-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load data and libraries
+```{r}
+library(tidyverse)
+library(cowplot)
+library(ggtext)
+library(mgcv)
+
+
+# Individual level traits
+load("data/uvp6_images_calculated_traits_20260321.RData")
+
+# Integrated UVP results
+load("data/profile_integrated_cflux_20260505.RData")
+
+# UVP-net abundance comparison results
+load("data/comparison_net_uvp_abundance_20260321.RData")
+
+# Comparison between POC flux and lipid pump C flux
+load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
+
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+`%notin%` <- Negate(`%in%`)
+theme_set(theme_bw() +
+            theme(text = element_text(size=16)))
+```
+
+# Generalized additive models
+Predictors are depth, latitude, sampling day and year
+
+## LPC flux
+```{r}
+df.profile.lpc <- df.profile %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(station_year, DOY) %>% 
+              distinct(station_year, .keep_all = T) )
+
+# GAM of LPC flux with bottom depth, latitude, and sampling day and year as predictors
+# Running s(depth) + s(lat) VS te(depth, lat) yields similar models. ti(depth, latitude) has no significant interaction effect
+mod.lpc <- gam(
+  total_gC_flux_m2 ~ s(bottom_depth_m) + s(latitude) + s(DOY) + Year, 
+  data = df.profile.lpc,
+  method = "REML")
+
+# GAM results
+summary(mod.lpc)
+
+plot(mod.lpc, scheme = 2)
+gam.check(mod.lpc) # note that pvalue here is for the residuals, so better if not sigdif
+
+# Fit bottom depth vs LPC flux
+fit.depth <- data.frame(
+  bottom_depth_m = seq(min(df.profile.lpc$bottom_depth_m, na.rm = TRUE),
+                       max(df.profile.lpc$bottom_depth_m, na.rm = TRUE),
+                       length.out = 200),
+  Year = mean(df.profile.lpc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.lpc$DOY, na.rm = TRUE),
+  latitude = mean(df.profile.lpc$latitude, na.rm = TRUE)
+)
+
+pred <- predict(mod.lpc, newdata = fit.depth, se.fit = TRUE)
+
+# get fit and 95% confidence interval
+fit.depth$fit <- pred$fit
+fit.depth$lwr <- pred$fit - 1.96 * pred$se.fit
+fit.depth$upr <- pred$fit + 1.96 * pred$se.fit
+
+
+# Fit latitude vs LPC flux
+fit.lat <- data.frame(
+  latitude = seq(min(df.profile.lpc$latitude, na.rm = TRUE),
+                       max(df.profile.lpc$latitude, na.rm = TRUE),
+                       length.out = 208),
+  Year = mean(df.profile.lpc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.lpc$DOY, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.lpc$bottom_depth_m, na.rm = TRUE)
+)
+
+pred2 <- predict(mod.lpc, newdata = fit.lat, se.fit = TRUE)
+
+fit.lat$fit <- pred2$fit
+fit.lat$lwr <- pred2$fit - 1.96 * pred2$se.fit
+fit.lat$upr <- pred2$fit + 1.96 * pred2$se.fit
+
+
+# Fit doy vs LPC flux
+fit.doy <- data.frame(
+  DOY = seq(min(df.profile.lpc$DOY, na.rm = TRUE),
+                       max(df.profile.lpc$DOY, na.rm = TRUE),
+                       length.out = 208),
+  Year = mean(df.profile.lpc$Year, na.rm = TRUE),
+  latitude = mean(df.profile.lpc$latitude, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.lpc$bottom_depth_m, na.rm = TRUE)
+)
+
+pred3 <- predict(mod.lpc, newdata = fit.doy, se.fit = TRUE)
+
+fit.doy$fit <- pred3$fit
+fit.doy$lwr <- pred3$fit - 1.96 * pred3$se.fit
+fit.doy$upr <- pred3$fit + 1.96 * pred3$se.fit
+
+```
+
+
+## POC flux
+```{r}
+df.profile.poc <- flux.com.profiles.200 %>% 
+  left_join(Amund_UVP6_meta %>% 
+              select(station_year, DOY, Year, bottom_depth_m,
+                     latitude = object_lat) %>% 
+              distinct(station_year, .keep_all = T)  )
+
+# GAM of POC flux at 200 m 
+# The k for latitude is set to max 5 (resulting in edF ~2) this was done because the s(latitude) edf of ~ 7 is too squiggly and is not ecologically meaningful.
+mod.poc <- gam(
+  poc_mgC_m2_d ~ s(bottom_depth_m) + s(latitude, k = 5) + 
+   s(DOY) + Year ,
+  data = df.profile.poc,
+  method = "REML"
+)
+
+summary(mod.poc)
+
+# Fit POC flux at 200m vs bottom depth
+fit.depth.poc <- data.frame(
+  bottom_depth_m = seq(min(df.profile.poc$bottom_depth_m, na.rm = TRUE),
+                       max(df.profile.poc$bottom_depth_m, na.rm = TRUE),
+                       length.out = 148),
+  Year = mean(df.profile.poc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.poc$DOY, na.rm = TRUE),
+  latitude = mean(df.profile.poc$latitude, na.rm = TRUE)
+)
+
+pred <- predict(mod.poc, newdata = fit.depth.poc, se.fit = TRUE)
+
+fit.depth.poc$fit <- pred$fit
+fit.depth.poc$lwr <- pred$fit - 1.96 * pred$se.fit
+fit.depth.poc$upr <- pred$fit + 1.96 * pred$se.fit
+
+
+# Fit POC flux at 200m vs latitude
+fit.lat.poc <- data.frame(
+  latitude = seq(min(df.profile.poc$latitude, na.rm = TRUE),
+                 max(df.profile.poc$latitude, na.rm = TRUE),
+                 length.out = 148),
+  Year = mean(df.profile.poc$Year, na.rm = TRUE),
+  DOY = mean(df.profile.poc$DOY, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.poc$bottom_depth_m, na.rm = TRUE)
+)
+
+pred2 <- predict(mod.poc, newdata = fit.lat.poc, se.fit = TRUE)
+
+fit.lat.poc$fit <- pred2$fit
+fit.lat.poc$lwr <- pred2$fit - 1.96 * pred2$se.fit
+fit.lat.poc$upr <- pred2$fit + 1.96 * pred2$se.fit
+
+plot(mod.poc, scheme = 3)
+gam.check(mod.poc) # the p-value of the latitude k-index is low as expected
+
+
+# Fit doy vs LPC flux
+fit.doy.poc <- data.frame(
+  DOY = seq(min(df.profile.poc$DOY, na.rm = TRUE),
+            max(df.profile.poc$DOY, na.rm = TRUE),
+            length.out = 208),
+  Year = mean(df.profile.poc$Year, na.rm = TRUE),
+  latitude = mean(df.profile.poc$latitude, na.rm = TRUE),
+  bottom_depth_m = mean(df.profile.poc$bottom_depth_m, na.rm = TRUE)
+)
+
+pred3 <- predict(mod.poc, newdata = fit.doy.poc, se.fit = TRUE)
+
+fit.doy.poc$fit <- pred3$fit
+fit.doy.poc$lwr <- pred3$fit - 1.96 * pred3$se.fit
+fit.doy.poc$upr <- pred3$fit + 1.96 * pred3$se.fit
+
+```
+
+
+# Export data
+```{r}
+save(df.profile.lpc, df.profile.poc, 
+     fit.depth, fit.lat, fit.doy,
+     fit.depth.poc, fit.lat.poc, fit.doy.poc,
+  file = "data/global_GAM_results_20260629.RData"
+)
+```
+
+
+# Global GAM results in 1 figure
+```{r, fig.width=10, fig.height=10, eval=FALSE}
+p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
+  geom_ribbon(data = fit.lat,
+              aes(x = latitude, ymin = lwr, ymax = upr),
+              inherit.aes = FALSE,
+              alpha = 0.2) +
+  geom_line(data = fit.lat,
+            aes(x = latitude, y = fit),
+            inherit.aes = FALSE,
+            color = "black",
+            linewidth = 1) +
+  geom_point(aes(color = reg.inuk)) +
+  scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
+  xlab("Latitude") + 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white", color = "gray50"))
+
+p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
+  geom_ribbon( data = fit.depth,
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = fit.depth,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
+  geom_point(aes(color = abundance_m2)) +
+  xlab("Bottom depth (m)") + 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  scale_color_viridis_c(name = expression(atop(Abundance,("#"~m^{-2}))),
+                         option = "plasma") +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white",color = "gray50"))
+
+p3 <- ggplot(df.profile.lpc, aes(x = DOY, y = total_gC_flux_m2)) +
+  geom_ribbon( data = fit.doy,
+    aes(x = DOY, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = fit.doy,
+    aes(x = DOY, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0)) +
+  geom_point(aes(color = reg.inuk)) +
+  xlab("Day of year") +
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none")
+
+
+p4 <- ggplot(df.profile.poc, aes(x = latitude, y = poc_mgC_m2_d)) +
+   geom_ribbon(data = fit.lat.poc,
+    aes(x = latitude, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = fit.lat.poc,
+    aes(x = latitude, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  geom_point(aes(color = reg.inuk)) +
+  xlab("Latitude") + 
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
+  theme(legend.position = "none")
+
+
+p5 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
+  geom_ribbon(data = transform(fit.depth.poc, lwr = pmax(lwr, 0)), # truncate at zeo
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = fit.depth.poc,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
+  xlab("Bottom depth (m)") + 
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1}))) +
+  theme(legend.position = c(0.98, 0.98),
+        legend.justification = c(1, 1),
+        legend.background = element_rect(fill = "white", color = "gray50"))
+
+p6 <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
+  xlab("Year") + 
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
+
+cowplot::plot_grid(p1,p2,p3,
+                   p5,p4,p6,
+                   labels = "auto",
+                   nrow = 2, align = "hv")
+
+
+# ggplot(df.profile.poc, aes(x = DOY, y = poc_mgC_m2_d)) +
+#   geom_ribbon( data = fit.doy.poc,
+#     aes(x = DOY, ymin = lwr, ymax = upr),
+#     inherit.aes = FALSE,
+#     alpha = 0.2) +
+#   geom_line(data = fit.doy.poc,
+#     aes(x = DOY, y = fit),
+#     inherit.aes = FALSE,
+#     color = "black",
+#     linewidth = 1) +
+#   scale_x_continuous(expand = c(0,0)) +
+#   geom_point(aes(color = reg.inuk)) +
+#   xlab("Day of year") +
+#   ylab(expression(POC~flux~(g~C~m^{-2}~yr^{-1}))) +
+#   scale_color_manual(values = clrs, name = "Subregion") +
+#   theme(legend.position = "none")
+
+```

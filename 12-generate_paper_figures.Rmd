@@ -305,9 +305,8 @@ plot_grid(
 
 # TODO continue here
 # Fig 4. Variation of the lipid pump carbon (LPC) flux among subregions. 
-*** TODO *** Change to global GAM
 
-## Plot the results
+## 4a LPC by subregion
 ```{r}
 # New Fig 4a
 label_levels <- df.region %>%
@@ -338,9 +337,12 @@ fig4a <- ggplot(df.profile,
         axis.text.x = element_blank()) +
   ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   xlab("Subregion")
+```
 
+*** TODO *** Change to global GAM
 
-
+## 4b GAM results
+```{r}
 # New Fig 4b
 fig4b <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   geom_ribbon( data = newdat,

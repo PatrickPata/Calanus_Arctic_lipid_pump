@@ -469,7 +469,80 @@ ggplot(cwm.profiles.long, aes(x = reg.inuk, y = value,
 #   p >= 0.025 )
 ```
 
-# TODO Fig S5. Cross-shelf and latitudinal variation of the LPC and POC flux. 
+# Fig S5. Additional GAM plots
+```{r}
+# Integrated UVP results
+load("data/profile_integrated_cflux_20260505.RData")
+
+# The results of the GAM analysis of fluxes
+load("data/global_GAM_results_20260629.RData")
+
+clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
+
+p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
+  geom_ribbon(data = fit.lat,
+              aes(x = latitude, ymin = lwr, ymax = upr),
+              inherit.aes = FALSE,
+              alpha = 0.2) +
+  geom_line(data = fit.lat,
+            aes(x = latitude, y = fit),
+            inherit.aes = FALSE,
+            color = "black",
+            linewidth = 1) +
+  geom_point(aes(color = reg.inuk)) +
+  scale_x_continuous(expand = c(0,0), limits = c(55, 82.2)) +
+  xlab("Latitude") + 
+  ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none")
+
+
+p2 <- ggplot(df.profile.poc, aes(x = bottom_depth_m, y = poc_mgC_m2_d)) +
+  geom_ribbon(data = transform(fit.depth.poc, lwr = pmax(lwr, 0)), # truncate at zeo
+    aes(x = bottom_depth_m, ymin = lwr, ymax = upr),
+    inherit.aes = FALSE,
+    alpha = 0.2) +
+  geom_line(data = fit.depth.poc,
+    aes(x = bottom_depth_m, y = fit),
+    inherit.aes = FALSE,
+    color = "black",
+    linewidth = 1) +
+  scale_x_continuous(expand = c(0,0), limits = c(0, 2400)) +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
+  xlab("Bottom depth (m)") + 
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
+
+
+p3 <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, name = "Subregion") +
+  theme(legend.position = "none") +
+  xlab("Year") + 
+  ylab(expression(POC~flux[200*m]~(mg~C~m^{-2}~d^{-1})))
+
+
+fig_legend <- ggplot(df.profile.poc, aes(x = Year, y = poc_mgC_m2_d)) +
+  geom_point(aes(color = reg.inuk)) +
+  scale_color_manual(values = clrs, 
+                    name = "Subregions") +
+  theme(legend.position = c(0.4, 0.9),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        legend.justification = c(1, 1))
+legend <- ggpubr::get_legend(fig_legend)
+
+
+cowplot::plot_grid(p1, p2,p3, legend,
+                   labels = c("a","b","c",""),
+                   nrow = 2, align = "hv")
+
+
+ggsave(filename = "figures/new_figs5_20260629.png",
+       width = 10, height = 7, units = "in", bg = "white")
+```
 
 
 # Fig S8. Particulate organic carbon (POC) flux calculated at various reference depths and compared to the lipid pump carbon (LPC) flux.
@@ -718,7 +791,16 @@ subset( data.frame(comp = res.dunn$comparisons, p = res.dunn$P.adjusted),
 
 
 
-# TODO Table S6. Details of the generalized additive model (GAM) on vertical carbon flux. 
+# Table S6. Details of the generalized additive model (GAM) on vertical carbon flux. 
+```{r}
+# The results of the GAM analysis of fluxes
+load("data/global_GAM_results_20260629.RData")
+
+summary(mod.lpc)
+summary(mod.poc)
+```
+
+
 
 # Table S10. Within-subregion paired comparisons between the LPC and POC200m fluxes. 
 - Run paired t-test first, if normality violated, used wilcoxon signed rank test

@@ -190,6 +190,7 @@ fit.doy.poc$upr <- pred3$fit + 1.96 * pred3$se.fit
 # Export data
 ```{r}
 save(df.profile.lpc, df.profile.poc, 
+     mod.lpc, mod.poc,
      fit.depth, fit.lat, fit.doy,
      fit.depth.poc, fit.lat.poc, fit.doy.poc,
   file = "data/global_GAM_results_20260629.RData"
@@ -214,9 +215,7 @@ p1 <- ggplot(df.profile.lpc, aes(x = latitude, y = total_gC_flux_m2)) +
   xlab("Latitude") + 
   ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   scale_color_manual(values = clrs, name = "Subregion") +
-  theme(legend.position = c(0.98, 0.98),
-        legend.justification = c(1, 1),
-        legend.background = element_rect(fill = "white", color = "gray50"))
+  theme(legend.position = "none")
 
 p2 <- ggplot(df.profile.lpc, aes(x = bottom_depth_m, y = total_gC_flux_m2)) +
   geom_ribbon( data = fit.depth,

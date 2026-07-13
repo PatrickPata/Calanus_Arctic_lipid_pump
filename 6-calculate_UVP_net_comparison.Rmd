@@ -98,7 +98,7 @@ summary(comp_uvp_net$net_factor)
 summary(comp_uvp_net$rel_diff_net)
 
 # major axis regression to check bias 
-# slope >1, accellerating (overestimation by UVP at high abundance), underestimation at low
+# slope >1, accelerating (overestimation by UVP at high abundance), underestimation at low
 reg.model <- lmodel2::lmodel2(log10(net_abundance_m2) ~ log10(uvp_abundance_m2), 
            data = comp_uvp_net)
 sma <- reg.model$regression.results[reg.model$regression.results$Method == "SMA", ]

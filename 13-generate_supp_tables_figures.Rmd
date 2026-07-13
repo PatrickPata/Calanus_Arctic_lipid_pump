@@ -379,6 +379,15 @@ cowplot::plot_grid(
 
 # ggsave("figures/FigS2_segmentation_performance.png", width = 10, height = 5,
 #        units = "in", bg = "white")
+
+# F1-score is the dice coefficient (2xoverlap/A+B)
+ggplot(res.lipid.crop, aes(x = IoU, y = F1score/100)) +
+  geom_abline() +
+  geom_point()
+
+ggplot(res.prosome, aes(x = IoU, y = F1score/100)) +
+  geom_abline() +
+  geom_point()
 ```
 
 # Fig S3. Interindividual size variability

@@ -214,7 +214,12 @@ p3 <- ggplot(comp_uvp_net, aes(x = uvp_abundance_m2,
                      name = "Region") +
   xlab("UVP6 abundance (# m⁻²)") +
   ylab("Net abundance (# m⁻²)") +
-  theme(legend.position = "none")
+  theme(legend.position = "none") + 
+  geom_label(aes(x = 700, y = 35000),
+             label = "atop(r^2 == 0.33,
+            italic(p) < 0.001*','~~n == 45)",
+            parse = TRUE, hjust = 0, vjust = 1, size = 14/.pt,
+            fill = "white", color = "black")
 ```
 
 ## Fig3d biomass profiles
@@ -301,8 +306,8 @@ plot_grid(
   p4, ncol = 1, rel_heights = c(1,1),
             labels = c("a","d"))
 
-# ggsave("figures/Fig3_20260511.png", width = 12, height = 14,
-#        units = "in", bg = "white")
+ggsave("figures/Fig3_20260712.png", width = 12, height = 14,
+       units = "in", bg = "white")
 ```
 
 
@@ -465,66 +470,6 @@ np2 <- ggplot(df.region.200m,
   guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
          pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
 
-
-## Add NPP to the C-flux figure
-
-region_clim_npp <- read.csv("tables/NPP_ratio_20260528.csv") %>% 
-  left_join(region_rename %>% select(reg.inuk, region.inuk))
-
-# To scale NPP to Cflux axis
-npp_scale <- 10 / max(region_clim_npp$NPP_mean + region_clim_npp$NPP_sd)
-
-
-np2 <- ggplot(df.region.200m,
-       aes(x = reg.inuk)) +
-  
-  ggpattern::geom_col_pattern(aes(y = Cflux, fill = reg.inuk, 
-                                  pattern = Component, 
-                                  alpha = Component),
-                              stat = "identity", color = "black",
-                              pattern_color = "white",
-                              pattern_spacing = 0.02,
-                              pattern_density = 0.1)+
-  
-  geom_errorbar(data = region_clim_npp,
-    aes(x = reg.inuk,
-      ymin = (NPP_mean - NPP_sd) * npp_scale,
-      ymax = (NPP_mean + NPP_sd) * npp_scale),
-    inherit.aes = FALSE,width = 0.2, color = "gray20") +
-
-  geom_point(data = region_clim_npp,
-    aes(x = reg.inuk, y = NPP_mean * npp_scale ),
-    inherit.aes = FALSE,
-    size = 4, shape = 23, color = "gray20", fill = "gray50") +
-
-  scale_fill_manual(values = clrs,
-                    guide = "none") +
-  scale_alpha_manual(values = c(0.2,0.7, 0.7, 1),
-                     guide = "none") +
-  ggpattern::scale_pattern_manual(values = c("none","circle",
-                                             "stripe","none")) +
-  
-  scale_y_continuous(
-    expand = c(0, 0),
-    breaks = seq(0, 10, 2),
-    limits = c(0, 10.1),
-    name = expression(LPC~flux~+~POC~flux[200*m]~(g~C~m^{-2}~yr^{-1})),
-    sec.axis = sec_axis(~ . / npp_scale,
-                        name = expression(NPP~(g~C~m^{-2}~yr^{-1}))) ) +
-  
-  scale_x_discrete(labels = label_levels.200m) +
-theme(axis.title.y.right = element_text(color = "gray50"),
-      axis.text.y.right = element_text(color = "gray50"),
-      axis.text.x = element_blank(),
-      legend.position = "bottom",
-      legend.text = element_text(size = 12),
-      legend.box.just = "left",
-      legend.box = "horizontal",
-      legend.location = "plot") +
-  xlab("Subregion") +
-  guides(alpha = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T),
-         pattern = guide_legend(title.hjust = 0.5, nrow = 1, reverse = T))
-
 np2
 
 
@@ -590,10 +535,10 @@ flux.comp.500 <- flux.comp.500 %>%
 ```{r}
 cowplot::plot_grid(
   plot_grid(np2, np3, 
-          rel_widths = c(1.4,1), nrow = 1, labels = "auto") ,
+          rel_widths = c(1,1), nrow = 1, labels = "auto") ,
   legend, ncol = 1, rel_heights = c(1,0.2))
 
-ggsave("figures/Fig5_20260529.png", width = 12, height = 7,
+ggsave("figures/Fig5_20260712.png", width = 12, height = 7,
        units = "in", bg = "white")
 
 ```

@@ -460,7 +460,8 @@ np2 <- ggplot(df.region.200m,
   scale_y_continuous(expand = c(0,0), breaks = seq(0,10,2), 
                      limits = c(0, 10.1)) +
   scale_x_discrete(labels = label_levels.200m) +
-  theme(legend.position = "bottom",
+  theme(axis.text.x = element_blank(),
+        legend.position = "bottom",
         legend.text = element_text(size = 12),
         legend.box.just = "left",
         legend.box = "horizontal",
@@ -538,8 +539,8 @@ cowplot::plot_grid(
           rel_widths = c(1,1), nrow = 1, labels = "auto") ,
   legend, ncol = 1, rel_heights = c(1,0.2))
 
-ggsave("figures/Fig5_20260712.png", width = 12, height = 7,
-       units = "in", bg = "white")
+# ggsave("figures/Fig5_20260712.png", width = 12, height = 7,
+#        units = "in", bg = "white")
 
 ```
 
@@ -597,6 +598,36 @@ ggplot(flux.com.profiles.200,
   theme(legend.position = "none") +
   xlab(expression(LPC~flux~+~POC~flux[200*m]~(g~C~m^{-2}~yr^{-1}))) +
   ylab("Subregion") 
+
+```
+
+# Fig. 6 Calculate shelf-slope and deep basin average
+Uses the values from Fig. 5
+```{r}
+# mutate(area_km2 = c(12363, 46597, 23906, 85830, 88089, 10768, 68205)) %>% 
+
+fig6.num <- flux.com.profiles.200 %>% 
+  mutate(region = if_else(reg.inuk %in% c("SanIm","QikIk"),
+                          "B-DeepBasin","A-ShelfSlope")) %>% 
+  left_join(df.profile %>% 
+              select(station_year, biomass_gC_m2, waxester_gC_m2)) %>% 
+  select(region, lipid_gC_m2_yr, poc_gC_m2_yr,
+         biomass_gC_m2, waxester_gC_m2) %>% 
+  mutate(LPC_POC = lipid_gC_m2_yr/poc_gC_m2_yr) 
+
+ggplot(fig6.num, aes(x = LPC_POC, color = region)) +
+  geom_density()
+
+fig6.summary <- fig6.num %>% 
+  group_by(region) %>% 
+  summarise(across(lipid_gC_m2_yr:LPC_POC,
+              list(mean = mean, sd = sd),
+              na.rm = TRUE),
+            n = n(), 
+            .groups = "drop") 
+
+view(t(fig6.summary))
+
 
 ```
 

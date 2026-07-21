@@ -613,7 +613,8 @@ fig6.num <- flux.com.profiles.200 %>%
               select(station_year, biomass_gC_m2, waxester_gC_m2)) %>% 
   select(region, lipid_gC_m2_yr, poc_gC_m2_yr,
          biomass_gC_m2, waxester_gC_m2) %>% 
-  mutate(LPC_POC = lipid_gC_m2_yr/poc_gC_m2_yr) 
+  mutate(TotalCflux = lipid_gC_m2_yr + poc_gC_m2_yr,
+    LPC_POC = lipid_gC_m2_yr/poc_gC_m2_yr) 
 
 ggplot(fig6.num, aes(x = LPC_POC, color = region)) +
   geom_density()

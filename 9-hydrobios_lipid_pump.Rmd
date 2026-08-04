@@ -244,7 +244,7 @@ net_lipid_pump_region <- net_lipid_pump %>%
             .groups = "drop")
 ```
 
-# Table S5. Depth integrated Calanus spp. concentration and annual lipid pump carbon (LPC) flux based on net observations per subregion. 
+# Table S3. Depth integrated Calanus spp. concentration and annual lipid pump carbon (LPC) flux based on net observations per subregion. 
 ```{r}
 tableS5 <- net_lipid_pump_region %>% 
   # select(region.inuktitut, n, total_gC_flux_m2_mean, total_gC_flux_m2_sd) %>% 

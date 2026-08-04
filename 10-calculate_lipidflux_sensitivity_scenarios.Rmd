@@ -213,7 +213,7 @@ compare.region.profiles.B <- left_join(
   mutate(scenario = "Calanoida + Copepoda")
 ```
 
-## Table S7. Sensitivity analysis on the level of taxonomic curation of the image dataset per subregion. 
+## Table S5. Sensitivity analysis on the level of taxonomic curation of the image dataset per subregion. 
 ```{r}
 # Are increased counts statistically significant?
 SA1.table <- bind_rows(compare.region.profiles.A, compare.region.profiles.B) %>%
@@ -433,7 +433,7 @@ SA2.table_min <- df.profile.SA %>%
   select(-c(mean_baseline, median_baseline))
 ```
 
-## Table S8. Sensitivity analysis on the respiration rate model parameters per subregion. 
+## Table S6. Sensitivity analysis on the respiration rate model parameters per subregion. 
 ```{r}
 SA2.table_max <- df.profile.SA %>%
   group_by(region.inuktitut) %>%
@@ -590,7 +590,7 @@ compare.region.profiles.B <- left_join(
   mutate(scenario = "Constant 1degC")
 ```
 
-## Table S9. Sensitivity analysis on the temperature value used in calculating the respiration rate per subregion. 
+## Table S7. Sensitivity analysis on the temperature value used in calculating the respiration rate per subregion. 
 ```{r}
 SA3.table <- bind_rows(compare.region.profiles.A, compare.region.profiles.B) %>%
   group_by(scenario, region.inuktitut) %>%
@@ -772,7 +772,7 @@ for (BB in c(0.0001, 0.00025, 0.0005, 0.00075, 0.001, 0.0015, 0.002, 0.0025, 0.0
 }
 ```
 
-## Fig. S6. Sensitivity analysis on the natural mortality rate (β) during diapause. 
+## Fig. S4. Sensitivity analysis on the natural mortality rate (β) during diapause. 
 ```{r}
 # How much does a change in mortality affect the average LPC flux per region?
 comp.total.SA <-  df.mort.scens %>% 
@@ -1015,7 +1015,7 @@ for (WR in seq(0,1,0.1)) {
 }
 ```
 
-## Fig. S7. Sensitivity analysis on the fraction of the Calanus spp. population that will not undergo diapause and remain at the epipelagic (0 – 200 m) during winter. 
+## Fig. S5. Sensitivity analysis on the fraction of the Calanus spp. population that will not undergo diapause and remain at the epipelagic (0 – 200 m) during winter. 
 ```{r}
 comp.total.SA <-  df.resi.scens %>% 
   filter(fracResident != 0) %>%

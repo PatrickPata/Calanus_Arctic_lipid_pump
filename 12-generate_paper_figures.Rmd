@@ -310,40 +310,6 @@ ggsave("figures/Fig3_20260712.png", width = 12, height = 14,
        units = "in", bg = "white")
 ```
 
-## EXTRA to remove - Sampled volume vs abundance
-This is beyond theoretical non-detection limits in Barth & Stone (2024), and somewhat <100% of lambda of abundance concentrations.
-```{r}
-colnames(df.station.100m)
-
-ggplot(df.station.100m, aes(x = Sampled_volume_m3*1000,
-                            y = abundance_m3)) +
-  geom_point() +
-  scale_x_log10() +
-  scale_y_log10()
-
-# Theoretical graph:
-# P (n = 0) = e−𝜆v
-# 𝜆 = N/V where N is the true number individuals in some larger unmeasurable volume, V
-# v = 1 L to 1000 L
-# lambda = 1 m−3 to 10 000 m−3
-
-df <- expand.grid(lambda = seq(1,10000), 
-                  vol = seq(1,1000)) %>% 
-  mutate(P = exp(-1*(lambda/1000)*vol)) %>% 
-  filter(P > 0.05) # setting the detection threshold, P (n = 0)<0.05
-
-ggplot(df, aes(x = vol, y = lambda)) + 
-  geom_contour_filled(aes(z = P, fill = after_stat(level))) +
-  scale_x_log10() +
-  scale_y_log10() +
-  scale_fill_viridis_d(direction = -1) +
-  labs(fill = "P") +
-  geom_point(data =  df.station.100m, 
-             aes(x = Sampled_volume_m3*1000,
-                            y = abundance_m3))
-
-```
-
 
 # Fig 4. Variation of the lipid pump carbon (LPC) flux among subregions. 
 
@@ -379,8 +345,6 @@ fig4a <- ggplot(df.profile,
   ylab(expression(LPC~flux~(g~C~m^{-2}~yr^{-1}))) +
   xlab("Subregion")
 ```
-
-*** TODO *** Change to global GAM
 
 ## 4b GAM results
 ```{r}
@@ -638,8 +602,6 @@ ggplot(flux.com.profiles.200,
 # Fig. 6 Calculate shelf-slope and deep basin average
 Uses the values from Fig. 5
 ```{r}
-# mutate(area_km2 = c(12363, 46597, 23906, 85830, 88089, 10768, 68205)) %>% 
-
 fig6.num <- flux.com.profiles.200 %>% 
   mutate(region = if_else(reg.inuk %in% c("SanIm","QikIk"),
                           "B-DeepBasin","A-ShelfSlope")) %>% 
@@ -662,7 +624,5 @@ fig6.summary <- fig6.num %>%
             .groups = "drop") 
 
 view(t(fig6.summary))
-
-
 ```
 

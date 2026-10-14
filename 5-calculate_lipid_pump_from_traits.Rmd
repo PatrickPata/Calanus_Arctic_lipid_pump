@@ -26,7 +26,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(cowplot)
 
-# The calculated trait values
+# The calculated trait values (generated from script file 4-*.Rmd)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
 theme_set(theme_bw() +

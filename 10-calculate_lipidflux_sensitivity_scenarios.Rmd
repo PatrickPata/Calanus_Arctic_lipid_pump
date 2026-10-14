@@ -18,7 +18,7 @@ library(cowplot)
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 
-# The calculated trait values
+# The calculated trait values (Generated in script file 4-*.RData)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 ```
 
@@ -841,6 +841,33 @@ cowplot::plot_grid(
 # ggsave("figures/Supp_fig_SA_mortality.png",
 #        width = 7, height = 6, units = "in", bg = "white")
 ```
+
+## Change in flux component percentages with varying mortality rates
+```{r}
+flux.components.SA <- df.mort.scens
+
+comp.total.SA <-  df.mort.scens %>% 
+  select(scenario, beta, station_year, region.inuk,
+         total_gC_flux_m2, frac_resp_total) %>% 
+  # baseline is -0.001
+  left_join(df.mort.scens %>% 
+              filter(beta == -0.001) %>% 
+              select(station_year, baseline_frac_resp_total = frac_resp_total),
+            by = "station_year") %>% 
+  # average per subregion
+  group_by(scenario, beta, region.inuk) %>% 
+  summarise(ave_frac_resp = mean(frac_resp_total),
+            ave_total_flux = mean(total_gC_flux_m2),
+            ave_basline_frace = mean(baseline_frac_resp_total),
+            .groups = "drop") %>% 
+  mutate(frac_mortality = 1-ave_frac_resp)
+  
+# Are regional differences consistent?
+ggplot(comp.total.SA, aes(x = region.inuk, y = frac_mortality)) +
+  geom_point(aes(color = region.inuk)) +
+  facet_wrap(~beta, scales = "free_y")
+```
+
 
 # SA5. Epipelagic winter residence
 ## Calculate

@@ -8,15 +8,12 @@ library(tidyverse)
 `%notin%` <- Negate(`%in%`)
 theme_set(theme_bw())
 
+# Generated in script file 4-*.Rmd:
 load("data/uvp6_images_calculated_traits_20260321.RData")
-load("data/profile_integrated_cflux_20260321.RData")
+# Generated in script file 5-*.Rmd
+load("data/profile_integrated_cflux_20260511.RData")
+# Generated in script file 7-*.Rmd:
 load("data/POC_flux_UVP6_20260515.RData")
-
-sedTrap <- read.csv("data/Sediment_trap_literature_20260328.csv") %>% 
-  filter(Daily_Flux < 7000) %>% 
-  mutate(Annual_Flux = as.numeric(Annual_Flux),
-         Daily_Flux = as.numeric(Daily_Flux))
-
 
 # Prepare comparisons
 
@@ -102,6 +99,6 @@ flux.comp.500 <- flux.comp.500 %>%
 
 
 # # Export comparison results
-# save(flux.comp.100, flux.comp.200, flux.comp.500, sed.trap.NOW,
+# save(flux.comp.100, flux.comp.200, flux.comp.500, 
 #      flux.com.profiles.100, flux.com.profiles.200, flux.com.profiles.500,
 #      file = "data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")

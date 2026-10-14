@@ -20,16 +20,17 @@ library(ggpattern)
 
 `%notin%` <- Negate(`%in%`)
 
-# Net data
+# Net data (Net data available upon request)
 load("data/hydrobios_net_calanus_20260321.RData")
-# UVP indiv data
-load("data/profile_integrated_cflux_20260331.RData")
+# UVP indiv data (generated from script file 4-*.Rmd)
+load("data/profile_integrated_cflux_20260511.RData")
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 
 clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
 ```
+
 
 # Species composition of nets by region
 ```{r}

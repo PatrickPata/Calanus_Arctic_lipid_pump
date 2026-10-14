@@ -485,7 +485,8 @@ cowplot::plot_grid(p1, p2,p3, legend,
 
 ## Load literature data and the calculated POC fluxes
 ```{r}
-load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
+# The annual sediment trap data organized from Hargave et al. (2002) and Lalande et al. (2009)
+sedTrap <- read.csv("data/open_data_csv/Sediment_trap_literature_20260929.csv")
 
 # Annual Arctic data
 sedTrap.Arctic <- sedTrap %>%

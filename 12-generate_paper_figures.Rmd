@@ -18,17 +18,16 @@ library(ggtext)
 # Individual level traits
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
-# Integrated UVP results
+# Integrated UVP results (Generated in script file 5-*.RData)
 load("data/profile_integrated_cflux_20260505.RData")
 
-# UVP-net abundance comparison results
+# UVP-net abundance comparison results (Generated in script file 6-*.RData)
 load("data/comparison_net_uvp_abundance_20260508.RData")
 
-# Comparison between POC flux and lipid pump C flux
-# load("data/UVP6_POC_lipidC_flux_comparisons_20260330.RData")
+# Comparison between POC flux and lipid pump C flux (Generated in script file 8-*.R)
 load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
 
-# The results of the GAM analysis of fluxes
+# The results of the GAM analysis of fluxes (Generated in script file 11-*.Rdata)
 load("data/global_GAM_results_20260629.RData")
 
 `%notin%` <- Negate(`%in%`)
@@ -612,8 +611,8 @@ fig6.num <- flux.com.profiles.200 %>%
   mutate(TotalCflux = lipid_gC_m2_yr + poc_gC_m2_yr,
     LPC_POC = lipid_gC_m2_yr/poc_gC_m2_yr) 
 
-ggplot(fig6.num, aes(x = LPC_POC, color = region)) +
-  geom_density()
+# ggplot(fig6.num, aes(x = LPC_POC, color = region)) +
+#   geom_density()
 
 fig6.summary <- fig6.num %>% 
   group_by(region) %>% 

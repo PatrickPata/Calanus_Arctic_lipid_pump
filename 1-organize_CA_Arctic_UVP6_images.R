@@ -403,3 +403,20 @@ Amund_UVP6_meta <- Amund_UVP6_meta %>%
        segmented.images, all.copepods.uvp6,
        volumes.df, region_rename, excluded_profiles,
        file = "data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
+  
+# # 13. Export to individual csv files
+#   write.csv(Amund_UVP6_meta, 
+#             "data/open_data_csv/UVP6_profiles_metadata_20260929.csv", 
+#             row.names = F)
+#   write.csv(segmented.images, 
+#             "data/open_data_csv/UVP6_segmented_Calanus_images_metadata_20260929.csv", 
+#             row.names = F)
+#   write.csv(all.copepods.uvp6, 
+#             "data/open_data_csv/UVP6_all_copepods_metadata_20260929.csv", 
+#             row.names = F)
+#   write.csv(volumes.df, 
+#             "data/open_data_csv/UVP6_sampling_volumes_metadata_20260929.csv", 
+#             row.names = F)
+#   write.csv(region_rename, 
+#             "data/open_data_csv/subregion_names_metadata_20260929.csv", 
+#             row.names = F)

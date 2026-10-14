@@ -26,17 +26,28 @@ library(cowplot)
 library(ggtext)
 library(randomForest)
 
-# The segmented images and morphological traits of calanoids
-load("data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
+# # The segmented images and morphological traits of calanoids
+# # If this file is not available, please read all the csv files in the chunk below and comment out this line.
+# load("data/uvp6_CNN_segmentations_morphotraits_20260320.RData")
 
 theme_set(theme_bw() +
             theme(text = element_text(size=14)))
 source("functions/lipid_pump_toolkit.R")
 ```
 
+## Recreating the data file uvp6_CNN_segmentations_morphotraits_*.RData from csv files.
+```{r, eval=FALSE}
+Amund_UVP6_meta <- read.csv("data/open_data_csv/UVP6_profiles_metadata_20260929.csv")
+segmented.images <- read.csv("data/open_data_csv/UVP6_segmented_Calanus_images_metadata_20260929.csv")
+all.copepods.uvp6 <- read.csv("data/open_data_csv/UVP6_all_copepods_metadata_20260929.csv")
+volumes.df <- read.csv("data/open_data_csv/UVP6_sampling_volumes_metadata_20260929.csv")
+region_rename <- read.csv("data/open_data_csv/subregion_names_metadata_20260929.csv")
+
+```
+
 
 #  1. Convert pixels to traits for segmented images
-## Derive volume, dry weight, and carbon
+Derive volume, dry weight, and carbon
 ```{r}
 uvpRes <- 0.073
 # Conversion factor to get total lipid mg C from total lipid mg used in Schmidt et al. 2018 based on the most common 36-carbon and 38-carbon chain lengths of NOW waxesters for C. glacialis and C. hyperboreus in (Kattner & Graeve 1991) 

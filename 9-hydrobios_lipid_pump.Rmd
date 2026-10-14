@@ -20,7 +20,7 @@ library(here)
 
 `%notin%` <- Negate(`%in%`)
 
-# Net data
+# Net data (data available upon request)
 load("data/hydrobios_net_calanus_20260321.RData")
 
 theme_set(theme_bw() +
@@ -29,8 +29,10 @@ theme_set(theme_bw() +
 
 # Get CTD data and average per depth bin
 ```{r}
+# Generated from script file 4-*.Rmd:
 load("data/uvp6_images_calculated_traits_20260321.RData")
 rm(indiv_traits, volumes.df)
+# Generated from script file 0-*.R, requires downloading data from CIOOS:
 load("data/uvp6_associated_ctd_20260330.RData")
 
 # Add ctd filenames
@@ -76,7 +78,13 @@ temperature_hydrobios <- temperature_hydrobios %>%
 ```
 
 # Establish traits from LOKI images and literature
-```{r}
+References:
+Bourreau, L., Banas, N., Pata, P., Ayata, S. D., Aubry, C., & Maps, F. (2026). Integrating modelling and in situ imagery at the individual level to reveal plastic responses of Arctic copepod communities. Elementa: Science of the Anthropocene, 14: 1. https://doi.org/10.1525/elementa.2025.00093 
+
+Durazzano, T., & Titocci, J. (2026). Literature-based trait dataset of marine holozooplankton from the European Arctic and sub-arctic regions. Scientific Data.https://doi.org/10.1038/s41597-026-07975-w
+
+Pata, P. R., & Hunt, B. P. V. (2025). Harmonizing marine zooplankton trait data toward a mechanistic understanding of ecosystem functioning. Limnology and Oceanography, 70(S1), S8–S27. https://doi.org/10.1002/lno.12478
+```{r, eval=FALSE}
 loki.segmentations <- read.csv("data/LOKI_Bourreau_manuscript/merged_LOKI2013_ecotaxa_masks_features.csv") %>% 
  
 # match trait names
@@ -115,7 +123,7 @@ loki.averages <- loki.segmentations %>%
             .groups = "drop") %>% 
   select(taxaStage, total_carbon_mgC, waxester_carbon_mgC, lf_carbon, n)
 
-# C.finmarchicus derived from literature (Pata and Hunt 2023) (CV averages from Durazzano & Titocci, 2025 and C&DW of 59% from Pata & Hunt 2023)
+# C.finmarchicus derived from literature (Pata and Hunt 2023) (CV averages from Durazzano & Titocci, 2026 and C&DW of 59% from Pata & Hunt 2023)
 Cfin <- data.frame(
   taxaStage = c("Calanus finmarchicus F", "Calanus finmarchicus C5"),
   total_carbon_mgC = c(0.2055, 0.1617), # DW * 0.59 C%DW
@@ -126,10 +134,19 @@ Cfin <- data.frame(
 Calanus.traits <- bind_rows(loki.averages, Cfin)
 
 rm(loki.segmentations, loki.averages, Cfin)
+
+# Export compiled table
+# write.csv(Calanus.traits,
+#           "data/open_data_csv/calanus_traits_from_literature_20261014.csv",
+#           row.names = F)
 ```
 
 # Calculate traits
 ```{r}
+# Recreate the traits table for Calanus generated above
+Calanus.traits <- read.csv("data/open_data_csv/calanus_traits_from_literature_20261014.csv")
+
+
 # Use the stage specific values from LOKI for C. hyperboreus and C. glacialis
 bb <- 2.27# Metabolic constant (x 10-7)
 eV <- 0.6 # Activation energy

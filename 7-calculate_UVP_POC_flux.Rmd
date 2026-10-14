@@ -8,9 +8,16 @@ output: html_document
 This file calculates the PSD and POC flux for the 2021 and 2023 data.
 
 The POC calculation scripts here copy the Matlab functions in the file processPocFluxFromUvp.m associated with the Rufas et al. (2025) GRL paper. Some lines and functions were recoded to follow R conventions.
-https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m. The methods explained in Rufas et al. 2025 adapting the Bisson et al. 2022 approach of the truncated power law. In the truncated power law model in Bisson et al. (2022), the modelled particle count is lower for larger particles (stronger decrease with higher lambda). 
+https://github.com/annarufas/Rufas_etal_2024_GRL/blob/master/code/processPocFluxFromUvp.m. The methods explained in Rufas et al. 2025 adapting the Bisson et al. 2022 approach of the truncated power law. In the truncated power law model in Bisson et al. (2022), the modelled particle count is lower for larger particles (stronger decrease with higher lambda). In this final version of the POC flux calculation, some of the functions in the processPocFluxFromUvp.m are not present here anymore.
 
 Note that for UVP5, in Barth and Stone (2022), they removed the bottom 50m of each profile because they observed that the slowing of the CTD-rosette leads to high potential reimaging of particles. This is applied here.
+
+Citations:
+Rufas, A., Khatiwala, S., Bisson, K. M., Martin, A. P., & Bouman, H. A. (2025). Can We Constrain Geographical Variability in the Biological Carbon Pump’s Transfer Efficiency From Observations? Geophysical Research Letters, 52(3), e2024GL111203. https://doi.org/10.1029/2024GL111203
+
+Bisson, K. M., Kiko, R., Siegel, D. A., Guidi, L., Picheral, M., Boss, E., & Cael, B. B. (2022). Sampling uncertainties of particle size distributions and derived fluxes. Limnology and Oceanography: Methods, 20(12), 754–767. https://doi.org/10.1002/lom3.10524
+
+Barth, A., & Stone, J. (2022). Comparison of an In Situ Imaging Device and Net-Based Method to Study Mesozooplankton Communities in an Oligotrophic System. Frontiers in Marine Science, 9. https://doi.org/10.3389/fmars.2022.898057
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -98,7 +105,12 @@ In this calculation, profiles are filtered first, then the particle concentratio
 
 ## POC Flux
 ```{r}
-load("data/UVP6_ECOPART_Data_20260320.RData") 
+# The original data file organized in script file 2-*.R
+# load("data/UVP6_ECOPART_Data_20260320.RData") 
+
+# Recreating the above data file from csv files
+uvp6_PAR <- read.csv("data/open_data_csv/uvp6_particles_compiled_202620929.csv")
+uvp6_par_cnames <- read.csv("data/open_data_csv/uvp6_particles_column_names_202620929.csv")
 
 ## Establish the size class bins and bin width
 bins <- uvp6_par_cnames %>% 
@@ -118,7 +130,7 @@ UVP6_sizebins_width <- bins$Size_class_width_mm
 UVP6_sizebins_mid <- bins$Size_class_midpoint_mm
 
 
-# For Station_year and region metadata
+# For Station_year and region metadata (Generated in script file 4-*.Rmd)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 rm(indiv_traits, region_rename, volumes.df)
 clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")

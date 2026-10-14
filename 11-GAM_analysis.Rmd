@@ -17,16 +17,16 @@ library(ggtext)
 library(mgcv)
 
 
-# Individual level traits
+# Individual level traits (Generated in script file 4-*.RData)
 load("data/uvp6_images_calculated_traits_20260321.RData")
 
-# Integrated UVP results
+# Integrated UVP results (Generated in script file 5-*.RData)
 load("data/profile_integrated_cflux_20260505.RData")
 
-# UVP-net abundance comparison results
-load("data/comparison_net_uvp_abundance_20260321.RData")
+# UVP-net abundance comparison results (Generated in script file 6-*.Rdata)
+load("data/comparison_net_uvp_abundance_20260508.RData")
 
-# Comparison between POC flux and lipid pump C flux
+# Comparison between POC flux and lipid pump C flux (Generated in script file 8-*.R)
 load("data/UVP6_POC_lipidC_flux_comparisons_20260515.RData")
 
 clrs <- c("firebrick","#FF6800","#FFB300","forestgreen", "blue1","purple2","#F6768E")
